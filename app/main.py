@@ -96,6 +96,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             chapter = SimpleNamespace(
                 id=f"cdn-{slug}-{chapter_number}",
                 book_id=slug,
+                chapter_number=chapter_number,
                 title=current.get("title"),
                 translated_title=current.get("title"),
                 original_content="",
@@ -114,6 +115,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "display_content": "",
                     "translation_error": "Chương này chưa được dịch. Hãy đồng bộ hoặc dịch trước.",
                     "synced_reader": True,
+                    "chapter_list": entries,
                     "back_url": f"/synced/{slug}",
                     "previous_url": f"/synced/{slug}/{entries[position - 1]['chapter_number']}" if position else "",
                     "following_url": f"/synced/{slug}/{entries[position + 1]['chapter_number']}" if position + 1 < len(entries) else "",
@@ -128,6 +130,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
     chapter = SimpleNamespace(
         id=f"cdn-{slug}-{chapter_number}",
         book_id=slug,
+        chapter_number=chapter_number,
         title=payload.get("original_title") or payload.get("title"),
         translated_title=payload.get("title"),
         original_content=payload.get("content"),
@@ -146,6 +149,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "display_content": payload.get("content"),
             "translation_error": None,
             "synced_reader": True,
+            "chapter_list": entries,
             "back_url": f"/synced/{slug}",
             "previous_url": f"/synced/{slug}/{previous['chapter_number']}" if previous else "",
             "following_url": f"/synced/{slug}/{following['chapter_number']}" if following else "",
@@ -348,6 +352,9 @@ async def read_chapter(chapter_id: int, request: Request, db: Session = Depends(
     db.commit()
     previous = db.scalar(select(Chapter).where(Chapter.book_id == chapter.book_id, Chapter.chapter_number < chapter.chapter_number).order_by(Chapter.chapter_number.desc()))
     following = db.scalar(select(Chapter).where(Chapter.book_id == chapter.book_id, Chapter.chapter_number > chapter.chapter_number).order_by(Chapter.chapter_number))
+    chapter_list = db.scalars(
+        select(Chapter).where(Chapter.book_id == chapter.book_id).order_by(Chapter.chapter_number)
+    ).all()
     mode = request.query_params.get("mode", "translated")
     showing_translation = mode != "original" and bool(chapter.translated_content)
     return templates.TemplateResponse(
@@ -362,6 +369,7 @@ async def read_chapter(chapter_id: int, request: Request, db: Session = Depends(
             "display_title": chapter.translated_title if showing_translation and chapter.translated_title else chapter.title,
             "display_content": chapter.translated_content if showing_translation else chapter.original_content,
             "translation_error": translation_error,
+            "chapter_list": chapter_list,
         },
     )
 

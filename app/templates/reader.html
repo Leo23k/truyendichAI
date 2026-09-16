@@ -32,6 +32,9 @@
         <button type="button" class="icon-button text-stone-600" @click="theme = theme === 'dark' ? 'paper' : 'dark'" aria-label="Đổi nền đọc">
           <i data-lucide="palette" class="h-5 w-5"></i>
         </button>
+        <button type="button" data-toc-button class="icon-button text-stone-600" aria-label="Mục lục">
+          <i data-lucide="list" class="h-5 w-5"></i>
+        </button>
         <div class="relative">
           <button type="button" class="icon-button text-stone-600" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Cỡ chữ">
             <i data-lucide="type" class="h-5 w-5"></i>
@@ -58,6 +61,10 @@
             <form action="/chapters/{{ chapter.id }}/retranslate" method="post" onsubmit="startTranslationProgress(this)">
               <button class="block w-full rounded-md px-3 py-2 text-left hover:bg-stone-50">Dịch lại</button>
             </form>
+            {% else %}
+            <form action="/chapters/{{ chapter.id }}/translate" method="post" onsubmit="startTranslationProgress(this)">
+              <button class="block w-full rounded-md px-3 py-2 text-left hover:bg-stone-50">Dịch chương</button>
+            </form>
             {% endif %}
             <a href="/chapters/{{ chapter.id }}/edit" class="block rounded-md px-3 py-2 hover:bg-stone-50">Chỉnh sửa bản dịch</a>
           </div>
@@ -71,7 +78,7 @@
     <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </div>{% endif %}
   {% if translation_error %}
-  <div class="mx-auto mt-4 max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ translation_error }} Đang hiển thị bản gốc.</div>
+  <div class="mx-auto mt-4 max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ translation_error }}{% if display_content %} Đang hiển thị bản gốc.{% endif %}</div>
   {% endif %}
 
   <article class="reader-content mx-auto max-w-3xl whitespace-pre-line px-5 py-10 leading-loose sm:px-6 sm:py-14" lang="vi" :style="`font-size: ${size}px`">{{ display_content }}</article>
@@ -167,6 +174,32 @@
         </div>
       </div>
     </section>
+
+    <section data-sheet="toc" class="reader-sheet absolute inset-x-0 bottom-0 hidden max-h-[80vh] rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl">
+      <div class="mx-auto flex h-full max-w-lg flex-col">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-base font-semibold">Mục lục</h2>
+          <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div class="overflow-y-auto rounded-md border border-stone-200">
+          {% for item in chapter_list %}
+          {% if synced_reader %}
+          {% set item_number = item['chapter_number'] %}
+          {% set item_title = item['title'] %}
+          {% set item_translated = item['translated'] %}
+          {% else %}
+          {% set item_number = item.chapter_number %}
+          {% set item_title = item.translated_title or item.title %}
+          {% set item_translated = item.translated_content %}
+          {% endif %}
+          <a href="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ item_number }}{% else %}/chapters/{{ item.id }}{% endif %}" class="flex items-center justify-between gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+            <span class="min-w-0 truncate text-sm {% if item_number == chapter.chapter_number %}font-semibold text-teal-700{% endif %}">{{ item_title }}</span>
+            <span class="shrink-0 text-xs {% if item_translated %}text-teal-700{% else %}text-stone-500{% endif %}">{% if item_translated %}✓ Đã dịch{% else %}○ Chưa dịch{% endif %}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
   </div>
 
   <script>
@@ -186,6 +219,7 @@
       const volumeControl = player.querySelector("[data-volume-control]");
       const voiceButton = player.querySelector("[data-voice-button]");
       const sleepButton = player.querySelector("[data-sleep-button]");
+      const tocButton = document.querySelector("[data-toc-button]");
       const sleepCountdown = player.querySelector("[data-sleep-countdown]");
       const sheetBackdrop = document.querySelector("[data-sheet-backdrop]");
       const readerContent = document.querySelector(".reader-content");
@@ -539,6 +573,7 @@
 
       voiceButton.addEventListener("click", () => openSheet("voice"));
       sleepButton.addEventListener("click", () => openSheet("sleep"));
+      tocButton?.addEventListener("click", () => openSheet("toc"));
       sheetBackdrop.addEventListener("click", (event) => {
         if (event.target === sheetBackdrop || event.target.closest("[data-close-sheet]")) closeSheet();
       });
