@@ -131,7 +131,8 @@
       {% endif %}
 
       <button type="button" data-play-toggle class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-stone-950 text-white disabled:bg-stone-300" aria-label="Phát hoặc tạm dừng">
-        <i data-play-icon data-lucide="play" class="h-5 w-5"></i>
+        <i data-play-icon="play" data-lucide="play" class="h-5 w-5"></i>
+        <i data-play-icon="pause" data-lucide="pause" class="hidden h-5 w-5"></i>
       </button>
 
       <div class="min-w-0">
@@ -174,8 +175,8 @@
           <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
         </div>
         <div class="grid gap-2">
-          <button type="button" data-voice-option="vi-VN-HoaiMyNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button>
           <button type="button" data-voice-option="vi-VN-NamMinhNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button>
+          <button type="button" data-voice-option="vi-VN-HoaiMyNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button>
         </div>
       </div>
     </section>
@@ -249,7 +250,6 @@
       const audio = player.querySelector("[data-reader-audio]");
       const hasAudio = player.dataset.hasAudio === "true" && audio;
       const playButton = player.querySelector("[data-play-toggle]");
-      const playIcon = player.querySelector("[data-play-icon]");
       const progress = player.querySelector("[data-audio-progress]");
       const currentLabel = player.querySelector("[data-current-time]");
       const durationLabel = player.querySelector("[data-duration]");
@@ -269,13 +269,12 @@
       const tocFilters = document.querySelectorAll("[data-toc-filter]");
       const sleepCountdown = player.querySelector("[data-sleep-countdown]");
       const sheetBackdrop = document.querySelector("[data-sheet-backdrop]");
-      const readerContent = document.querySelector(".reader-content");
       const nextUrl = player.dataset.nextUrl;
       const hasTranslation = player.dataset.hasTranslation === "true";
       const showingTranslation = player.dataset.showingTranslation === "true";
       const originalViewUrl = player.dataset.originalViewUrl || "";
       const translatedViewUrl = player.dataset.translatedViewUrl || "";
-      const defaultVoice = "vi-VN-HoaiMyNeural";
+      const defaultVoice = "vi-VN-NamMinhNeural";
       const supportedVoices = new Set(["vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"]);
 
       let sleepMode = storage.getItem("reader.sleepMode") || "off";
@@ -285,7 +284,6 @@
       let lastScrollY = window.scrollY;
       let hideTimer = null;
       let audioRetryUsed = false;
-      let fallbackUtterance = null;
       let translationStarted = false;
 
       const formatTime = (seconds) => {
@@ -296,8 +294,9 @@
       };
 
       const setPlayIcon = (name) => {
-        playIcon.setAttribute("data-lucide", name);
-        window.lucide?.createIcons();
+        player.querySelectorAll("[data-play-icon]").forEach((icon) => {
+          icon.classList.toggle("hidden", icon.dataset.playIcon !== name);
+        });
       };
 
       const getVoice = () => {
@@ -312,6 +311,7 @@
       let playlistReady = false;
       let playlistLoading = null;
       let nextAudio = null;
+      let audioLoadToken = 0;
 
       const buildManifestUrl = () => {
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
@@ -347,17 +347,20 @@
 
       const setAudioSegment = (index, offset = 0, autoplay = false, resetRetry = true) => {
         if (!hasAudio || !playlist[index]) return;
+        const loadToken = ++audioLoadToken;
         currentSegmentIndex = index;
         if (resetRetry) audioRetryUsed = false;
+        audio.pause();
         audio.src = playlist[index].url;
         audio.playbackRate = 1;
-        audio.addEventListener("loadedmetadata", () => {
+        audio.onloadedmetadata = () => {
+          if (loadToken !== audioLoadToken) return;
           const segmentDuration = audio.duration || playlist[index].duration || 0;
           if (offset > 0 && segmentDuration) audio.currentTime = Math.min(offset, Math.max(0, segmentDuration - 0.25));
           updateProgress();
           preloadNextSegment();
-          if (autoplay) audio.play().catch(playBrowserVietnameseFallback);
-        }, { once: true });
+          if (autoplay) audio.play().catch(() => setPlayIcon("play"));
+        };
         audio.load();
       };
 
@@ -392,7 +395,11 @@
             durationLabel.textContent = formatTime(totalDuration);
             seekTo(resumeAt, autoplay);
           })
-          .catch(playBrowserVietnameseFallback);
+          .catch((error) => {
+            playlistReady = false;
+            console.warn("Không thể tải audio TTS", error);
+            setPlayIcon("play");
+          });
         return playlistLoading;
       };
 
@@ -686,11 +693,6 @@
         closeSheet();
       };
 
-      const pickVietnameseBrowserVoice = () => {
-        if (!("speechSynthesis" in window)) return null;
-        return window.speechSynthesis.getVoices().find((voice) => (voice.lang || "").toLowerCase().startsWith("vi"));
-      };
-
       const finishChapter = () => {
         storage.removeItem(`reader.position.${readerChapterKey}`);
         if (sleepMode === "chapter") {
@@ -698,33 +700,13 @@
           return;
         }
         if (nextUrl) {
-          storage.setItem("reader.autoplayNext", "true");
+          storage.setItem("reader.autoplayNext", nextUrl);
           window.location.href = nextUrl;
         }
       };
 
       const stopFallbackSpeech = () => {
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-        fallbackUtterance = null;
-      };
-
-      const playBrowserVietnameseFallback = () => {
-        if (!("speechSynthesis" in window)) return;
-        const viVoice = pickVietnameseBrowserVoice();
-        if (!viVoice) return;
-        stopFallbackSpeech();
-        fallbackUtterance = new SpeechSynthesisUtterance(readerContent?.innerText || "");
-        fallbackUtterance.voice = viVoice;
-        fallbackUtterance.lang = "vi-VN";
-        fallbackUtterance.rate = getRate();
-        fallbackUtterance.volume = hasAudio ? audio.volume : Number(storage.getItem("reader.volume") || 0.9);
-        fallbackUtterance.onstart = () => setPlayIcon("pause");
-        fallbackUtterance.onend = () => {
-          setPlayIcon("play");
-          fallbackUtterance = null;
-          finishChapter();
-        };
-        window.speechSynthesis.speak(fallbackUtterance);
       };
 
       const reloadAudio = (resumeAt = 0, autoplay = false) => {
@@ -778,22 +760,16 @@
             seekTo(resumeAt, true, false);
             return;
           }
-          playBrowserVietnameseFallback();
+          setPlayIcon("play");
         });
 
         playButton.addEventListener("click", () => {
           showBar();
-          if (fallbackUtterance && "speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-            fallbackUtterance = null;
-            setPlayIcon("play");
-            return;
-          }
           if (!playlistReady) {
             loadPlaylist(Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0), true);
             return;
           }
-          if (audio.paused) audio.play().catch(playBrowserVietnameseFallback);
+          if (audio.paused) audio.play().catch(() => setPlayIcon("play"));
           else {
             audio.pause();
             stopFallbackSpeech();
@@ -821,7 +797,7 @@
 
         const savedChapter = storage.getItem("reader.chapterId");
         const savedPosition = savedChapter === readerChapterKey ? Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0) : 0;
-        const shouldAutoplay = storage.getItem("reader.autoplayNext") === "true";
+        const shouldAutoplay = storage.getItem("reader.autoplayNext") === window.location.pathname;
         storage.removeItem("reader.autoplayNext");
         loadPlaylist(savedPosition, shouldAutoplay);
       }

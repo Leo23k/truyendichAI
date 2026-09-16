@@ -14,7 +14,7 @@ import httpx
 from app.config import settings
 
 
-DEFAULT_EDGE_VOICE = "vi-VN-HoaiMyNeural"
+DEFAULT_EDGE_VOICE = "vi-VN-NamMinhNeural"
 SUPPORTED_EDGE_VOICES = {"vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"}
 MIN_CHUNK_CHARS = 1000
 MAX_CHUNK_CHARS = 2000

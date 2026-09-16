@@ -3,6 +3,11 @@ import pytest
 from app.tts import edge_tts_service
 
 
+def test_edge_tts_defaults_to_nam_minh() -> None:
+    assert edge_tts_service.normalize_voice(None) == "vi-VN-NamMinhNeural"
+    assert edge_tts_service.normalize_voice("unsupported") == "vi-VN-NamMinhNeural"
+
+
 @pytest.mark.asyncio
 async def test_edge_tts_uses_remote_service_when_configured(monkeypatch, tmp_path) -> None:
     calls = []
