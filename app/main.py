@@ -99,6 +99,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                 chapter_number=chapter_number,
                 title=current.get("title"),
                 translated_title=current.get("title"),
+                source_url=current.get("source_url"),
                 original_content="",
                 translated_content="",
             )
@@ -114,6 +115,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "display_title": current.get("title"),
                     "display_content": "",
                     "translation_error": "Chương này chưa được dịch. Hãy đồng bộ hoặc dịch trước.",
+                    "original_url": current.get("source_url"),
                     "synced_reader": True,
                     "chapter_list": entries,
                     "back_url": f"/synced/{slug}",
