@@ -133,11 +133,24 @@ def load_novels() -> list[dict]:
                 translated_counts[row["novel_id"]] = translated_counts.get(row["novel_id"], 0) + 1
             for row in totals:
                 total_counts[row["novel_id"]] = total_counts.get(row["novel_id"], 0) + 1
+            fallback_covers: dict[str, str] = {}
+            try:
+                fallback_covers = {
+                    item["slug"]: item["cover"]
+                    for item in _fallback_json("metadata.json").get("novels", [])
+                    if item.get("slug") and item.get("cover")
+                }
+            except CdnDataError:
+                pass
             for novel in novels:
                 novel["total_chapters"] = total_counts.get(novel["id"], 0)
                 novel["translated_chapters"] = translated_counts.get(novel["id"], 0)
                 cover_path = novel.get("cover_url")
-                novel["cover"] = storage_url("covers", cover_path.removeprefix("covers/")) if cover_path else None
+                novel["cover"] = (
+                    storage_url("covers", cover_path.removeprefix("covers/"))
+                    if cover_path
+                    else fallback_covers.get(novel["slug"])
+                )
             return novels
         except CdnDataError:
             pass

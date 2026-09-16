@@ -54,11 +54,12 @@
     {% set first_chapter = book.chapters[0] if book.chapters else none %}
     <article class="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
       <a href="/books/{{ book.id }}" class="block">
+        <div class="relative aspect-[4/3] w-full">
         {% if book.cover_url %}
-        <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" class="aspect-[4/3] w-full object-cover">
-        {% else %}
-        <div class="book-cover-fallback flex aspect-[4/3] w-full items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
+        <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" class="h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">
         {% endif %}
+        <div class="book-cover-fallback {% if book.cover_url %}hidden{% endif %} absolute inset-0 flex items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
+        </div>
       </a>
       <div class="p-4">
         <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ book.translated_title or book.title }}</h2>
@@ -82,7 +83,10 @@
   <div class="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
     {% for novel in synced_novels %}
     <article class="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
-      {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" class="aspect-[4/3] w-full object-cover">{% else %}<div class="book-cover-fallback flex aspect-[4/3] w-full items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>{% endif %}
+      <div class="relative aspect-[4/3] w-full">
+        {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" class="h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">{% endif %}
+        <div class="book-cover-fallback {% if novel.cover %}hidden{% endif %} absolute inset-0 flex items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
+      </div>
       <div class="p-4">
         <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ novel.title }}</h2>
         <p class="mt-2 text-sm text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
