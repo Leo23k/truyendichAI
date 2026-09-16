@@ -235,7 +235,7 @@
       const player = document.querySelector("[data-reader-player]");
       if (!player) return;
 
-      const chapterId = player.dataset.chapterId;
+      var chapterId = player.dataset.chapterId;
       const storage = window.localStorage;
       storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
       storage.setItem("reader.lastTitle", document.title.replace(" | My Novel Reader", ""));
