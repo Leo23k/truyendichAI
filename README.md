@@ -80,18 +80,28 @@ venv\Scripts\activate
 pip install -r requirements.txt
 Copy-Item .env.example .env
 
-venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8002
+.\scripts\dev.ps1
 ```
 
-Nếu cổng `8002` đang bận, đổi sang cổng trống khác bằng `--port 8003`. Tránh dùng mặc định `8000` khi trên máy đang có service khác giữ cổng này.
-
-Khi cần auto reload và terminal Windows cho phép WatchFiles tạo process con, thêm `--reload`:
+Script dev mặc định chạy website ở `http://127.0.0.1:8002` và bật auto reload cho thư mục `app/`. Nếu cổng `8002` đang bận, đổi sang cổng trống khác:
 
 ```powershell
-venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8002
+.\scripts\dev.ps1 -Port 8003
 ```
 
-Nếu gặp `PermissionError: [WinError 5] Access is denied` ở `multiprocessing.resource_sharer`, chạy lại bằng lệnh không có `--reload` ở trên.
+Tránh dùng mặc định `8000` khi trên máy đang có service khác giữ cổng này.
+
+Nếu PowerShell chặn chạy script, dùng:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\dev.ps1
+```
+
+Nếu auto reload gặp `PermissionError: [WinError 5] Access is denied` ở `multiprocessing.resource_sharer`, chạy không reload:
+
+```powershell
+.\scripts\dev.ps1 -NoReload
+```
 
 Trước đó hãy chạy model service ở terminal riêng:
 
