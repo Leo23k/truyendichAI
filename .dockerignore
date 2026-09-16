@@ -10,5 +10,4 @@ temp
 .mypy_cache
 data
 models
-infra
 tests
