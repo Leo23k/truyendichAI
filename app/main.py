@@ -32,6 +32,7 @@ from app.tts.edge_tts_service import (
     synthesize_chapter_playlist,
     synthesize_edge_tts,
 )
+from sync.service import SyncError, sync_once
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -60,6 +61,20 @@ translation_jobs: dict[str, dict[str, object]] = {}
 translation_jobs_lock = threading.Lock()
 
 
+def _sync_supabase_background() -> None:
+    try:
+        result = sync_once()
+        logger.info("Supabase sync after crawl: %s", result)
+    except SyncError as exc:
+        logger.warning("Supabase sync after crawl skipped: %s", exc)
+    except Exception:
+        logger.exception("Supabase sync after crawl failed")
+
+
+def _queue_supabase_sync() -> None:
+    threading.Thread(target=_sync_supabase_background, daemon=True, name="leotruyen-sync-once").start()
+
+
 def _update_translation_job(job_id: str, **values: object) -> None:
     with translation_jobs_lock:
         translation_jobs[job_id].update(values)
@@ -80,8 +95,14 @@ def _run_translation_job(
             if not source_url or not synced_slug or synced_chapter_number is None:
                 raise RuntimeError("Chương chưa có bản gốc trên máy này.")
             _update_translation_job(job_id, status="loading", progress=20)
-            crawler = registry.get_for_url(source_url)
-            original_content = asyncio.run(crawler.get_chapter_content(source_url))
+            try:
+                payload = load_cdn_json(f"novels/{synced_slug}/chapters/{synced_chapter_number:03d}.json")
+                original_content = payload.get("original_content") or payload.get("content") or ""
+            except CdnDataError:
+                original_content = ""
+            if not original_content:
+                crawler = registry.get_for_url(source_url)
+                original_content = asyncio.run(crawler.get_chapter_content(source_url))
             original_content = clean_chapter_text(original_content)
             original_title = synced_title or f"Chương {synced_chapter_number}"
 
@@ -96,6 +117,7 @@ def _run_translation_job(
                 title=translated_title,
                 original_title=original_title,
                 source_url=source_url,
+                original_content=original_content,
                 content=translated_content,
             )
             _update_translation_job(job_id, status="completed", progress=100)
@@ -111,6 +133,7 @@ def _run_translation_job(
 
         _update_translation_job(job_id, status="saving", progress=85)
         db.commit()
+        _queue_supabase_sync()
         _update_translation_job(job_id, status="completed", progress=100)
     except TranslationUnavailableError as exc:
         _update_translation_job(job_id, status="failed", progress=100, error=f"Translator offline: {exc}")
@@ -168,14 +191,21 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
         current = entries[position]
         if not current.get("translated"):
+            payload = {}
+            if current.get("content_path"):
+                try:
+                    payload = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
+                except CdnDataError:
+                    payload = {}
+            original_content = payload.get("original_content") or payload.get("content") or ""
             chapter = SimpleNamespace(
                 id=f"cdn-{slug}-{chapter_number}",
                 book_id=slug,
                 chapter_number=chapter_number,
-                title=current.get("title"),
+                title=payload.get("original_title") or current.get("title"),
                 translated_title=current.get("title"),
                 source_url=current.get("source_url"),
-                original_content="",
+                original_content=original_content,
                 translated_content="",
             )
             return templates.TemplateResponse(
@@ -188,7 +218,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "mode": "translated",
                     "showing_translation": False,
                     "display_title": current.get("title"),
-                    "display_content": "",
+                    "display_content": original_content,
                     "translation_error": "Chương này chưa được dịch. Hãy đồng bộ hoặc dịch trước.",
                     "original_url": current.get("source_url"),
                     "synced_reader": True,
@@ -211,8 +241,8 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         title=payload.get("original_title") or payload.get("title"),
         translated_title=payload.get("title"),
         source_url=current.get("source_url"),
-        original_content=payload.get("content"),
-        translated_content=payload.get("content"),
+        original_content=payload.get("original_content") or payload.get("content"),
+        translated_content=payload.get("translated_content") or payload.get("content"),
     )
     return templates.TemplateResponse(
         request=request,
@@ -224,7 +254,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "mode": "translated",
             "showing_translation": True,
             "display_title": payload.get("title"),
-            "display_content": payload.get("content"),
+            "display_content": payload.get("translated_content") or payload.get("content"),
             "translation_error": None,
             "original_url": current.get("source_url"),
             "synced_reader": True,
@@ -287,6 +317,7 @@ async def import_book(request: Request, url: str = Form(...), db: Session = Depe
     try:
         crawler = registry.get_for_url(url)
         book, chapters_added = await BookService(db, crawler).import_book(url.strip())
+        _queue_supabase_sync()
         if request.headers.get("HX-Request"):
             return HTMLResponse(status_code=204, headers={"HX-Redirect": f"/books/{book.id}"})
         return {"book_id": book.id, "chapters_added": chapters_added}
@@ -318,6 +349,7 @@ async def lookup_books(request: Request, query: str = Form(...), db: Session = D
         if query.startswith(("http://", "https://")):
             crawler = registry.get_for_url(query)
             book, _ = await BookService(db, crawler).import_book(query)
+            _queue_supabase_sync()
             if request.headers.get("HX-Request"):
                 return templates.TemplateResponse(
                     request=request,
@@ -367,6 +399,7 @@ async def update_book(book_id: int, request: Request, db: Session = Depends(get_
     try:
         crawler = registry.get_for_url(book.source_url)
         chapters_added = await BookService(db, crawler).update_book(book)
+        _queue_supabase_sync()
         if request.headers.get("HX-Request"):
             return HTMLResponse(status_code=204, headers={"HX-Redirect": f"/books/{book.id}"})
         return RedirectResponse(f"/books/{book.id}", status_code=303)
@@ -429,6 +462,7 @@ async def read_chapter(chapter_id: int, request: Request, db: Session = Depends(
             logger.exception("Automatic chapter title translation failed for %s", chapter_id)
             translation_error = translation_error or "Không thể dịch tiêu đề chương lúc này."
     db.commit()
+    _queue_supabase_sync()
     previous = db.scalar(select(Chapter).where(Chapter.book_id == chapter.book_id, Chapter.chapter_number < chapter.chapter_number).order_by(Chapter.chapter_number.desc()))
     following = db.scalar(select(Chapter).where(Chapter.book_id == chapter.book_id, Chapter.chapter_number > chapter.chapter_number).order_by(Chapter.chapter_number))
     chapter_list = db.scalars(
@@ -468,6 +502,7 @@ def save_chapter_translation(chapter_id: int, translated_content: str = Form(...
         raise HTTPException(status_code=404, detail="Không tìm thấy chương.")
     chapter.translated_content = translated_content
     db.commit()
+    _queue_supabase_sync()
     return RedirectResponse(f"/chapters/{chapter.id}", status_code=303)
 
 
@@ -482,6 +517,7 @@ def translate_chapter(chapter_id: int, db: Session = Depends(get_db)):
         chapter.original_content = clean_chapter_text(chapter.original_content)
         chapter.translated_content = translator.translate(chapter.original_content, db)
         db.commit()
+        _queue_supabase_sync()
         return RedirectResponse(f"/chapters/{chapter.id}", status_code=303)
     except TranslationUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -499,6 +535,7 @@ def retranslate_chapter(chapter_id: int, db: Session = Depends(get_db)):
         chapter.translated_content = translator.translate(chapter.original_content, db)
         chapter.translated_title = translator.translate(chapter.title, db)
         db.commit()
+        _queue_supabase_sync()
         return RedirectResponse(f"/chapters/{chapter.id}", status_code=303)
     except TranslationUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

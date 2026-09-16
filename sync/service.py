@@ -12,17 +12,36 @@ import threading
 import time
 import unicodedata
 from pathlib import Path
+import sys
 from urllib.parse import quote
 
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 
-
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.config import PROJECT_ROOT, settings
+
 load_dotenv(ROOT / ".env")
-DATABASE_PATH = Path(os.getenv("SYNC_DATABASE_PATH", ROOT / "data" / "app.db"))
-AUDIO_DIR = Path(os.getenv("SYNC_AUDIO_DIR", ROOT / "data" / "audio"))
+def default_database_path() -> Path:
+    local_app_db = ROOT / "data" / "app.db"
+    if local_app_db.exists() and not os.getenv("VERCEL"):
+        return local_app_db
+    if settings.database_path:
+        path = Path(settings.database_path)
+        return path if path.is_absolute() else PROJECT_ROOT / path
+    if settings.database_url.startswith("sqlite:///./"):
+        return PROJECT_ROOT / settings.database_url.removeprefix("sqlite:///./")
+    if os.getenv("VERCEL"):
+        return settings.data_path / "database.db"
+    return ROOT / "data" / "app.db"
+
+
+DATABASE_PATH = Path(os.getenv("SYNC_DATABASE_PATH", default_database_path()))
+AUDIO_DIR = Path(os.getenv("SYNC_AUDIO_DIR", settings.audio_path))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")
 RETRIES = 3
@@ -181,17 +200,21 @@ def sync_once() -> dict[str, int | bool]:
             chapter_payloads: list[dict] = []
             for chapter in chapter_rows:
                 key = chapter_key(chapter["chapter_number"])
+                original_content = chapter["original_content"]
+                translated_content = chapter["translated_content"]
                 translated = bool(chapter["translated_content"])
                 json_path = f"{slug}/{key}.json"
                 audio = audio_bytes(chapter["id"])
-                if translated:
+                if original_content or translated_content:
                     payload = json.dumps(
                         {
                             "number": chapter["chapter_number"],
                             "title": chapter["translated_title"] or chapter["title"],
                             "original_title": chapter["title"],
-                            "content": chapter["translated_content"],
-                            "translated": True,
+                            "original_content": original_content,
+                            "translated_content": translated_content,
+                            "content": translated_content or original_content,
+                            "translated": translated,
                             "audio": f"audio/{slug}/{key}.mp3" if audio else None,
                         },
                         ensure_ascii=False,
@@ -209,7 +232,7 @@ def sync_once() -> dict[str, int | bool]:
                         "source_url": chapter["url"],
                         "translated": translated,
                         "audio_available": bool(audio),
-                        "content_path": f"chapters/{json_path}" if translated else None,
+                        "content_path": f"chapters/{json_path}" if original_content or translated_content else None,
                         "updated_at": chapter["updated_at"],
                     }
                 )

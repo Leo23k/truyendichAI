@@ -214,6 +214,7 @@ def publish_translated_chapter(
     title: str,
     original_title: str,
     source_url: str,
+    original_content: str,
     content: str,
 ) -> None:
     headers = _service_headers()
@@ -224,6 +225,8 @@ def publish_translated_chapter(
             "number": chapter_number,
             "title": title,
             "original_title": original_title,
+            "original_content": original_content,
+            "translated_content": content,
             "content": content,
             "translated": True,
             "audio": None,
