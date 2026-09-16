@@ -700,11 +700,11 @@
         loadPlaylist(savedPosition, shouldAutoplay);
       }
 
-      voiceButton.addEventListener("click", () => openSheet("voice"));
-      sleepButton.addEventListener("click", () => openSheet("sleep"));
-      tocButton?.addEventListener("click", () => openSheet("toc"));
       translateButton?.addEventListener("click", startTranslation);
       translationRetry?.addEventListener("click", startTranslation);
+      voiceButton?.addEventListener("click", () => openSheet("voice"));
+      sleepButton?.addEventListener("click", () => openSheet("sleep"));
+      tocButton?.addEventListener("click", () => openSheet("toc"));
       tocFilters.forEach((button) => button.addEventListener("click", () => {
         tocFilter = button.dataset.tocFilter;
         tocFilters.forEach((item) => item.className = "px-2.5 py-2 text-stone-600 hover:bg-stone-50");
