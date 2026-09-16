@@ -1,0 +1,7 @@
+data/
+models/
+temp/
+.venv/
+venv/
+logs/
+*.log
