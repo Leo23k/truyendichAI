@@ -8,10 +8,6 @@
     <div>
       <p class="text-sm font-medium text-teal-700">My Novel Reader</p>
       <h1 class="mt-1 text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1>
-      <a data-continue-reading hidden href="#" class="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white hover:bg-stone-800">
-        <i data-lucide="bookmark-check" class="h-4 w-4"></i>
-        <span>Đọc tiếp</span>
-      </a>
     </div>
     <div data-crawl-progress class="w-full lg:max-w-2xl">
       <form
@@ -70,14 +66,20 @@
         <p class="mt-2 text-sm text-stone-500">{{ book.translated_author or book.author or 'Chưa rõ tác giả' }}</p>
         <div class="mt-4 flex items-center justify-between gap-3">
           <span class="text-xs font-medium text-stone-500">{{ book.chapters|length }} chương</span>
-          <a
-            href="{% if first_chapter %}/chapters/{{ first_chapter.id }}{% else %}/books/{{ book.id }}{% endif %}"
-            onclick="return startTranslationProgress(this)"
-            class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"
-          >
-            <i data-lucide="book-open" class="h-4 w-4"></i>
-            <span>Đọc</span>
-          </a>
+          <div class="flex items-center gap-2">
+            <a data-book-continue-reading="{{ book.id }}" hidden href="#" onclick="return startTranslationProgress(this)" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100">
+              <i data-lucide="bookmark-check" class="h-4 w-4"></i>
+              <span>Đọc tiếp</span>
+            </a>
+            <a
+              href="{% if first_chapter %}/chapters/{{ first_chapter.id }}{% else %}/books/{{ book.id }}{% endif %}"
+              onclick="return startTranslationProgress(this)"
+              class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"
+            >
+              <i data-lucide="book-open" class="h-4 w-4"></i>
+              <span>Đọc</span>
+            </a>
+          </div>
         </div>
       </div>
     </article>
@@ -105,6 +107,13 @@
 </section>
 <script>
   (() => {
+    document.querySelectorAll("[data-book-continue-reading]").forEach((button) => {
+      const bookId = button.dataset.bookContinueReading;
+      const url = window.localStorage.getItem(`reader.lastUrl.book.${bookId}`);
+      if (!url) return;
+      button.href = url;
+      button.hidden = false;
+    });
     document.addEventListener("htmx:beforeRequest", (event) => {
       if (event.detail.elt?.matches?.('form[hx-post="/books/lookup"]')) {
         const query = event.detail.elt.querySelector('input[name="query"]')?.value || "";

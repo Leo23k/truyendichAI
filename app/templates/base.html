@@ -74,19 +74,7 @@
         window._translationTimer = setInterval(() => { value = Math.min(90, value + Math.ceil(Math.random() * 8)); if (bar) bar.style.width = `${value}%`; if (label) label.textContent = `${value}%`; }, 350);
         return true;
       };
-      const renderContinueButtons = () => {
-        const url = window.localStorage.getItem("reader.lastUrl");
-        document.querySelectorAll("[data-continue-reading]").forEach((button) => {
-          if (!url) {
-            button.hidden = true;
-            return;
-          }
-          button.href = url;
-          button.hidden = false;
-        });
-      };
       document.addEventListener("DOMContentLoaded", () => {
-        renderContinueButtons();
         window.lucide?.createIcons();
       });
       document.addEventListener("htmx:afterSettle", () => window.lucide?.createIcons());
