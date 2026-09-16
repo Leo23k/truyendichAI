@@ -1,0 +1,33 @@
+{
+  "chapter_id": 6885,
+  "voice": "vi-VN-HoaiMyNeural",
+  "rate": 1.45,
+  "text_hash": "3143d0e68231b7441dc923120947f34f34d24adad440741561f2ea138b59d31c",
+  "segments": [
+    {
+      "index": 0,
+      "filename": "chapter-6885-vi-VN-HoaiMyNeural-1_45-part-000.mp3",
+      "duration_seconds": 85.368
+    },
+    {
+      "index": 1,
+      "filename": "chapter-6885-vi-VN-HoaiMyNeural-1_45-part-001.mp3",
+      "duration_seconds": 84.144
+    },
+    {
+      "index": 2,
+      "filename": "chapter-6885-vi-VN-HoaiMyNeural-1_45-part-002.mp3",
+      "duration_seconds": 81.12
+    },
+    {
+      "index": 3,
+      "filename": "chapter-6885-vi-VN-HoaiMyNeural-1_45-part-003.mp3",
+      "duration_seconds": 82.68
+    },
+    {
+      "index": 4,
+      "filename": "chapter-6885-vi-VN-HoaiMyNeural-1_45-part-004.mp3",
+      "duration_seconds": 16.272
+    }
+  ]
+}
