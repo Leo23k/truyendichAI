@@ -1,9 +1,9 @@
-from pathlib import Path
-from types import SimpleNamespace
-
+import asyncio
 import logging
+from pathlib import Path
 import threading
 import uuid
+from types import SimpleNamespace
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
-from app.cdn import CdnDataError, cdn_url, load_cdn_json, load_chapters_index
+from app.cdn import CdnDataError, cdn_url, load_cdn_json, load_chapters_index, publish_translated_chapter
 from app.database import SessionLocal, create_tables, get_db
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
@@ -51,6 +51,9 @@ class TTSRequest(BaseModel):
 class TranslateRequest(BaseModel):
     chapter_id: int | None = None
     source_url: str | None = None
+    synced_slug: str | None = None
+    synced_chapter_number: int | None = None
+    synced_title: str | None = None
 
 
 translation_jobs: dict[str, dict[str, object]] = {}
@@ -62,11 +65,42 @@ def _update_translation_job(job_id: str, **values: object) -> None:
         translation_jobs[job_id].update(values)
 
 
-def _run_translation_job(job_id: str, chapter_id: int) -> None:
+def _run_translation_job(
+    job_id: str,
+    chapter_id: int | None,
+    source_url: str | None = None,
+    synced_slug: str | None = None,
+    synced_chapter_number: int | None = None,
+    synced_title: str | None = None,
+) -> None:
     db = SessionLocal()
     try:
-        chapter = db.get(Chapter, chapter_id)
-        if chapter is None or not chapter.original_content:
+        chapter = db.get(Chapter, chapter_id) if chapter_id else None
+        if chapter is None:
+            if not source_url or not synced_slug or synced_chapter_number is None:
+                raise RuntimeError("Chương chưa có bản gốc trên máy này.")
+            _update_translation_job(job_id, status="loading", progress=20)
+            crawler = registry.get_for_url(source_url)
+            original_content = asyncio.run(crawler.get_chapter_content(source_url))
+            original_content = clean_chapter_text(original_content)
+            original_title = synced_title or f"Chương {synced_chapter_number}"
+
+            _update_translation_job(job_id, status="translating", progress=45)
+            translated_content = translator.translate(original_content, db)
+            translated_title = translator.translate(original_title, db)
+
+            _update_translation_job(job_id, status="saving", progress=85)
+            publish_translated_chapter(
+                slug=synced_slug,
+                chapter_number=synced_chapter_number,
+                title=translated_title,
+                original_title=original_title,
+                source_url=source_url,
+                content=translated_content,
+            )
+            _update_translation_job(job_id, status="completed", progress=100)
+            return
+        if not chapter.original_content:
             raise RuntimeError("Chương chưa có bản gốc trên máy này.")
 
         _update_translation_job(job_id, status="translating", progress=35)
@@ -176,6 +210,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         chapter_number=chapter_number,
         title=payload.get("original_title") or payload.get("title"),
         translated_title=payload.get("title"),
+        source_url=current.get("source_url"),
         original_content=payload.get("content"),
         translated_content=payload.get("content"),
     )
@@ -191,6 +226,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "display_title": payload.get("title"),
             "display_content": payload.get("content"),
             "translation_error": None,
+            "original_url": current.get("source_url"),
             "synced_reader": True,
             "chapter_list": entries,
             "back_url": f"/synced/{slug}",
@@ -474,17 +510,29 @@ def queue_translation(payload: TranslateRequest, db: Session = Depends(get_db)) 
     if chapter is None and payload.source_url:
         chapter = db.scalar(select(Chapter).where(Chapter.url == payload.source_url))
     if chapter is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Chương này chỉ có trên CDN hoặc chưa có bản gốc trên máy. Hãy mở Local PC để dịch.",
-        )
-    if not chapter.original_content:
+        if not payload.source_url or not payload.synced_slug or payload.synced_chapter_number is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Chương này chỉ có trên CDN hoặc chưa có bản gốc trên máy.",
+            )
+    elif not chapter.original_content:
         raise HTTPException(status_code=409, detail="Hãy mở chương trên Local PC để tải bản gốc trước.")
 
     job_id = uuid.uuid4().hex
     with translation_jobs_lock:
         translation_jobs[job_id] = {"status": "queued", "progress": 5, "error": None}
-    threading.Thread(target=_run_translation_job, args=(job_id, chapter.id), daemon=True).start()
+    threading.Thread(
+        target=_run_translation_job,
+        args=(
+            job_id,
+            chapter.id if chapter else None,
+            payload.source_url,
+            payload.synced_slug,
+            payload.synced_chapter_number,
+            payload.synced_title,
+        ),
+        daemon=True,
+    ).start()
     return {"job_id": job_id, **translation_jobs[job_id]}
 
 

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")
 LOCAL_SYNC_DATA_DIR = Path(
     os.getenv("SYNCED_DATA_PATH", ROOT / "temp" / "truyendichAI-data" / "data")
 )
@@ -62,6 +63,15 @@ def _headers() -> dict[str, str]:
     headers = {"apikey": SUPABASE_ANON_KEY}
     if SUPABASE_ANON_KEY.startswith("eyJ"):
         headers["Authorization"] = f"Bearer {SUPABASE_ANON_KEY}"
+    return headers
+
+
+def _service_headers() -> dict[str, str]:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise CdnDataError("Supabase write access is not configured")
+    headers = {"apikey": SUPABASE_SERVICE_KEY}
+    if SUPABASE_SERVICE_KEY.startswith("eyJ"):
+        headers["Authorization"] = f"Bearer {SUPABASE_SERVICE_KEY}"
     return headers
 
 
@@ -195,3 +205,64 @@ def load_chapters_index(slug: str) -> list[dict]:
     if not isinstance(chapters, list):
         raise CdnDataError(f"Invalid chapters index: {slug}")
     return [chapter for chapter in chapters if isinstance(chapter, dict)]
+
+
+def publish_translated_chapter(
+    *,
+    slug: str,
+    chapter_number: int,
+    title: str,
+    original_title: str,
+    source_url: str,
+    content: str,
+) -> None:
+    headers = _service_headers()
+    key = f"{chapter_number:03d}"
+    json_path = f"{slug}/{key}.json"
+    payload = json.dumps(
+        {
+            "number": chapter_number,
+            "title": title,
+            "original_title": original_title,
+            "content": content,
+            "translated": True,
+            "audio": None,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    with httpx.Client(timeout=60, trust_env=False) as client:
+        upload = client.post(
+            f"{SUPABASE_URL}/storage/v1/object/chapters/{quote(json_path, safe='/')}",
+            content=payload,
+            headers={**headers, "x-upsert": "true", "Content-Type": "application/json"},
+        )
+        upload.raise_for_status()
+        novels = client.get(
+            f"{SUPABASE_URL}/rest/v1/novels",
+            params={"select": "id,latest_chapter", "slug": f"eq.{slug}", "limit": "1"},
+            headers=headers,
+        )
+        novels.raise_for_status()
+        rows = novels.json()
+        if not rows:
+            raise CdnDataError("Novel was not found")
+        novel = rows[0]
+        chapter_update = client.patch(
+            f"{SUPABASE_URL}/rest/v1/chapters",
+            params={"novel_id": f"eq.{novel['id']}", "source_url": f"eq.{source_url}"},
+            json={
+                "title": title,
+                "translated": True,
+                "content_path": f"chapters/{json_path}",
+            },
+            headers={**headers, "Prefer": "return=minimal"},
+        )
+        chapter_update.raise_for_status()
+        if int(novel.get("latest_chapter") or 0) < chapter_number:
+            novel_update = client.patch(
+                f"{SUPABASE_URL}/rest/v1/novels",
+                params={"id": f"eq.{novel['id']}"},
+                json={"latest_chapter": chapter_number},
+                headers={**headers, "Prefer": "return=minimal"},
+            )
+            novel_update.raise_for_status()

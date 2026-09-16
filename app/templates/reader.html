@@ -100,6 +100,9 @@
     data-reader-player
     data-chapter-id="{{ chapter.id }}"
     data-source-url="{{ chapter.source_url or chapter.url or '' }}"
+    data-synced-slug="{% if synced_reader %}{{ chapter.book_id }}{% endif %}"
+    data-synced-chapter-number="{% if synced_reader %}{{ chapter.chapter_number }}{% endif %}"
+    data-synced-title="{{ chapter.title or display_title }}"
     data-audio-url="/chapters/{{ chapter.id }}/audio"
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
     data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
@@ -233,6 +236,9 @@
       if (!player) return;
 
       const chapterId = player.dataset.chapterId;
+      const storage = window.localStorage;
+      storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
+      storage.setItem("reader.lastTitle", document.title.replace(" | My Novel Reader", ""));
       const audio = player.querySelector("[data-reader-audio]");
       const hasAudio = player.dataset.hasAudio === "true" && audio;
       const playButton = player.querySelector("[data-play-toggle]");
@@ -258,7 +264,6 @@
       const sheetBackdrop = document.querySelector("[data-sheet-backdrop]");
       const readerContent = document.querySelector(".reader-content");
       const nextUrl = player.dataset.nextUrl;
-      const storage = window.localStorage;
       const defaultVoice = "vi-VN-HoaiMyNeural";
       const supportedVoices = new Set(["vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"]);
 
@@ -469,7 +474,13 @@
           const response = await fetch("/translate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chapter_id: numericChapterId, source_url: player.dataset.sourceUrl || null }),
+            body: JSON.stringify({
+              chapter_id: numericChapterId,
+              source_url: player.dataset.sourceUrl || null,
+              synced_slug: player.dataset.syncedSlug || null,
+              synced_chapter_number: player.dataset.syncedChapterNumber ? Number(player.dataset.syncedChapterNumber) : null,
+              synced_title: player.dataset.syncedTitle || null,
+            }),
           });
           const payload = await response.json();
           if (!response.ok) throw new Error(payload.detail || "Không thể bắt đầu dịch.");
