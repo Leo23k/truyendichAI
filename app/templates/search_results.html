@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Kết quả tìm kiếm | My Novel Reader{% endblock %}
+{% block header %}{% endblock %}
+{% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
+{% block content %}
+<section class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
+  <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện">
+    <i data-lucide="arrow-left" class="h-5 w-5"></i>
+  </a>
+  <div class="mt-5">{% include "partials/search_results.html" %}</div>
+</section>
+{% endblock %}

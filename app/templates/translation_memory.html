@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Bộ nhớ dịch | My Novel Reader{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-semibold">Bộ nhớ dịch</h1>
+<form action="/translation-memory" method="post" class="mt-6 grid gap-3 rounded-lg border border-stone-200 bg-white p-5 sm:grid-cols-2"><input name="source_text" required placeholder="Cụm từ gốc" class="rounded border border-stone-300 px-3 py-2"><input name="replacement_text" required placeholder="Bản thay thế" class="rounded border border-stone-300 px-3 py-2"><button class="sm:col-span-2 rounded bg-stone-900 px-4 py-2 text-white">Thêm</button></form>
+<div class="mt-8 divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white">{% for entry in entries %}<div class="flex items-center justify-between px-5 py-3"><span>{{ entry.source_text }} → {{ entry.replacement_text }}</span><form action="/translation-memory/{{ entry.id }}/delete" method="post"><button class="text-sm text-red-700">Xóa</button></form></div>{% else %}<p class="p-5 text-stone-500">Chưa có mục nào.</p>{% endfor %}</div>
+{% endblock %}

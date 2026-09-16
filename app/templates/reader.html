@@ -1,0 +1,578 @@
+{% extends "base.html" %}
+{% block title %}{{ display_title }} | My Novel Reader{% endblock %}
+{% block header %}{% endblock %}
+{% block main_class %}min-h-screen bg-stone-100{% endblock %}
+{% block content %}
+<style>
+  .reader-bottom-bar{transition:transform 190ms ease,opacity 190ms ease}
+  .reader-bottom-bar.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem))}
+  .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}
+  .reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}
+  .reader-sheet{transform:translateY(100%);transition:transform 210ms ease}
+  .reader-sheet-backdrop.is-open .reader-sheet{transform:translateY(0)}
+  .reader-range{accent-color:rgb(20 184 166)}
+</style>
+
+<div
+  x-data="{ theme: localStorage.getItem('reader-theme') || 'paper', size: Number(localStorage.getItem('reader-size') || 18), fontPanel: false, settingsPanel: false }"
+  x-init="$watch('theme', value => localStorage.setItem('reader-theme', value)); $watch('size', value => localStorage.setItem('reader-size', value))"
+  :class="theme === 'dark' ? 'bg-stone-950 text-stone-100' : 'bg-[#fbfaf7] text-stone-900'"
+  class="min-h-screen pb-36"
+>
+  <header class="sticky top-0 z-30 border-b border-stone-200/70 bg-white/85 backdrop-blur">
+    <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      <a href="/books/{{ chapter.book_id }}" class="icon-button text-stone-600" aria-label="Quay lại chi tiết truyện">
+        <i data-lucide="arrow-left" class="h-5 w-5"></i>
+      </a>
+      <div class="min-w-0 flex-1 text-center">
+        <h1 class="truncate text-sm font-semibold text-stone-900">{{ display_title }}</h1>
+        <p class="mt-0.5 text-xs text-stone-500">{% if showing_translation %}Bản dịch{% else %}Bản gốc{% endif %}</p>
+      </div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="icon-button text-stone-600" @click="theme = theme === 'dark' ? 'paper' : 'dark'" aria-label="Đổi nền đọc">
+          <i data-lucide="palette" class="h-5 w-5"></i>
+        </button>
+        <div class="relative">
+          <button type="button" class="icon-button text-stone-600" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Cỡ chữ">
+            <i data-lucide="type" class="h-5 w-5"></i>
+          </button>
+          <div x-cloak x-show="fontPanel" @click.outside="fontPanel = false" class="absolute right-0 mt-2 w-52 rounded-lg border border-stone-200 bg-white p-3 text-stone-900 shadow-xl">
+            <div class="flex items-center justify-between gap-2">
+              <button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.max(14, size - 1)">A-</button>
+              <span class="text-sm font-medium" x-text="size + 'px'"></span>
+              <button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.min(32, size + 1)">A+</button>
+            </div>
+          </div>
+        </div>
+        <div class="relative">
+          <button type="button" class="icon-button text-stone-600" @click="settingsPanel = !settingsPanel; fontPanel = false" aria-label="Cài đặt đọc">
+            <i data-lucide="settings" class="h-5 w-5"></i>
+          </button>
+          <div x-cloak x-show="settingsPanel" @click.outside="settingsPanel = false" class="absolute right-0 mt-2 w-56 rounded-lg border border-stone-200 bg-white p-2 text-sm text-stone-900 shadow-xl">
+            {% if showing_translation %}
+            <a href="/chapters/{{ chapter.id }}?mode=original" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>
+            {% elif chapter.translated_content %}
+            <a href="/chapters/{{ chapter.id }}?mode=translated" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản dịch</a>
+            {% endif %}
+            {% if chapter.translated_content %}
+            <form action="/chapters/{{ chapter.id }}/retranslate" method="post" onsubmit="startTranslationProgress(this)">
+              <button class="block w-full rounded-md px-3 py-2 text-left hover:bg-stone-50">Dịch lại</button>
+            </form>
+            {% endif %}
+            <a href="/chapters/{{ chapter.id }}/edit" class="block rounded-md px-3 py-2 hover:bg-stone-50">Chỉnh sửa bản dịch</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div data-translation-progress class="crawl-progress-panel mx-auto mt-4 max-w-3xl px-4" role="progressbar" aria-label="Tiến độ dịch" aria-valuemin="0" aria-valuemax="100">
+    <div class="mb-1 flex justify-between text-xs opacity-70"><span>Đang dịch chương...</span><span data-progress-value>0%</span></div>
+    <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
+  </div>
+  {% if translation_error %}
+  <div class="mx-auto mt-4 max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ translation_error }} Đang hiển thị bản gốc.</div>
+  {% endif %}
+
+  <article class="reader-content mx-auto max-w-3xl whitespace-pre-line px-5 py-10 leading-loose sm:px-6 sm:py-14" lang="vi" :style="`font-size: ${size}px`">{{ display_content }}</article>
+
+  <div
+    data-reader-player
+    data-chapter-id="{{ chapter.id }}"
+    data-audio-url="/chapters/{{ chapter.id }}/audio"
+    data-audio-manifest-url="/chapters/{{ chapter.id }}/audio/manifest"
+    data-next-url="{% if following %}/chapters/{{ following.id }}{% endif %}"
+    data-has-audio="{% if showing_translation and chapter.translated_content %}true{% else %}false{% endif %}"
+    class="reader-bottom-bar fixed bottom-4 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-4xl -translate-x-1/2 rounded-lg border border-stone-200 bg-white/95 px-2.5 py-2 text-stone-900 shadow-xl backdrop-blur sm:px-4"
+  >
+    {% if showing_translation and chapter.translated_content %}
+    <audio data-reader-audio preload="metadata"></audio>
+    {% endif %}
+    <div class="grid grid-cols-[auto_auto_1fr_auto] items-center gap-2 sm:gap-3">
+      {% if previous %}
+      <a href="/chapters/{{ previous.id }}" data-reader-prev class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương trước">
+        <i data-lucide="chevron-left" class="h-5 w-5"></i>
+        <span class="hidden sm:inline">Chương trước</span>
+      </a>
+      {% else %}
+      <span class="inline-flex h-10 items-center gap-1 px-2 text-sm text-stone-300 sm:px-3" aria-label="Không có chương trước">
+        <i data-lucide="chevron-left" class="h-5 w-5"></i>
+        <span class="hidden sm:inline">Chương trước</span>
+      </span>
+      {% endif %}
+
+      <button type="button" data-play-toggle class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-stone-950 text-white disabled:bg-stone-300" aria-label="Phát hoặc tạm dừng">
+        <i data-play-icon data-lucide="play" class="h-5 w-5"></i>
+      </button>
+
+      <div class="min-w-0">
+        <input data-audio-progress class="reader-range h-2 w-full" type="range" min="0" max="1000" value="0" aria-label="Tiến trình audio" {% if not showing_translation or not chapter.translated_content %}disabled{% endif %}>
+        <div class="mt-1 flex items-center justify-between gap-2 text-[11px] text-stone-500">
+          <span data-current-time>0:00</span>
+          <div class="flex min-w-0 items-center gap-2">
+            <button type="button" data-voice-button class="rounded px-1.5 py-0.5 hover:bg-stone-100">Giọng đọc</button>
+            <span class="text-stone-300">|</span>
+            <button type="button" data-sleep-button class="rounded px-1.5 py-0.5 hover:bg-stone-100">Hẹn giờ</button>
+            <span data-sleep-countdown class="hidden rounded bg-teal-50 px-1.5 py-0.5 text-teal-700"></span>
+          </div>
+          <span data-duration>0:00</span>
+        </div>
+      </div>
+
+      {% if following %}
+      <a href="/chapters/{{ following.id }}" data-reader-next class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương sau">
+        <span class="hidden sm:inline">Chương sau</span>
+        <i data-lucide="chevron-right" class="h-5 w-5"></i>
+      </a>
+      {% else %}
+      <span class="inline-flex h-10 items-center gap-1 px-2 text-sm text-stone-300 sm:px-3" aria-label="Không có chương sau">
+        <span class="hidden sm:inline">Chương sau</span>
+        <i data-lucide="chevron-right" class="h-5 w-5"></i>
+      </span>
+      {% endif %}
+    </div>
+    <div class="mt-2 grid grid-cols-2 gap-3 border-t border-stone-100 pt-2 text-xs text-stone-500 sm:flex sm:items-center sm:justify-center">
+      <label class="flex items-center gap-2">Tốc độ <input data-rate-control class="reader-range w-full sm:w-28" type="range" min="0.75" max="2" step="0.05"></label>
+      <label class="flex items-center gap-2">Âm lượng <input data-volume-control class="reader-range w-full sm:w-28" type="range" min="0" max="1" step="0.05"></label>
+    </div>
+  </div>
+
+  <div data-sheet-backdrop class="reader-sheet-backdrop fixed inset-0 z-50 bg-stone-950/25">
+    <section data-sheet="voice" class="reader-sheet absolute inset-x-0 bottom-0 rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl">
+      <div class="mx-auto max-w-lg">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-base font-semibold">Giọng đọc</h2>
+          <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div class="grid gap-2">
+          <button type="button" data-voice-option="vi-VN-HoaiMyNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button>
+          <button type="button" data-voice-option="vi-VN-NamMinhNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button>
+        </div>
+      </div>
+    </section>
+
+    <section data-sheet="sleep" class="reader-sheet absolute inset-x-0 bottom-0 hidden rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl">
+      <div class="mx-auto max-w-lg">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-base font-semibold">Hẹn giờ</h2>
+          <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div class="grid gap-2">
+          <button type="button" data-sleep-option="15" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">15 phút</button>
+          <button type="button" data-sleep-option="30" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">30 phút</button>
+          <button type="button" data-sleep-option="45" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">45 phút</button>
+          <button type="button" data-sleep-option="60" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">60 phút</button>
+          <button type="button" data-sleep-option="chapter" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hết chương hiện tại</button>
+          <button type="button" data-sleep-option="off" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Tắt hẹn giờ</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const player = document.querySelector("[data-reader-player]");
+      if (!player) return;
+
+      const chapterId = player.dataset.chapterId;
+      const audio = player.querySelector("[data-reader-audio]");
+      const hasAudio = player.dataset.hasAudio === "true" && audio;
+      const playButton = player.querySelector("[data-play-toggle]");
+      const playIcon = player.querySelector("[data-play-icon]");
+      const progress = player.querySelector("[data-audio-progress]");
+      const currentLabel = player.querySelector("[data-current-time]");
+      const durationLabel = player.querySelector("[data-duration]");
+      const rateControl = player.querySelector("[data-rate-control]");
+      const volumeControl = player.querySelector("[data-volume-control]");
+      const voiceButton = player.querySelector("[data-voice-button]");
+      const sleepButton = player.querySelector("[data-sleep-button]");
+      const sleepCountdown = player.querySelector("[data-sleep-countdown]");
+      const sheetBackdrop = document.querySelector("[data-sheet-backdrop]");
+      const readerContent = document.querySelector(".reader-content");
+      const nextUrl = player.dataset.nextUrl;
+      const storage = window.localStorage;
+      const defaultVoice = "vi-VN-HoaiMyNeural";
+      const supportedVoices = new Set(["vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"]);
+
+      let sleepMode = storage.getItem("reader.sleepMode") || "off";
+      let sleepUntil = Number(storage.getItem("reader.sleepUntil") || 0);
+      let sleepTimer = null;
+      let saveTimer = null;
+      let lastScrollY = window.scrollY;
+      let hideTimer = null;
+      let audioRetryUsed = false;
+      let fallbackUtterance = null;
+
+      const formatTime = (seconds) => {
+        if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${String(secs).padStart(2, "0")}`;
+      };
+
+      const setPlayIcon = (name) => {
+        playIcon.setAttribute("data-lucide", name);
+        window.lucide?.createIcons();
+      };
+
+      const getVoice = () => {
+        const voice = storage.getItem("reader.voice") || defaultVoice;
+        return supportedVoices.has(voice) ? voice : defaultVoice;
+      };
+      const getRate = () => Number(storage.getItem("reader.rate") || 1);
+      let playlist = [];
+      let segmentStarts = [];
+      let totalDuration = 0;
+      let currentSegmentIndex = 0;
+      let playlistReady = false;
+      let playlistLoading = null;
+      let nextAudio = null;
+
+      const buildManifestUrl = () => {
+        const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
+        return `${player.dataset.audioManifestUrl}?${params.toString()}`;
+      };
+
+      const getCurrentPosition = () => {
+        if (!hasAudio || !playlistReady) return 0;
+        return (segmentStarts[currentSegmentIndex] || 0) + (audio.currentTime || 0);
+      };
+
+      const updateProgress = () => {
+        const current = getCurrentPosition();
+        currentLabel.textContent = formatTime(current);
+        durationLabel.textContent = formatTime(totalDuration);
+        if (totalDuration) progress.value = String(Math.round((current / totalDuration) * 1000));
+      };
+
+      const findSegmentIndex = (time) => {
+        if (!playlist.length) return 0;
+        for (let index = playlist.length - 1; index >= 0; index -= 1) {
+          if (time >= segmentStarts[index]) return index;
+        }
+        return 0;
+      };
+
+      const preloadNextSegment = () => {
+        const next = playlist[currentSegmentIndex + 1];
+        if (!next) return;
+        nextAudio = new Audio(next.url);
+        nextAudio.preload = "auto";
+      };
+
+      const setAudioSegment = (index, offset = 0, autoplay = false, resetRetry = true) => {
+        if (!hasAudio || !playlist[index]) return;
+        currentSegmentIndex = index;
+        if (resetRetry) audioRetryUsed = false;
+        audio.src = playlist[index].url;
+        audio.playbackRate = 1;
+        audio.addEventListener("loadedmetadata", () => {
+          const segmentDuration = audio.duration || playlist[index].duration || 0;
+          if (offset > 0 && segmentDuration) audio.currentTime = Math.min(offset, Math.max(0, segmentDuration - 0.25));
+          updateProgress();
+          preloadNextSegment();
+          if (autoplay) audio.play().catch(playBrowserVietnameseFallback);
+        }, { once: true });
+        audio.load();
+      };
+
+      const seekTo = (time, autoplay = false, resetRetry = true) => {
+        if (!playlistReady) return;
+        const bounded = Math.max(0, Math.min(time, Math.max(0, totalDuration - 0.25)));
+        const index = findSegmentIndex(bounded);
+        setAudioSegment(index, bounded - segmentStarts[index], autoplay, resetRetry);
+      };
+
+      const loadPlaylist = (resumeAt = 0, autoplay = false) => {
+        if (!hasAudio) return Promise.resolve();
+        stopFallbackSpeech();
+        playlistReady = false;
+        playlistLoading = fetch(buildManifestUrl())
+          .then((response) => {
+            if (!response.ok) throw new Error(`TTS manifest ${response.status}`);
+            return response.json();
+          })
+          .then((manifest) => {
+            playlist = manifest.segments || [];
+            segmentStarts = [];
+            totalDuration = Number(manifest.total_duration || 0);
+            let cursor = 0;
+            playlist.forEach((segment) => {
+              segmentStarts.push(cursor);
+              cursor += Number(segment.duration || 0);
+            });
+            if (!totalDuration) totalDuration = cursor;
+            playlistReady = playlist.length > 0;
+            if (!playlistReady) throw new Error("TTS playlist empty");
+            durationLabel.textContent = formatTime(totalDuration);
+            seekTo(resumeAt, autoplay);
+          })
+          .catch(playBrowserVietnameseFallback);
+        return playlistLoading;
+      };
+
+      const saveState = () => {
+        if (!hasAudio) return;
+        storage.setItem("reader.chapterId", chapterId);
+        storage.setItem(`reader.position.${chapterId}`, String(getCurrentPosition()));
+        storage.setItem("reader.rate", String(getRate()));
+        storage.setItem("reader.volume", String(audio.volume));
+      };
+
+      const scheduleSave = () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveState, 250);
+      };
+
+      const showBar = () => {
+        player.classList.remove("is-hidden");
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => {
+          if (!sheetBackdrop.classList.contains("is-open")) player.classList.add("is-hidden");
+        }, 2600);
+      };
+
+      const hideBar = () => {
+        if (!sheetBackdrop.classList.contains("is-open")) player.classList.add("is-hidden");
+      };
+
+      const openSheet = (name) => {
+        sheetBackdrop.querySelectorAll("[data-sheet]").forEach((sheet) => {
+          sheet.classList.toggle("hidden", sheet.dataset.sheet !== name);
+        });
+        sheetBackdrop.classList.add("is-open");
+        showBar();
+      };
+
+      const closeSheet = () => sheetBackdrop.classList.remove("is-open");
+
+      const updateSleepCountdown = () => {
+        if (sleepMode === "chapter") {
+          sleepCountdown.textContent = "Hết chương";
+          sleepCountdown.classList.remove("hidden");
+          return;
+        }
+        if (sleepMode !== "timer" || !sleepUntil) {
+          sleepCountdown.classList.add("hidden");
+          return;
+        }
+        const remaining = Math.max(0, Math.ceil((sleepUntil - Date.now()) / 1000));
+        if (remaining <= 0) {
+          audio?.pause();
+          sleepMode = "off";
+          sleepUntil = 0;
+          storage.setItem("reader.sleepMode", "off");
+          storage.removeItem("reader.sleepUntil");
+          sleepCountdown.classList.add("hidden");
+          return;
+        }
+        sleepCountdown.textContent = formatTime(remaining);
+        sleepCountdown.classList.remove("hidden");
+      };
+
+      const startSleepInterval = () => {
+        clearInterval(sleepTimer);
+        updateSleepCountdown();
+        sleepTimer = setInterval(updateSleepCountdown, 1000);
+      };
+
+      const setSleep = (value) => {
+        if (value === "off") {
+          sleepMode = "off";
+          sleepUntil = 0;
+          storage.setItem("reader.sleepMode", "off");
+          storage.removeItem("reader.sleepUntil");
+        } else if (value === "chapter") {
+          sleepMode = "chapter";
+          sleepUntil = 0;
+          storage.setItem("reader.sleepMode", "chapter");
+          storage.removeItem("reader.sleepUntil");
+        } else {
+          sleepMode = "timer";
+          sleepUntil = Date.now() + Number(value) * 60 * 1000;
+          storage.setItem("reader.sleepMode", "timer");
+          storage.setItem("reader.sleepUntil", String(sleepUntil));
+        }
+        startSleepInterval();
+        closeSheet();
+      };
+
+      const pickVietnameseBrowserVoice = () => {
+        if (!("speechSynthesis" in window)) return null;
+        return window.speechSynthesis.getVoices().find((voice) => (voice.lang || "").toLowerCase().startsWith("vi"));
+      };
+
+      const finishChapter = () => {
+        storage.removeItem(`reader.position.${chapterId}`);
+        if (sleepMode === "chapter") {
+          setSleep("off");
+          return;
+        }
+        if (nextUrl) {
+          storage.setItem("reader.autoplayNext", "true");
+          window.location.href = nextUrl;
+        }
+      };
+
+      const stopFallbackSpeech = () => {
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        fallbackUtterance = null;
+      };
+
+      const playBrowserVietnameseFallback = () => {
+        if (!("speechSynthesis" in window)) return;
+        const viVoice = pickVietnameseBrowserVoice();
+        if (!viVoice) return;
+        stopFallbackSpeech();
+        fallbackUtterance = new SpeechSynthesisUtterance(readerContent?.innerText || "");
+        fallbackUtterance.voice = viVoice;
+        fallbackUtterance.lang = "vi-VN";
+        fallbackUtterance.rate = getRate();
+        fallbackUtterance.volume = hasAudio ? audio.volume : Number(storage.getItem("reader.volume") || 0.9);
+        fallbackUtterance.onstart = () => setPlayIcon("pause");
+        fallbackUtterance.onend = () => {
+          setPlayIcon("play");
+          fallbackUtterance = null;
+          finishChapter();
+        };
+        window.speechSynthesis.speak(fallbackUtterance);
+      };
+
+      const reloadAudio = (resumeAt = 0, autoplay = false) => {
+        if (!hasAudio) return;
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+        loadPlaylist(resumeAt, autoplay);
+      };
+
+      if (!hasAudio) {
+        playButton.disabled = true;
+        rateControl.disabled = true;
+        volumeControl.disabled = true;
+      } else {
+        storage.setItem("reader.voice", getVoice());
+        if (!storage.getItem("reader.rate")) storage.setItem("reader.rate", "1");
+        audio.playbackRate = 1;
+        audio.volume = Number(storage.getItem("reader.volume") || 0.9);
+        rateControl.value = String(getRate());
+        volumeControl.value = String(audio.volume);
+
+        audio.addEventListener("loadedmetadata", () => {
+          updateProgress();
+          preloadNextSegment();
+        });
+
+        audio.addEventListener("timeupdate", () => {
+          updateProgress();
+          scheduleSave();
+        });
+
+        audio.addEventListener("play", () => setPlayIcon("pause"));
+        audio.addEventListener("pause", () => {
+          setPlayIcon("play");
+          saveState();
+        });
+
+        audio.addEventListener("ended", () => {
+          if (currentSegmentIndex < playlist.length - 1) {
+            setAudioSegment(currentSegmentIndex + 1, 0, true);
+          } else {
+            finishChapter();
+          }
+        });
+
+        audio.addEventListener("error", () => {
+          const resumeAt = getCurrentPosition() || Number(storage.getItem(`reader.position.${chapterId}`) || 0);
+          if (!audioRetryUsed) {
+            audioRetryUsed = true;
+            seekTo(resumeAt, true, false);
+            return;
+          }
+          playBrowserVietnameseFallback();
+        });
+
+        playButton.addEventListener("click", () => {
+          showBar();
+          if (fallbackUtterance && "speechSynthesis" in window) {
+            window.speechSynthesis.cancel();
+            fallbackUtterance = null;
+            setPlayIcon("play");
+            return;
+          }
+          if (!playlistReady) {
+            loadPlaylist(Number(storage.getItem(`reader.position.${chapterId}`) || 0), true);
+            return;
+          }
+          if (audio.paused) audio.play().catch(playBrowserVietnameseFallback);
+          else {
+            audio.pause();
+            stopFallbackSpeech();
+          }
+        });
+
+        progress.addEventListener("input", () => {
+          if (!totalDuration) return;
+          seekTo(Number(progress.value) / 1000 * totalDuration, !audio.paused);
+          saveState();
+        });
+
+        rateControl.addEventListener("input", () => {
+          const wasPlaying = !audio.paused;
+          const currentTime = getCurrentPosition();
+          storage.setItem("reader.rate", String(Number(rateControl.value)));
+          saveState();
+          reloadAudio(currentTime, wasPlaying);
+        });
+
+        volumeControl.addEventListener("input", () => {
+          audio.volume = Number(volumeControl.value);
+          saveState();
+        });
+
+        const savedChapter = storage.getItem("reader.chapterId");
+        const savedPosition = savedChapter === chapterId ? Number(storage.getItem(`reader.position.${chapterId}`) || 0) : 0;
+        const shouldAutoplay = storage.getItem("reader.autoplayNext") === "true";
+        storage.removeItem("reader.autoplayNext");
+        loadPlaylist(savedPosition, shouldAutoplay);
+      }
+
+      voiceButton.addEventListener("click", () => openSheet("voice"));
+      sleepButton.addEventListener("click", () => openSheet("sleep"));
+      sheetBackdrop.addEventListener("click", (event) => {
+        if (event.target === sheetBackdrop || event.target.closest("[data-close-sheet]")) closeSheet();
+      });
+      sheetBackdrop.querySelectorAll("[data-voice-option]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const wasPlaying = hasAudio && !audio.paused;
+          const currentTime = hasAudio ? getCurrentPosition() : 0;
+          storage.setItem("reader.voice", button.dataset.voiceOption);
+          stopFallbackSpeech();
+          if (hasAudio) reloadAudio(currentTime, wasPlaying);
+          closeSheet();
+        });
+      });
+      sheetBackdrop.querySelectorAll("[data-sleep-option]").forEach((button) => {
+        button.addEventListener("click", () => setSleep(button.dataset.sleepOption));
+      });
+
+      window.addEventListener("scroll", () => {
+        const currentY = window.scrollY;
+        const delta = currentY - lastScrollY;
+        if (delta > 10) hideBar();
+        if (delta < -6) showBar();
+        lastScrollY = currentY;
+      }, { passive: true });
+
+      document.addEventListener("pointerup", (event) => {
+        if (event.target.closest("[data-reader-player]") || event.target.closest("[data-sheet-backdrop]")) return;
+        showBar();
+      });
+
+      window.addEventListener("beforeunload", saveState);
+      startSleepInterval();
+      showBar();
+    })();
+  </script>
+</div>
+{% endblock %}

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ book.translated_title or book.title }} | My Novel Reader{% endblock %}
+{% block header %}{% endblock %}
+{% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
+{% block content %}
+{% set first_chapter = book.chapters[0] if book.chapters else none %}
+<section class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
+  <div class="flex items-center justify-between">
+    <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện">
+      <i data-lucide="arrow-left" class="h-5 w-5"></i>
+    </a>
+    <div data-crawl-progress class="flex items-center gap-2">
+      <form action="/books/{{ book.id }}/update" method="post" hx-post="/books/{{ book.id }}/update" hx-target="#update-result" hx-swap="innerHTML" hx-disabled-elt="find button">
+        <button class="inline-flex h-10 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium hover:bg-stone-50">
+          <i data-lucide="refresh-cw" class="h-4 w-4"></i>
+          <span>Cập nhật</span>
+        </button>
+        <span id="update-loading" class="htmx-indicator ml-2 text-sm text-stone-500" role="status">Đang cập nhật...</span>
+      </form>
+      <form action="/books/{{ book.id }}/delete" method="post">
+        <button class="icon-button text-red-600 hover:bg-red-50" aria-label="Xóa truyện">
+          <i data-lucide="trash-2" class="h-5 w-5"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div id="update-result" class="mt-3" aria-live="polite"></div>
+  <div class="crawl-progress-panel mt-3" role="progressbar" aria-label="Tiến độ cập nhật" aria-valuemin="0" aria-valuemax="100">
+    <div class="mb-1 flex justify-between text-xs text-stone-500"><span>Đang cập nhật dữ liệu...</span><span data-progress-value>0%</span></div>
+    <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
+  </div>
+
+  <section class="mt-6 grid gap-8 lg:grid-cols-[260px_1fr] lg:items-start">
+    <div class="mx-auto w-full max-w-64">
+      <div class="overflow-hidden rounded-lg border border-stone-200 bg-white shadow-lg">
+        {% if book.cover_url %}
+        <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" class="aspect-[3/4] w-full object-cover">
+        {% else %}
+        <div class="book-cover-fallback flex aspect-[3/4] w-full items-center justify-center text-stone-500">Chưa có bìa</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="min-w-0">
+      <p class="text-sm font-medium text-teal-700">{{ book.source_name }}</p>
+      <h1 class="mt-2 max-w-4xl text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">{{ book.translated_title or book.title }}</h1>
+      <p class="mt-3 text-stone-500">{{ book.title }} · {{ book.translated_author or book.author or 'Chưa rõ tác giả' }}</p>
+      <p class="mt-6 max-w-3xl whitespace-pre-line text-base leading-8 text-stone-700">{{ book.translated_description or book.description or 'Chưa có mô tả.' }}</p>
+      {% if first_chapter %}
+      <a href="/chapters/{{ first_chapter.id }}" onclick="return startTranslationProgress(this)" class="mt-7 inline-flex h-11 items-center gap-2 rounded-md bg-stone-950 px-5 font-medium text-white hover:bg-stone-800">
+        <i data-lucide="book-open" class="h-4 w-4"></i>
+        <span>Đọc từ đầu</span>
+      </a>
+      {% endif %}
+    </div>
+  </section>
+
+  <section data-translation-progress x-data="{ order: 'asc' }" class="mt-10 rounded-lg border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-stone-950">Mục lục</h2>
+        <p class="mt-1 text-sm text-stone-500">{{ book.chapters|length }} chương</p>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-stone-600">
+        <span>Sắp xếp</span>
+        <select x-model="order" class="h-10 rounded-md border border-stone-200 bg-white px-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100">
+          <option value="asc">Cũ nhất trước</option>
+          <option value="desc">Mới nhất trước</option>
+        </select>
+      </label>
+    </div>
+    <div class="crawl-progress-panel mt-4" role="progressbar" aria-label="Tiến độ dịch" aria-valuemin="0" aria-valuemax="100">
+      <div class="mb-1 flex justify-between text-xs text-stone-500"><span>Đang dịch chương...</span><span data-progress-value>0%</span></div>
+      <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
+    </div>
+    <div class="mt-4 flex max-h-[28rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
+      {% for chapter in book.chapters %}
+      <a href="/chapters/{{ chapter.id }}" onclick="return startTranslationProgress(this)" class="flex items-center justify-between gap-4 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+        <span class="min-w-0 truncate">{{ chapter.translated_title or chapter.title }}</span>
+        <span class="shrink-0 rounded-full px-2 py-1 text-xs {% if chapter.translated_content %}bg-teal-50 text-teal-700{% else %}bg-stone-100 text-stone-500{% endif %}">{% if chapter.translated_content %}Đã dịch{% else %}Chưa dịch{% endif %}</span>
+      </a>
+      {% else %}
+      <p class="px-4 py-5 text-stone-500">Chưa có chương.</p>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+{% endblock %}

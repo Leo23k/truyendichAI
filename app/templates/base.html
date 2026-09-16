@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}My Novel Reader{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script defer src="https://unpkg.com/lucide@latest"></script>
+  <script>htmx.config.responseHandling = [{code: "204", swap: false}, {code: "[23]xx", swap: true}, {code: "[45]xx", swap: true, error: true}];</script>
+  <style>[x-cloak]{display:none!important}.htmx-indicator{display:none}.htmx-request .htmx-indicator,.htmx-request.htmx-indicator{display:inline-flex}.crawl-progress-panel{display:none}.crawl-progress-panel.is-active{display:block}.reader-content{font-family:"Segoe UI","Noto Sans",Arial,sans-serif;letter-spacing:0;word-spacing:normal;text-rendering:optimizeLegibility}.app-shell{border:1px solid rgb(231 229 228);border-radius:8px;background:rgba(255,255,255,.92);box-shadow:0 18px 45px rgba(28,25,23,.08)}.book-cover-fallback{background:linear-gradient(135deg,#f5f5f4,#dbeafe 55%,#ccfbf1)}.icon-button{display:inline-flex;height:2.5rem;width:2.5rem;align-items:center;justify-content:center;border-radius:9999px}.icon-button:hover{background:rgb(245 245 244)}</style>
+  <script>
+    (() => {
+      const setProgress = (wrapper, value) => {
+        const bar = wrapper.querySelector("[data-progress-bar]");
+        const label = wrapper.querySelector("[data-progress-value]");
+        if (bar) bar.style.width = `${value}%`;
+        if (label) label.textContent = `${value}%`;
+      };
+      document.addEventListener("htmx:beforeRequest", (event) => {
+        const form = event.detail.elt;
+        const wrapper = form.closest("[data-crawl-progress]");
+        if (!wrapper) return;
+        const panel = wrapper.querySelector(".crawl-progress-panel");
+        if (!panel) return;
+        const status = wrapper.querySelector("#lookup-status");
+        const value = form.querySelector('input[name="query"]')?.value.trim() || "";
+        if (status) status.textContent = value.startsWith("http://") || value.startsWith("https://") ? "Đang nhập truyện từ link..." : "Đang tìm truyện...";
+        panel.classList.add("is-active");
+        setProgress(wrapper, 5);
+        clearInterval(wrapper._progressTimer);
+        wrapper._progressTimer = setInterval(() => {
+          const current = Number(wrapper.querySelector("[data-progress-value]")?.textContent.replace("%", "") || 5);
+          setProgress(wrapper, Math.min(90, current + Math.ceil(Math.random() * 8)));
+        }, 350);
+      });
+      document.addEventListener("htmx:afterRequest", (event) => {
+        const form = event.detail.elt;
+        const wrapper = form.closest("[data-crawl-progress]");
+        if (!wrapper) return;
+        clearInterval(wrapper._progressTimer);
+        setProgress(wrapper, 100);
+        const status = wrapper.querySelector("#lookup-status");
+        if (status) status.textContent = event.detail.successful ? "Đã xử lý xong." : "Không xử lý được yêu cầu.";
+        setTimeout(() => wrapper.querySelector(".crawl-progress-panel")?.classList.remove("is-active"), 450);
+      });
+      window.startCrawlProgress = (form) => {
+        const wrapper = form.closest("[data-crawl-progress]");
+        if (!wrapper) return true;
+        const panel = wrapper.querySelector(".crawl-progress-panel");
+        const status = wrapper.querySelector("#lookup-status");
+        const value = form.querySelector('input[name="query"]')?.value.trim() || "";
+        if (status) status.textContent = value.startsWith("http://") || value.startsWith("https://") ? "Đang nhập truyện từ link..." : "Đang tìm truyện...";
+        panel?.classList.add("is-active");
+        setProgress(wrapper, 5);
+        clearInterval(wrapper._progressTimer);
+        wrapper._progressTimer = setInterval(() => {
+          const current = Number(wrapper.querySelector("[data-progress-value]")?.textContent.replace("%", "") || 5);
+          setProgress(wrapper, Math.min(90, current + Math.ceil(Math.random() * 8)));
+        }, 350);
+        return true;
+      };
+      window.startTranslationProgress = (link) => {
+        const panel = document.querySelector("[data-translation-progress]");
+        if (!panel) return true;
+        panel.classList.add("is-active");
+        const bar = panel.querySelector("[data-progress-bar]");
+        const label = panel.querySelector("[data-progress-value]");
+        let value = 5;
+        if (bar) bar.style.width = "5%";
+        if (label) label.textContent = "5%";
+        clearInterval(window._translationTimer);
+        window._translationTimer = setInterval(() => { value = Math.min(90, value + Math.ceil(Math.random() * 8)); if (bar) bar.style.width = `${value}%`; if (label) label.textContent = `${value}%`; }, 350);
+        return true;
+      };
+      document.addEventListener("DOMContentLoaded", () => window.lucide?.createIcons());
+      document.addEventListener("htmx:afterSettle", () => window.lucide?.createIcons());
+    })();
+  </script>
+</head>
+<body class="min-h-screen bg-stone-100 text-stone-900">
+  {% block header %}
+  <header class="border-b border-stone-200 bg-white">
+    <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+      <a href="/" class="text-xl font-semibold tracking-tight">My Novel Reader</a>
+      <nav class="flex gap-4 text-sm text-stone-600"><a href="/" class="hover:text-stone-950">Thư viện</a><a href="/translation-memory" class="hover:text-stone-950">Bộ nhớ dịch</a></nav>
+    </div>
+  </header>
+  {% endblock %}
+  <main class="{% block main_class %}mx-auto max-w-6xl px-6 py-10{% endblock %}">{% block content %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Chỉnh sửa bản dịch{% endblock %}
+{% block content %}
+<a href="/chapters/{{ chapter.id }}" class="text-sm text-stone-500">← Quay lại chương</a><h1 class="mt-5 text-3xl font-semibold">Chỉnh sửa bản dịch</h1>
+<form action="/chapters/{{ chapter.id }}/edit" method="post" class="mt-6"><textarea name="translated_content" rows="24" class="w-full rounded-lg border border-stone-300 bg-white p-5 leading-relaxed">{{ chapter.translated_content or '' }}</textarea><div class="mt-4 flex gap-3"><button class="rounded bg-stone-900 px-5 py-2 text-white">Lưu</button><a href="/chapters/{{ chapter.id }}" class="rounded border border-stone-300 px-5 py-2">Hủy</a></div></form>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% if results %}
+<div class="rounded-md border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900" role="status">Tìm thấy {{ results|length }} truyện cho “{{ query }}”.</div>
+<div class="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+  {% for result in results %}
+  <a data-search-item href="/books/preview?url={{ result.source_url|urlencode }}" class="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+    {% if result.cover_url %}
+    <img src="{{ result.cover_url }}" alt="Bìa {{ result.title }}" class="aspect-[4/3] w-full object-cover">
+    {% else %}
+    <div class="book-cover-fallback flex aspect-[4/3] w-full items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
+    {% endif %}
+    <div class="p-4">
+      <h3 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ result.title }}</h3>
+      <p class="mt-2 text-xs text-stone-500">Nguồn: {{ result.source_name }}</p>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">Đã tìm xong nhưng không có truyện phù hợp cho “{{ query }}”.</div>
+{% endif %}

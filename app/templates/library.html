@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Thư viện | My Novel Reader{% endblock %}
+{% block header %}{% endblock %}
+{% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
+{% block content %}
+<section class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
+  <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+      <p class="text-sm font-medium text-teal-700">My Novel Reader</p>
+      <h1 class="mt-1 text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1>
+    </div>
+    <div data-crawl-progress class="w-full lg:max-w-2xl">
+      <form
+        action="/books/lookup"
+        method="post"
+        hx-post="/books/lookup"
+        hx-target="#lookup-results"
+        hx-swap="innerHTML"
+        hx-indicator="#lookup-loading"
+        hx-disabled-elt="find button"
+        onsubmit="return startCrawlProgress(this)"
+        class="flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 p-2"
+      >
+        <span class="sr-only">Nhập truyện</span>
+        <label for="source-query" class="sr-only">URL hoặc tên truyện</label>
+        <i data-lucide="link" class="ml-2 h-5 w-5 shrink-0 text-stone-400"></i>
+        <input
+          id="source-query"
+          name="query"
+          type="text"
+          required
+          placeholder="Dán URL hoặc nhập tên truyện"
+          class="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm outline-none"
+        >
+        <button type="submit" class="inline-flex h-10 shrink-0 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white hover:bg-stone-800">
+          <i data-lucide="plus" class="h-4 w-4"></i>
+          <span>Thêm</span>
+        </button>
+      </form>
+      <div id="lookup-status" class="mt-2 text-sm text-stone-500" role="status" aria-live="polite"></div>
+      <span id="lookup-loading" class="htmx-indicator mt-2 items-center text-sm text-stone-500" role="status">Đang xử lý...</span>
+      <div class="crawl-progress-panel mt-3" role="progressbar" aria-label="Tiến độ crawl" aria-valuemin="0" aria-valuemax="100">
+        <div class="mb-1 flex justify-between text-xs text-stone-500"><span>Đang cập nhật dữ liệu...</span><span data-progress-value>0%</span></div>
+        <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="lookup-results" class="mt-6" aria-live="polite"></div>
+
+  {% if books %}
+  <div class="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    {% for book in books %}
+    {% set first_chapter = book.chapters[0] if book.chapters else none %}
+    <article class="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+      <a href="/books/{{ book.id }}" class="block">
+        {% if book.cover_url %}
+        <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" class="aspect-[4/3] w-full object-cover">
+        {% else %}
+        <div class="book-cover-fallback flex aspect-[4/3] w-full items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
+        {% endif %}
+      </a>
+      <div class="p-4">
+        <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ book.translated_title or book.title }}</h2>
+        <p class="mt-2 text-sm text-stone-500">{{ book.translated_author or book.author or 'Chưa rõ tác giả' }}</p>
+        <div class="mt-4 flex items-center justify-between gap-3">
+          <span class="text-xs font-medium text-stone-500">{{ book.chapters|length }} chương</span>
+          <a
+            href="{% if first_chapter %}/chapters/{{ first_chapter.id }}{% else %}/books/{{ book.id }}{% endif %}"
+            onclick="return startTranslationProgress(this)"
+            class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"
+          >
+            <i data-lucide="book-open" class="h-4 w-4"></i>
+            <span>Đọc</span>
+          </a>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="mt-10 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-6 py-16 text-center text-stone-500">Thư viện chưa có truyện.</div>
+  {% endif %}
+</section>
+<script>
+  (() => {
+    document.addEventListener("htmx:beforeRequest", (event) => {
+      if (event.detail.elt?.matches?.('form[hx-post="/books/lookup"]')) {
+        const query = event.detail.elt.querySelector('input[name="query"]')?.value || "";
+        console.debug("[search] request query=", query);
+      }
+    });
+    document.addEventListener("htmx:afterRequest", (event) => {
+      if (event.detail.elt?.matches?.('form[hx-post="/books/lookup"]')) {
+        console.debug("[search] response status=", event.detail.xhr.status, "length=", event.detail.xhr.responseText.length);
+      }
+    });
+    document.addEventListener("htmx:afterSwap", (event) => {
+      if (event.detail.target?.id === "lookup-results") {
+        console.debug("[search] rendered items=", event.detail.target.querySelectorAll("[data-search-item]").length);
+      }
+    });
+  })();
+</script>
+{% endblock %}
