@@ -131,6 +131,14 @@ def _fallback_json(path: str) -> dict:
         return _github_json(path)
 
 
+def _resolved_cover_url(cover_path: str | None, slug: str, fallback_covers: dict[str, str]) -> str | None:
+    if cover_path:
+        if cover_path.startswith(("http://", "https://")):
+            return cover_path
+        return storage_url("covers", cover_path.removeprefix("covers/"))
+    return fallback_covers.get(slug)
+
+
 def load_novels() -> list[dict]:
     if _configured():
         try:
@@ -155,12 +163,7 @@ def load_novels() -> list[dict]:
             for novel in novels:
                 novel["total_chapters"] = total_counts.get(novel["id"], 0)
                 novel["translated_chapters"] = translated_counts.get(novel["id"], 0)
-                cover_path = novel.get("cover_url")
-                novel["cover"] = (
-                    storage_url("covers", cover_path.removeprefix("covers/"))
-                    if cover_path
-                    else fallback_covers.get(novel["slug"])
-                )
+                novel["cover"] = _resolved_cover_url(novel.get("cover_url"), novel["slug"], fallback_covers)
             return novels
         except CdnDataError:
             pass
