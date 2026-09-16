@@ -35,6 +35,10 @@
         <button type="button" data-toc-button class="icon-button text-stone-600" aria-label="Mục lục">
           <i data-lucide="list" class="h-5 w-5"></i>
         </button>
+        <button type="button" data-translate-button class="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-stone-700 hover:bg-stone-100" aria-label="Dịch chương">
+          <i data-lucide="languages" class="h-4 w-4"></i>
+          <span class="hidden sm:inline">Dịch</span>
+        </button>
         <div class="relative">
           <button type="button" class="icon-button text-stone-600" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Cỡ chữ">
             <i data-lucide="type" class="h-5 w-5"></i>
@@ -47,11 +51,14 @@
             </div>
           </div>
         </div>
-        {% if not synced_reader %}<div class="relative">
+        <div class="relative">
           <button type="button" class="icon-button text-stone-600" @click="settingsPanel = !settingsPanel; fontPanel = false" aria-label="Cài đặt đọc">
             <i data-lucide="settings" class="h-5 w-5"></i>
           </button>
           <div x-cloak x-show="settingsPanel" @click.outside="settingsPanel = false" class="absolute right-0 mt-2 w-56 rounded-lg border border-stone-200 bg-white p-2 text-sm text-stone-900 shadow-xl">
+            {% if synced_reader %}
+            {% if original_url %}<a href="{{ original_url }}" target="_blank" rel="noopener" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
+            {% else %}
             {% if showing_translation %}
             <a href="/chapters/{{ chapter.id }}?mode=original" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>
             {% elif chapter.translated_content %}
@@ -67,8 +74,9 @@
             </form>
             {% endif %}
             <a href="/chapters/{{ chapter.id }}/edit" class="block rounded-md px-3 py-2 hover:bg-stone-50">Chỉnh sửa bản dịch</a>
+            {% endif %}
           </div>
-        </div>{% endif %}
+        </div>
       </div>
     </div>
   </header>
@@ -80,12 +88,18 @@
   {% if translation_error %}
   <div class="mx-auto mt-4 max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ translation_error }}{% if display_content %} Đang hiển thị bản gốc.{% endif %}{% if original_url %} <a href="{{ original_url }}" target="_blank" rel="noopener" class="ml-2 font-medium underline">Xem bản gốc</a>{% endif %}</div>
   {% endif %}
+  <section data-translation-panel hidden class="mx-auto mt-4 max-w-3xl rounded-md border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950" aria-live="polite">
+    <div class="flex items-center justify-between gap-3"><span data-translation-status>Đang xếp hàng.</span><button type="button" data-translation-retry hidden class="font-medium underline">Thử lại</button></div>
+    <p data-translation-error class="mt-1 hidden text-red-700"></p>
+    <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-teal-100"><div data-translation-bar class="h-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
+  </section>
 
   <article class="reader-content mx-auto max-w-3xl whitespace-pre-line px-5 py-10 leading-loose sm:px-6 sm:py-14" lang="vi" :style="`font-size: ${size}px`">{{ display_content }}</article>
 
   <div
     data-reader-player
     data-chapter-id="{{ chapter.id }}"
+    data-source-url="{{ chapter.source_url or chapter.url or '' }}"
     data-audio-url="/chapters/{{ chapter.id }}/audio"
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
     data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
@@ -175,13 +189,24 @@
       </div>
     </section>
 
-    <section data-sheet="toc" class="reader-sheet absolute inset-x-0 bottom-0 hidden max-h-[80vh] rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl">
+    <section data-sheet="toc" class="reader-sheet absolute inset-x-0 bottom-0 hidden h-[80vh] rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl">
       <div class="mx-auto flex h-full max-w-lg flex-col">
         <div class="mb-3 flex items-center justify-between">
           <h2 class="text-base font-semibold">Mục lục</h2>
           <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
         </div>
-        <div class="overflow-y-auto rounded-md border border-stone-200">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <div class="inline-flex overflow-hidden rounded-md border border-stone-200 text-xs" role="group" aria-label="Lọc chương">
+            <button type="button" data-toc-filter="all" class="bg-stone-950 px-2.5 py-2 text-white">Tất cả</button>
+            <button type="button" data-toc-filter="translated" class="px-2.5 py-2 text-stone-600 hover:bg-stone-50">Đã dịch</button>
+            <button type="button" data-toc-filter="untranslated" class="px-2.5 py-2 text-stone-600 hover:bg-stone-50">Chưa dịch</button>
+          </div>
+          <select data-toc-sort class="h-9 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700" aria-label="Sắp xếp chương">
+            <option value="asc">Cũ nhất</option>
+            <option value="desc">Mới nhất</option>
+          </select>
+        </div>
+        <div data-toc-list class="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-md border border-stone-200">
           {% for item in chapter_list %}
           {% if synced_reader %}
           {% set item_number = item['chapter_number'] %}
@@ -192,9 +217,9 @@
           {% set item_title = item.translated_title or item.title %}
           {% set item_translated = item.translated_content %}
           {% endif %}
-          <a href="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ item_number }}{% else %}/chapters/{{ item.id }}{% endif %}" class="flex items-center justify-between gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+          <a href="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ item_number }}{% else %}/chapters/{{ item.id }}{% endif %}" data-toc-item data-number="{{ item_number }}" data-translated="{% if item_translated %}true{% else %}false{% endif %}" {% if item_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex items-center justify-between gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
             <span class="min-w-0 truncate text-sm {% if item_number == chapter.chapter_number %}font-semibold text-teal-700{% endif %}">{{ item_title }}</span>
-            <span class="shrink-0 text-xs {% if item_translated %}text-teal-700{% else %}text-stone-500{% endif %}">{% if item_translated %}✓ Đã dịch{% else %}○ Chưa dịch{% endif %}</span>
+            <span data-toc-status class="shrink-0 text-xs {% if item_translated %}text-teal-700{% else %}text-stone-500{% endif %}">{% if item_translated %}✓ Đã dịch{% else %}○ Chưa dịch{% endif %}</span>
           </a>
           {% endfor %}
         </div>
@@ -220,6 +245,15 @@
       const voiceButton = player.querySelector("[data-voice-button]");
       const sleepButton = player.querySelector("[data-sleep-button]");
       const tocButton = document.querySelector("[data-toc-button]");
+      const translateButton = document.querySelector("[data-translate-button]");
+      const translationPanel = document.querySelector("[data-translation-panel]");
+      const translationStatus = document.querySelector("[data-translation-status]");
+      const translationBar = document.querySelector("[data-translation-bar]");
+      const translationError = document.querySelector("[data-translation-error]");
+      const translationRetry = document.querySelector("[data-translation-retry]");
+      const tocList = document.querySelector("[data-toc-list]");
+      const tocSort = document.querySelector("[data-toc-sort]");
+      const tocFilters = document.querySelectorAll("[data-toc-filter]");
       const sleepCountdown = player.querySelector("[data-sleep-countdown]");
       const sheetBackdrop = document.querySelector("[data-sheet-backdrop]");
       const readerContent = document.querySelector(".reader-content");
@@ -376,9 +410,93 @@
         });
         sheetBackdrop.classList.add("is-open");
         showBar();
+        if (name === "toc") window.setTimeout(scrollToActiveTocItem, 0);
       };
 
       const closeSheet = () => sheetBackdrop.classList.remove("is-open");
+
+      let tocFilter = "all";
+      const tocItems = () => [...document.querySelectorAll("[data-toc-item]")];
+      const scrollToActiveTocItem = () => {
+        const active = tocList?.querySelector('[data-current="true"]');
+        active?.scrollIntoView({ block: "center" });
+      };
+      const updateToc = () => {
+        if (!tocList) return;
+        const items = tocItems().sort((left, right) => Number(left.dataset.number) - Number(right.dataset.number));
+        if (tocSort?.value === "desc") items.reverse();
+        items.forEach((item) => {
+          const translated = item.dataset.translated === "true";
+          item.hidden = tocFilter === "translated" ? !translated : tocFilter === "untranslated" ? translated : false;
+          tocList.append(item);
+        });
+        if (tocSort?.value === "desc") {
+          const newest = items.find((item) => !item.hidden);
+          newest?.classList.add("bg-teal-50");
+          tocList.scrollTop = 0;
+        } else {
+          tocItems().forEach((item) => item.classList.remove("bg-teal-50"));
+          scrollToActiveTocItem();
+        }
+      };
+
+      const renderTranslationState = (job) => {
+        const labels = { queued: "Đang xếp hàng.", translating: "Đang dịch.", saving: "Đang lưu.", completed: "Hoàn thành.", failed: "Thất bại." };
+        translationPanel.hidden = false;
+        translationStatus.textContent = labels[job.status] || "Đang xử lý.";
+        translationBar.style.width = `${job.progress || 0}%`;
+        translationError.textContent = job.error || "";
+        translationError.classList.toggle("hidden", !job.error);
+        translationRetry.hidden = job.status !== "failed";
+        const currentItem = tocList?.querySelector('[data-current="true"]');
+        const status = currentItem?.querySelector("[data-toc-status]");
+        if (status && ["queued", "translating", "saving"].includes(job.status)) {
+          status.textContent = "⟳ Đang dịch";
+          status.className = "shrink-0 text-xs text-teal-700";
+        }
+        if (status && job.status === "completed") {
+          status.textContent = "✓ Đã dịch";
+          status.className = "shrink-0 text-xs text-teal-700";
+          currentItem.dataset.translated = "true";
+        }
+      };
+
+      const startTranslation = async () => {
+        translateButton.disabled = true;
+        renderTranslationState({ status: "queued", progress: 5 });
+        try {
+          const chapterId = /^\d+$/.test(chapterId) ? Number(chapterId) : null;
+          const response = await fetch("/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chapter_id: chapterId, source_url: player.dataset.sourceUrl || null }),
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "Không thể bắt đầu dịch.");
+          renderTranslationState(payload);
+          const poll = async () => {
+            const statusResponse = await fetch(`/translate/${payload.job_id}`, { cache: "no-store" });
+            const status = await statusResponse.json();
+            if (!statusResponse.ok) throw new Error(status.detail || "Không thể đọc tiến trình dịch.");
+            renderTranslationState(status);
+            if (["queued", "translating", "saving"].includes(status.status)) {
+              window.setTimeout(() => poll().catch(showTranslationFailure), 900);
+            } else if (status.status === "completed") {
+              window.setTimeout(() => window.location.reload(), 700);
+            } else {
+              translateButton.disabled = false;
+            }
+          };
+          window.setTimeout(() => poll().catch(showTranslationFailure), 500);
+        } catch (error) {
+          showTranslationFailure(error);
+        }
+      };
+
+      const showTranslationFailure = (error) => {
+        translateButton.disabled = false;
+        renderTranslationState({ status: "failed", progress: 100, error: error.message || "Không thể kết nối translator." });
+      };
 
       const updateSleepCountdown = () => {
         if (sleepMode === "chapter") {
@@ -574,6 +692,15 @@
       voiceButton.addEventListener("click", () => openSheet("voice"));
       sleepButton.addEventListener("click", () => openSheet("sleep"));
       tocButton?.addEventListener("click", () => openSheet("toc"));
+      translateButton?.addEventListener("click", startTranslation);
+      translationRetry?.addEventListener("click", startTranslation);
+      tocFilters.forEach((button) => button.addEventListener("click", () => {
+        tocFilter = button.dataset.tocFilter;
+        tocFilters.forEach((item) => item.className = "px-2.5 py-2 text-stone-600 hover:bg-stone-50");
+        button.className = "bg-stone-950 px-2.5 py-2 text-white";
+        updateToc();
+      }));
+      tocSort?.addEventListener("change", updateToc);
       sheetBackdrop.addEventListener("click", (event) => {
         if (event.target === sheetBackdrop || event.target.closest("[data-close-sheet]")) closeSheet();
       });
@@ -605,6 +732,7 @@
       });
 
       window.addEventListener("beforeunload", saveState);
+      updateToc();
       startSleepInterval();
       showBar();
     })();

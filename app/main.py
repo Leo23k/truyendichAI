@@ -2,6 +2,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import logging
+import threading
+import uuid
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -13,7 +15,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.cdn import CdnDataError, cdn_url, load_cdn_json, load_chapters_index
-from app.database import create_tables, get_db
+from app.database import SessionLocal, create_tables, get_db
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
 from app.crawlers.errors import CrawlerError
@@ -44,6 +46,45 @@ class TTSRequest(BaseModel):
     text: str = Field(min_length=1)
     voice: str = DEFAULT_EDGE_VOICE
     rate: float = Field(default=1.0, ge=0.5, le=2.0)
+
+
+class TranslateRequest(BaseModel):
+    chapter_id: int | None = None
+    source_url: str | None = None
+
+
+translation_jobs: dict[str, dict[str, object]] = {}
+translation_jobs_lock = threading.Lock()
+
+
+def _update_translation_job(job_id: str, **values: object) -> None:
+    with translation_jobs_lock:
+        translation_jobs[job_id].update(values)
+
+
+def _run_translation_job(job_id: str, chapter_id: int) -> None:
+    db = SessionLocal()
+    try:
+        chapter = db.get(Chapter, chapter_id)
+        if chapter is None or not chapter.original_content:
+            raise RuntimeError("Chương chưa có bản gốc trên máy này.")
+
+        _update_translation_job(job_id, status="translating", progress=35)
+        chapter.original_content = clean_chapter_text(chapter.original_content)
+        chapter.translated_content = translator.translate(chapter.original_content, db)
+        if not chapter.translated_title:
+            chapter.translated_title = translator.translate(chapter.title, db)
+
+        _update_translation_job(job_id, status="saving", progress=85)
+        db.commit()
+        _update_translation_job(job_id, status="completed", progress=100)
+    except TranslationUnavailableError as exc:
+        _update_translation_job(job_id, status="failed", progress=100, error=f"Translator offline: {exc}")
+    except Exception as exc:
+        logger.exception("Translation job %s failed", job_id)
+        _update_translation_job(job_id, status="failed", progress=100, error=str(exc))
+    finally:
+        db.close()
 
 
 @app.on_event("startup")
@@ -425,6 +466,35 @@ def retranslate_chapter(chapter_id: int, db: Session = Depends(get_db)):
         return RedirectResponse(f"/chapters/{chapter.id}", status_code=303)
     except TranslationUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/translate")
+def queue_translation(payload: TranslateRequest, db: Session = Depends(get_db)) -> dict[str, object]:
+    chapter = db.get(Chapter, payload.chapter_id) if payload.chapter_id else None
+    if chapter is None and payload.source_url:
+        chapter = db.scalar(select(Chapter).where(Chapter.url == payload.source_url))
+    if chapter is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Chương này chỉ có trên CDN hoặc chưa có bản gốc trên máy. Hãy mở Local PC để dịch.",
+        )
+    if not chapter.original_content:
+        raise HTTPException(status_code=409, detail="Hãy mở chương trên Local PC để tải bản gốc trước.")
+
+    job_id = uuid.uuid4().hex
+    with translation_jobs_lock:
+        translation_jobs[job_id] = {"status": "queued", "progress": 5, "error": None}
+    threading.Thread(target=_run_translation_job, args=(job_id, chapter.id), daemon=True).start()
+    return {"job_id": job_id, **translation_jobs[job_id]}
+
+
+@app.get("/translate/{job_id}")
+def translation_status(job_id: str) -> dict[str, object]:
+    with translation_jobs_lock:
+        job = translation_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình dịch.")
+        return {"job_id": job_id, **job}
 
 
 @app.get("/translation-memory")
