@@ -7,6 +7,9 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urljoin
+
+import httpx
 
 from app.config import settings
 
@@ -96,6 +99,24 @@ def chapter_segment_filename(*, chapter_id: int, voice: str, rate: float, index:
 
 def chapter_manifest_path(*, chapter_id: int, voice: str, rate: float) -> Path:
     return settings.audio_path / f"{chapter_cache_stem(chapter_id=chapter_id, voice=voice, rate=rate)}.json"
+
+
+async def synthesize_remote_tts(text: str, *, voice: str, rate: float, path: Path) -> None:
+    if not settings.tts_api_url:
+        raise EdgeTTSUnavailableError("TTS service is not configured.")
+    try:
+        async with httpx.AsyncClient(timeout=EDGE_TTS_TIMEOUT_SECONDS, trust_env=False) as client:
+            response = await client.post(
+                settings.tts_api_url,
+                json={"text": text, "voice": voice, "rate": rate},
+            )
+            response.raise_for_status()
+            audio_url = response.json()["audio_url"]
+            audio_response = await client.get(urljoin(settings.tts_api_url, audio_url))
+            audio_response.raise_for_status()
+        path.write_bytes(audio_response.content)
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        raise EdgeTTSUnavailableError("Khong the tao audio bang TTS service.") from exc
 
 
 def split_long_paragraph(paragraph: str) -> list[str]:
@@ -233,6 +254,12 @@ async def synthesize_edge_tts(
     )
     if path.exists() and path.stat().st_size > 0:
         return EdgeAudio(path=path, url=f"/api/tts/audio/{path.name}")
+
+    if settings.tts_api_url:
+        await synthesize_remote_tts(text, voice=selected_voice, rate=selected_rate, path=path)
+        if path.exists() and path.stat().st_size > 0:
+            return EdgeAudio(path=path, url=f"/api/tts/audio/{path.name}")
+        raise EdgeTTSUnavailableError("TTS service did not return audio.")
 
     last_error: Exception | None = None
     for attempt in range(2):
