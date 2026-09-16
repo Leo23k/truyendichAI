@@ -86,7 +86,7 @@
       <div class="p-4">
         <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ novel.title }}</h2>
         <p class="mt-2 text-sm text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
-        <div class="mt-4 flex items-center justify-between gap-3"><span class="text-xs font-medium text-stone-500">Chương {{ novel.latest_chapter }}</span><a href="/synced/{{ novel.slug }}/{{ novel.latest_chapter }}" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="book-open" class="h-4 w-4"></i><span>Đọc</span></a></div>
+        <div class="mt-4 flex items-center justify-between gap-3"><span class="text-xs font-medium text-stone-500">{{ novel.total_chapters or 0 }} chương · {{ novel.translated_chapters or 0 }} đã dịch</span><a href="/synced/{{ novel.slug }}" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="book-open" class="h-4 w-4"></i><span>Đọc</span></a></div>
       </div>
     </article>
     {% endfor %}

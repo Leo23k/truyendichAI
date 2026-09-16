@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ novel.title }} | My Novel Reader{% endblock %}
+{% block header %}{% endblock %}
+{% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
+{% block content %}
+<section class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-5xl p-5 sm:p-7 lg:p-8" x-data="{ order: 'asc' }">
+  <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện"><i data-lucide="arrow-left" class="h-5 w-5"></i></a>
+  <div class="mt-6 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+    <div class="min-w-0">
+      <h1 class="text-3xl font-semibold text-stone-950">{{ novel.title }}</h1>
+      <p class="mt-2 text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
+      <p class="mt-4 text-sm text-stone-500">Tổng chương: {{ chapters|length }} · Đã dịch: {{ chapters|selectattr('translated')|list|length }}</p>
+    </div>
+    {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" class="aspect-[3/4] w-28 rounded-md border border-stone-200 object-cover">{% endif %}
+  </div>
+  <section class="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-xl font-semibold text-stone-950">Mục lục</h2>
+      <select x-model="order" class="h-10 rounded-md border border-stone-200 bg-white px-3 text-sm outline-none focus:border-teal-600">
+        <option value="asc">Cũ nhất trước</option><option value="desc">Mới nhất trước</option>
+      </select>
+    </div>
+    <div class="mt-4 flex max-h-[32rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
+      {% for chapter in chapters %}
+      <a href="/synced/{{ novel.slug }}/{{ chapter.chapter_number }}" class="flex items-center justify-between gap-4 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+        <span class="min-w-0 truncate">{{ chapter.title }}</span>
+        {% if chapter.translated %}<span class="shrink-0 rounded-full bg-teal-50 px-2 py-1 text-xs text-teal-700">✓ Đã dịch</span>{% else %}<span class="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-xs text-stone-500">○ Chưa dịch</span>{% endif %}
+      </a>
+      {% else %}<p class="px-4 py-5 text-stone-500">Chưa có chương.</p>{% endfor %}
+    </div>
+  </section>
+</section>
+{% endblock %}

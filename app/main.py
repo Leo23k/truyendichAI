@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
-from app.cdn import CdnDataError, cdn_url, load_cdn_json
+from app.cdn import CdnDataError, cdn_url, load_cdn_json, load_chapters_index
 from app.database import create_tables, get_db
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
@@ -58,7 +58,7 @@ def library(request: Request, db: Session = Depends(get_db)):
     if not books:
         try:
             metadata = load_cdn_json("metadata.json")
-            synced_novels = [item for item in metadata.get("novels", []) if item.get("latest_chapter")]
+            synced_novels = metadata.get("novels", [])
         except CdnDataError:
             pass
     return templates.TemplateResponse(
@@ -66,20 +66,65 @@ def library(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@app.get("/synced/{slug}")
+def synced_book(slug: str, request: Request):
+    try:
+        metadata = load_cdn_json("metadata.json")
+        novel = next((item for item in metadata.get("novels", []) if item.get("slug") == slug), None)
+        chapters = load_chapters_index(slug)
+        if not novel:
+            raise CdnDataError("Novel was not found")
+    except CdnDataError:
+        raise HTTPException(status_code=404, detail="Truyện chưa được đồng bộ.") from None
+    return templates.TemplateResponse(
+        request=request,
+        name="synced_book_detail.html",
+        context={"novel": novel, "chapters": chapters},
+    )
+
+
 @app.get("/synced/{slug}/{chapter_number}")
 def read_synced_chapter(slug: str, chapter_number: int, request: Request):
     key = f"{chapter_number:03d}"
     try:
-        manifest = load_cdn_json(f"novels/{slug}/manifest.json")
-        entries = manifest.get("chapters", [])
-        position = next((index for index, item in enumerate(entries) if item.get("number") == chapter_number), None)
-        if position is None or not entries[position].get("synced"):
+        entries = load_chapters_index(slug)
+        position = next((index for index, item in enumerate(entries) if item.get("chapter_number") == chapter_number), None)
+        if position is None:
             return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
+        current = entries[position]
+        if not current.get("translated"):
+            chapter = SimpleNamespace(
+                id=f"cdn-{slug}-{chapter_number}",
+                book_id=slug,
+                title=current.get("title"),
+                translated_title=current.get("title"),
+                original_content="",
+                translated_content="",
+            )
+            return templates.TemplateResponse(
+                request=request,
+                name="reader.html",
+                context={
+                    "chapter": chapter,
+                    "previous": entries[position - 1] if position else None,
+                    "following": entries[position + 1] if position + 1 < len(entries) else None,
+                    "mode": "translated",
+                    "showing_translation": False,
+                    "display_title": current.get("title"),
+                    "display_content": "",
+                    "translation_error": "Chương này chưa được dịch. Hãy đồng bộ hoặc dịch trước.",
+                    "synced_reader": True,
+                    "back_url": f"/synced/{slug}",
+                    "previous_url": f"/synced/{slug}/{entries[position - 1]['chapter_number']}" if position else "",
+                    "following_url": f"/synced/{slug}/{entries[position + 1]['chapter_number']}" if position + 1 < len(entries) else "",
+                    "audio_manifest_url": "",
+                },
+            )
         payload = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
     except CdnDataError:
         return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
-    previous = next((item for item in reversed(entries[:position]) if item.get("synced")), None)
-    following = next((item for item in entries[position + 1 :] if item.get("synced")), None)
+    previous = entries[position - 1] if position else None
+    following = entries[position + 1] if position + 1 < len(entries) else None
     chapter = SimpleNamespace(
         id=f"cdn-{slug}-{chapter_number}",
         book_id=slug,
@@ -101,9 +146,9 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "display_content": payload.get("content"),
             "translation_error": None,
             "synced_reader": True,
-            "back_url": "/",
-            "previous_url": f"/synced/{slug}/{previous['number']}" if previous else "",
-            "following_url": f"/synced/{slug}/{following['number']}" if following else "",
+            "back_url": f"/synced/{slug}",
+            "previous_url": f"/synced/{slug}/{previous['chapter_number']}" if previous else "",
+            "following_url": f"/synced/{slug}/{following['chapter_number']}" if following else "",
             "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
         },
     )
@@ -114,7 +159,7 @@ def synced_audio_manifest(slug: str, chapter_number: int):
     key = f"{chapter_number:03d}"
     try:
         chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
-        audio_path = chapter.get("audio")
+        audio_path = chapter.get("audio") or chapter.get("audio_url")
         if not audio_path:
             raise CdnDataError("No synced audio")
         return {"segments": [{"index": 0, "url": cdn_url(f"novels/{slug}/{audio_path}"), "duration": 0}]}

@@ -113,32 +113,42 @@ def export_data() -> dict[str, int]:
                 "SELECT * FROM chapters WHERE book_id = ? ORDER BY chapter_number", (book["id"],)
             ).fetchall()
             manifest_chapters: list[dict[str, object]] = []
+            chapter_index: list[dict[str, object]] = []
             for chapter in chapter_rows:
                 key = chapter_key(chapter["chapter_number"])
-                has_content = bool(chapter["translated_content"] or chapter["original_content"])
                 audio_url = latest_audio(book["id"], chapter["id"], novel_root / "audio" / f"{key}.mp3")
-                synced = has_content
-                if has_content:
+                translated = bool(chapter["translated_content"])
+                published = translated or bool(audio_url)
+                chapter_index.append(
+                    {
+                        "chapter_number": chapter["chapter_number"],
+                        "title": chapter["translated_title"] or chapter["title"],
+                        "source_url": chapter["url"],
+                        "translated": translated,
+                        "audio_available": bool(audio_url),
+                    }
+                )
+                if published:
                     payload = {
                         "number": chapter["chapter_number"],
                         "title": chapter["translated_title"] or chapter["title"],
                         "original_title": chapter["title"],
                         "content": chapter["translated_content"] or chapter["original_content"],
-                        "translated": bool(chapter["translated_content"]),
+                        "translated": translated,
                         "audio": audio_url,
                     }
                     if write_json(novel_root / "chapters" / f"{key}.json", payload):
                         changed += 1
                     chapters_written += 1
-                manifest_chapters.append(
-                    {
-                        "number": chapter["chapter_number"],
-                        "title": chapter["translated_title"] or chapter["title"],
-                        "url": f"chapters/{key}.json" if synced else None,
-                        "audio": audio_url,
-                        "synced": synced,
-                    }
-                )
+                    manifest_chapters.append(
+                        {
+                            "number": chapter["chapter_number"],
+                            "title": chapter["translated_title"] or chapter["title"],
+                            "url": f"chapters/{key}.json",
+                            "audio": audio_url,
+                            "synced": True,
+                        }
+                    )
             latest = next((item["number"] for item in reversed(manifest_chapters) if item["synced"]), 0)
             manifest = {
                 "slug": slug,
@@ -151,7 +161,19 @@ def export_data() -> dict[str, int]:
             }
             if write_json(novel_root / "manifest.json", manifest):
                 changed += 1
-            metadata_novels.append({"slug": slug, "title": manifest["title"], "author": manifest["author"], "cover": manifest["cover"], "latest_chapter": latest})
+            if write_json(novel_root / "chapters_index.json", {"chapters": chapter_index}):
+                changed += 1
+            metadata_novels.append(
+                {
+                    "slug": slug,
+                    "title": manifest["title"],
+                    "author": manifest["author"],
+                    "cover": manifest["cover"],
+                    "latest_chapter": latest,
+                    "total_chapters": len(chapter_index),
+                    "translated_chapters": sum(item["translated"] for item in chapter_index),
+                }
+            )
     finally:
         connection.close()
     metadata_updated_at = max((book["updated_at"] or "" for book in books), default="")
