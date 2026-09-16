@@ -12,6 +12,7 @@ from sync.service import SyncError, sync_once
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
         result = sync_once()
     except SyncError as exc:

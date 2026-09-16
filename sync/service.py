@@ -50,9 +50,12 @@ class SupabaseSync:
         if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
             raise SyncError("SUPABASE_URL and SUPABASE_SERVICE_KEY are required for sync.")
         self.headers = {"apikey": SUPABASE_SERVICE_KEY}
+        if SUPABASE_SERVICE_KEY.startswith("eyJ"):
+            self.headers["Authorization"] = f"Bearer {SUPABASE_SERVICE_KEY}"
 
     def request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
         error: Exception | None = None
+        detail = ""
         request_headers = {**self.headers, **dict(kwargs.pop("headers", {}))}
         for attempt in range(1, RETRIES + 1):
             try:
@@ -62,9 +65,11 @@ class SupabaseSync:
                 return response
             except httpx.HTTPError as exc:
                 error = exc
+                if isinstance(exc, httpx.HTTPStatusError):
+                    detail = f" ({exc.response.status_code}: {exc.response.text[:300]})"
                 if attempt < RETRIES:
                     time.sleep(attempt)
-        raise SyncError(f"Supabase request failed: {path}") from error
+        raise SyncError(f"Supabase request failed: {path}{detail}") from error
 
     def upsert(self, table: str, payload: dict, conflict: str) -> dict:
         response = self.request(
@@ -78,23 +83,28 @@ class SupabaseSync:
             raise SyncError(f"Supabase did not return {table} upsert result.")
         return rows[0]
 
+    def upsert_many(self, table: str, payloads: list[dict], conflict: str) -> None:
+        for start in range(0, len(payloads), 500):
+            self.request(
+                "POST",
+                f"/rest/v1/{table}?on_conflict={quote(conflict)}",
+                json=payloads[start : start + 500],
+                headers={**self.headers, "Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+
     def ensure_buckets(self) -> None:
+        buckets = self.request("GET", "/storage/v1/bucket").json()
+        existing = {bucket.get("id") for bucket in buckets if isinstance(bucket, dict)}
         for bucket in ("covers", "chapters", "audio"):
-            with httpx.Client(timeout=30, trust_env=False) as client:
-                response = client.get(f"{SUPABASE_URL}/storage/v1/bucket/{bucket}", headers=self.headers)
-            if response.status_code == 404:
+            if bucket not in existing:
                 self.request("POST", "/storage/v1/bucket", json={"id": bucket, "name": bucket, "public": True})
-            elif response.is_success:
-                self.request("PUT", f"/storage/v1/bucket/{bucket}", json={"public": True})
-            else:
-                response.raise_for_status()
 
     def upload_if_changed(self, bucket: str, path: str, content: bytes, content_type: str) -> bool:
         encoded = quote(path, safe="/")
         public_path = f"/storage/v1/object/public/{bucket}/{encoded}"
         try:
             with httpx.Client(timeout=60, trust_env=False) as client:
-                existing = client.get(f"{SUPABASE_URL}{public_path}")
+                existing = client.get(f"{SUPABASE_URL}{public_path}", headers=self.headers)
             if existing.status_code == 200 and existing.content == content:
                 return False
         except httpx.HTTPError:
@@ -168,6 +178,7 @@ def sync_once() -> dict[str, int | bool]:
                 "slug",
             )
             counts["novels"] += 1
+            chapter_payloads: list[dict] = []
             for chapter in chapter_rows:
                 key = chapter_key(chapter["chapter_number"])
                 translated = bool(chapter["translated_content"])
@@ -190,8 +201,7 @@ def sync_once() -> dict[str, int | bool]:
                 audio_path = f"{slug}/{key}.mp3"
                 if audio and remote.upload_if_changed("audio", audio_path, audio, "audio/mpeg"):
                     counts["audio_uploaded"] += 1
-                remote.upsert(
-                    "chapters",
+                chapter_payloads.append(
                     {
                         "novel_id": novel["id"],
                         "chapter_number": chapter["chapter_number"],
@@ -201,10 +211,10 @@ def sync_once() -> dict[str, int | bool]:
                         "audio_available": bool(audio),
                         "content_path": f"chapters/{json_path}" if translated else None,
                         "updated_at": chapter["updated_at"],
-                    },
-                    "novel_id,chapter_number",
+                    }
                 )
                 counts["chapters"] += 1
+            remote.upsert_many("chapters", chapter_payloads, "novel_id,source_url")
             logger.info("Synced %s (%s chapters)", slug, len(chapter_rows))
     finally:
         connection.close()

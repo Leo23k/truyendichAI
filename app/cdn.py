@@ -59,7 +59,10 @@ def cdn_url(path: str) -> str:
 
 
 def _headers() -> dict[str, str]:
-    return {"apikey": SUPABASE_ANON_KEY}
+    headers = {"apikey": SUPABASE_ANON_KEY}
+    if SUPABASE_ANON_KEY.startswith("eyJ"):
+        headers["Authorization"] = f"Bearer {SUPABASE_ANON_KEY}"
+    return headers
 
 
 def _rest_rows(table: str, params: dict[str, str]) -> list[dict]:

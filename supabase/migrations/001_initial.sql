@@ -18,7 +18,7 @@ create table if not exists public.chapters (
   audio_available boolean not null default false,
   content_path text,
   updated_at timestamptz not null default now(),
-  unique (novel_id, chapter_number)
+  unique (novel_id, source_url)
 );
 
 create index if not exists chapters_novel_number_idx on public.chapters (novel_id, chapter_number);
