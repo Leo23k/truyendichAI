@@ -14,7 +14,6 @@ import subprocess
 import threading
 import time
 import unicodedata
-from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -148,14 +147,15 @@ def export_data() -> dict[str, int]:
                 "cover": book["cover_url"],
                 "latest_chapter": latest,
                 "chapters": manifest_chapters,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": book["updated_at"] or "",
             }
             if write_json(novel_root / "manifest.json", manifest):
                 changed += 1
             metadata_novels.append({"slug": slug, "title": manifest["title"], "author": manifest["author"], "cover": manifest["cover"], "latest_chapter": latest})
     finally:
         connection.close()
-    if write_json(output_root / "metadata.json", {"novels": metadata_novels, "updated_at": datetime.now(timezone.utc).isoformat()}):
+    metadata_updated_at = max((book["updated_at"] or "" for book in books), default="")
+    if write_json(output_root / "metadata.json", {"novels": metadata_novels, "updated_at": metadata_updated_at}):
         changed += 1
     return {"changed": changed, "chapters": chapters_written}
 
