@@ -4,12 +4,14 @@
 {% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
 {% set first_chapter = book.chapters[0] if book.chapters else none %}
+{% set is_deleted = book.deleted_at %}
 <section class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
   <div class="flex items-center justify-between">
     <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện">
       <i data-lucide="arrow-left" class="h-5 w-5"></i>
     </a>
     <div data-crawl-progress class="flex items-center gap-2">
+      {% if not is_deleted %}
       <form action="/books/{{ book.id }}/update" method="post" hx-post="/books/{{ book.id }}/update" hx-target="#update-result" hx-swap="innerHTML" hx-disabled-elt="find button">
         <button class="inline-flex h-10 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium hover:bg-stone-50">
           <i data-lucide="refresh-cw" class="h-4 w-4"></i>
@@ -17,15 +19,28 @@
         </button>
         <span id="update-loading" class="htmx-indicator ml-2 text-sm text-stone-500" role="status">Đang cập nhật...</span>
       </form>
-      <form action="/books/{{ book.id }}/delete" method="post">
+      <form action="/books/{{ book.id }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');">
         <button class="icon-button text-red-600 hover:bg-red-50" aria-label="Xóa truyện">
           <i data-lucide="trash-2" class="h-5 w-5"></i>
         </button>
       </form>
+      {% else %}
+      <form action="/books/{{ book.id }}/restore" method="post">
+        <button class="inline-flex h-10 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800">
+          <i data-lucide="rotate-ccw" class="h-4 w-4"></i>
+          <span>Khôi phục</span>
+        </button>
+      </form>
+      {% endif %}
     </div>
   </div>
 
   <div id="update-result" class="mt-3" aria-live="polite"></div>
+  {% if is_deleted %}
+  <div class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+    Truyện này đang chờ xóa. Bạn có thể khôi phục trước {{ book.delete_after.strftime('%d/%m/%Y %H:%M') if book.delete_after else '3 ngày' }}.
+  </div>
+  {% endif %}
   <div class="crawl-progress-panel mt-3" role="progressbar" aria-label="Tiến độ cập nhật" aria-valuemin="0" aria-valuemax="100">
     <div class="mb-1 flex justify-between text-xs text-stone-500"><span>Đang cập nhật dữ liệu...</span><span data-progress-value>0%</span></div>
     <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
@@ -48,10 +63,16 @@
       <p class="mt-3 text-stone-500">{{ book.title }} · {{ book.translated_author or book.author or 'Chưa rõ tác giả' }}</p>
       <p class="mt-6 max-w-3xl whitespace-pre-line text-base leading-8 text-stone-700">{{ book.translated_description or book.description or 'Chưa có mô tả.' }}</p>
       {% if first_chapter %}
-      <a href="/chapters/{{ first_chapter.id }}" onclick="return startTranslationProgress(this)" class="mt-7 inline-flex h-11 items-center gap-2 rounded-md bg-stone-950 px-5 font-medium text-white hover:bg-stone-800">
-        <i data-lucide="book-open" class="h-4 w-4"></i>
-        <span>Đọc từ đầu</span>
-      </a>
+      <div class="mt-7 flex flex-wrap gap-3">
+        <a data-book-continue-reading="{{ book.id }}" hidden href="#" onclick="return startTranslationProgress(this)" class="inline-flex h-11 items-center gap-2 rounded-md bg-teal-700 px-5 font-medium text-white hover:bg-teal-800">
+          <i data-lucide="bookmark-check" class="h-4 w-4"></i>
+          <span>Đọc tiếp</span>
+        </a>
+        <a href="/chapters/{{ first_chapter.id }}" onclick="return startTranslationProgress(this)" class="inline-flex h-11 items-center gap-2 rounded-md bg-stone-950 px-5 font-medium text-white hover:bg-stone-800">
+          <i data-lucide="book-open" class="h-4 w-4"></i>
+          <span>Đọc từ đầu</span>
+        </a>
+      </div>
       {% endif %}
     </div>
   </section>
@@ -86,4 +107,14 @@
     </div>
   </section>
 </section>
+<script>
+  (() => {
+    const button = document.querySelector("[data-book-continue-reading='{{ book.id }}']");
+    if (!button) return;
+    const url = window.localStorage.getItem("reader.lastUrl.book.{{ book.id }}");
+    if (!url) return;
+    button.href = url;
+    button.hidden = false;
+  })();
+</script>
 {% endblock %}

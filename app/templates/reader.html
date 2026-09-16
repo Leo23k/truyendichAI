@@ -99,6 +99,7 @@
   <div
     data-reader-player
     data-chapter-id="{{ chapter.id }}"
+    data-book-id="{{ chapter.book_id }}"
     data-source-url="{{ chapter.source_url or chapter.url or '' }}"
     data-synced-slug="{% if synced_reader %}{{ chapter.book_id }}{% endif %}"
     data-synced-chapter-number="{% if synced_reader %}{{ chapter.chapter_number }}{% endif %}"
@@ -240,9 +241,11 @@
       if (!player) return;
 
       const readerChapterKey = player.dataset.chapterId || "";
+      const readerBookKey = player.dataset.bookId || "";
       const storage = window.localStorage;
       storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
       storage.setItem("reader.lastTitle", document.title.replace(" | My Novel Reader", ""));
+      if (readerBookKey) storage.setItem(`reader.lastUrl.book.${readerBookKey}`, window.location.pathname + window.location.search);
       const audio = player.querySelector("[data-reader-audio]");
       const hasAudio = player.dataset.hasAudio === "true" && audio;
       const playButton = player.querySelector("[data-play-toggle]");

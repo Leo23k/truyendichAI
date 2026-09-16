@@ -3,6 +3,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import PROJECT_ROOT, settings
@@ -48,6 +49,23 @@ def create_tables() -> None:
 
     settings.ensure_directories()
     Base.metadata.create_all(bind=engine)
+    _ensure_book_soft_delete_columns()
+
+
+def _ensure_book_soft_delete_columns() -> None:
+    if not _database_url().startswith("sqlite"):
+        return
+    existing = {column["name"] for column in inspect(engine).get_columns("books")}
+    statements = []
+    if "deleted_at" not in existing:
+        statements.append("ALTER TABLE books ADD COLUMN deleted_at DATETIME")
+    if "delete_after" not in existing:
+        statements.append("ALTER TABLE books ADD COLUMN delete_after DATETIME")
+    if not statements:
+        return
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
 
 
 def get_db() -> Generator[Session, None, None]:

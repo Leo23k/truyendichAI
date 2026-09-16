@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 import threading
@@ -59,6 +60,7 @@ class TranslateRequest(BaseModel):
 
 translation_jobs: dict[str, dict[str, object]] = {}
 translation_jobs_lock = threading.Lock()
+BOOK_RESTORE_WINDOW = timedelta(days=3)
 
 
 def _sync_supabase_background() -> None:
@@ -78,6 +80,17 @@ def _queue_supabase_sync() -> None:
 def _update_translation_job(job_id: str, **values: object) -> None:
     with translation_jobs_lock:
         translation_jobs[job_id].update(values)
+
+
+def _purge_expired_deleted_books(db: Session) -> None:
+    expired_books = db.scalars(
+        select(Book).where(Book.delete_after.is_not(None), Book.delete_after <= datetime.utcnow())
+    ).all()
+    if not expired_books:
+        return
+    for book in expired_books:
+        db.delete(book)
+    db.commit()
 
 
 def _run_translation_job(
@@ -151,7 +164,8 @@ def startup() -> None:
 
 @app.get("/", name="library")
 def library(request: Request, db: Session = Depends(get_db)):
-    books = db.scalars(select(Book).order_by(Book.updated_at.desc())).all()
+    _purge_expired_deleted_books(db)
+    books = db.scalars(select(Book).where(Book.deleted_at.is_(None)).order_by(Book.updated_at.desc())).all()
     synced_novels = []
     if not books:
         try:
@@ -309,6 +323,7 @@ async def search_books(request: Request, query: str, db: Session = Depends(get_d
 
 @app.get("/books/{book_id}")
 def book_detail(book_id: int, request: Request, db: Session = Depends(get_db)):
+    _purge_expired_deleted_books(db)
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy truyện.")
@@ -320,6 +335,10 @@ async def import_book(request: Request, url: str = Form(...), db: Session = Depe
     try:
         crawler = registry.get_for_url(url)
         book, chapters_added = await BookService(db, crawler).import_book(url.strip())
+        if book.deleted_at:
+            book.deleted_at = None
+            book.delete_after = None
+            db.commit()
         _queue_supabase_sync()
         if request.headers.get("HX-Request"):
             return HTMLResponse(status_code=204, headers={"HX-Redirect": f"/books/{book.id}"})
@@ -352,6 +371,10 @@ async def lookup_books(request: Request, query: str = Form(...), db: Session = D
         if query.startswith(("http://", "https://")):
             crawler = registry.get_for_url(query)
             book, _ = await BookService(db, crawler).import_book(query)
+            if book.deleted_at:
+                book.deleted_at = None
+                book.delete_after = None
+                db.commit()
             _queue_supabase_sync()
             if request.headers.get("HX-Request"):
                 return templates.TemplateResponse(
@@ -399,6 +422,8 @@ async def update_book(book_id: int, request: Request, db: Session = Depends(get_
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy truyện.")
+    if book.deleted_at:
+        raise HTTPException(status_code=409, detail="Hãy khôi phục truyện trước khi cập nhật.")
     try:
         crawler = registry.get_for_url(book.source_url)
         chapters_added = await BookService(db, crawler).update_book(book)
@@ -432,9 +457,22 @@ def delete_book(book_id: int, db: Session = Depends(get_db)):
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy truyện.")
-    db.delete(book)
+    now = datetime.utcnow()
+    book.deleted_at = now
+    book.delete_after = now + BOOK_RESTORE_WINDOW
     db.commit()
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse(f"/books/{book.id}", status_code=303)
+
+
+@app.post("/books/{book_id}/restore")
+def restore_book(book_id: int, db: Session = Depends(get_db)):
+    book = db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy truyện.")
+    book.deleted_at = None
+    book.delete_after = None
+    db.commit()
+    return RedirectResponse(f"/books/{book.id}", status_code=303)
 
 
 @app.get("/chapters/{chapter_id}")

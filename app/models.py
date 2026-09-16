@@ -28,6 +28,8 @@ class Book(TimestampMixin, Base):
     translated_description: Mapped[str | None] = mapped_column(Text)
     cover_url: Mapped[str | None] = mapped_column(String(2048))
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    delete_after: Mapped[datetime | None] = mapped_column(DateTime)
 
     chapters: Mapped[list["Chapter"]] = relationship(
         back_populates="book", cascade="all, delete-orphan", order_by="Chapter.chapter_number"
