@@ -1,3 +1,4 @@
+import os
 from collections.abc import Generator
 from pathlib import Path
 
@@ -12,6 +13,8 @@ class Base(DeclarativeBase):
 
 
 def _database_url() -> str:
+    if os.getenv("VERCEL"):
+        return f"sqlite:///{settings.data_path / 'database.db'}"
     if settings.database_path:
         path = Path(settings.database_path)
         if not path.is_absolute():

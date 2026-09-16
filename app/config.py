@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import truststore
@@ -30,13 +31,23 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     def ensure_directories(self) -> None:
-        (PROJECT_ROOT / "data").mkdir(parents=True, exist_ok=True)
+        self.data_path.mkdir(parents=True, exist_ok=True)
         self.audio_path.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def data_path(self) -> Path:
+        if os.getenv("VERCEL"):
+            return Path("/tmp/leotruyen-data")
+        return PROJECT_ROOT / "data"
 
     @property
     def audio_path(self) -> Path:
         path = Path(self.audio_dir)
-        return path if path.is_absolute() else PROJECT_ROOT / path
+        if path.is_absolute():
+            return path
+        if os.getenv("VERCEL"):
+            return self.data_path / "audio"
+        return PROJECT_ROOT / path
 
 
 settings = Settings()
