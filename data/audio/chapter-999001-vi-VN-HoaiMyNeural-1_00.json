@@ -1,0 +1,18 @@
+{
+  "chapter_id": 999001,
+  "voice": "vi-VN-HoaiMyNeural",
+  "rate": 1.0,
+  "text_hash": "26615c3e1cf81bbba3bde412dbda84f08515e5333bd26730872187df6b794140",
+  "segments": [
+    {
+      "index": 0,
+      "filename": "chapter-999001-vi-VN-HoaiMyNeural-1_00-part-000.mp3",
+      "duration_seconds": 143.664
+    },
+    {
+      "index": 1,
+      "filename": "chapter-999001-vi-VN-HoaiMyNeural-1_00-part-001.mp3",
+      "duration_seconds": 79.32
+    }
+  ]
+}

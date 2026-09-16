@@ -3,9 +3,8 @@ __pycache__/
 .venv/
 venv/
 .env
+logs/
+temp/
 .pytest_cache/
 .mypy_cache/
 *.log
-data/*.db*
-data/audio/*
-!data/audio/.gitkeep

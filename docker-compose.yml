@@ -1,0 +1,51 @@
+services:
+  web:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_PATH: ${DATABASE_PATH:-./data/database.db}
+      AUDIO_DIR: ${AUDIO_DIR:-./data/tts_cache}
+      TRANSLATOR_API_URL: ${TRANSLATOR_API_URL:-http://translator:7861}
+      TTS_API_URL: ${TTS_API_URL:-http://tts:8002}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    depends_on:
+      translator:
+        condition: service_healthy
+      tts:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  translator:
+    build:
+      context: .
+      dockerfile: infra/translator/Dockerfile
+    environment:
+      MODEL_NAME: ${MODEL_NAME:-ngocdang83/HachimiMT-60-QT}
+      MODEL_DIR: /app/models/hachimi
+    volumes:
+      - ./models:/app/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7861/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+
+  tts:
+    build:
+      context: .
+      dockerfile: infra/tts/Dockerfile
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -11,6 +12,11 @@ class Base(DeclarativeBase):
 
 
 def _database_url() -> str:
+    if settings.database_path:
+        path = Path(settings.database_path)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return f"sqlite:///{path}"
     if settings.database_url.startswith("sqlite:///./"):
         relative_path = settings.database_url.removeprefix("sqlite:///./")
         return f"sqlite:///{PROJECT_ROOT / relative_path}"

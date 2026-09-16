@@ -1,0 +1,68 @@
+{
+  "chapter_id": 3758,
+  "voice": "vi-VN-NamMinhNeural",
+  "rate": 1.0,
+  "text_hash": "97df4ce97fc8b6a755acd1df59117612e05c38790f0645ddfad353d57d29910e",
+  "segments": [
+    {
+      "index": 0,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-000.mp3",
+      "duration_seconds": 123.96
+    },
+    {
+      "index": 1,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-001.mp3",
+      "duration_seconds": 114.888
+    },
+    {
+      "index": 2,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-002.mp3",
+      "duration_seconds": 119.304
+    },
+    {
+      "index": 3,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-003.mp3",
+      "duration_seconds": 121.416
+    },
+    {
+      "index": 4,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-004.mp3",
+      "duration_seconds": 116.664
+    },
+    {
+      "index": 5,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-005.mp3",
+      "duration_seconds": 115.92
+    },
+    {
+      "index": 6,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-006.mp3",
+      "duration_seconds": 110.52
+    },
+    {
+      "index": 7,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-007.mp3",
+      "duration_seconds": 117.408
+    },
+    {
+      "index": 8,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-008.mp3",
+      "duration_seconds": 130.704
+    },
+    {
+      "index": 9,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-009.mp3",
+      "duration_seconds": 134.04
+    },
+    {
+      "index": 10,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-010.mp3",
+      "duration_seconds": 121.656
+    },
+    {
+      "index": 11,
+      "filename": "chapter-3758-vi-VN-NamMinhNeural-1_00-part-011.mp3",
+      "duration_seconds": 17.544
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "chapter_id": 2911,
+  "voice": "vi-VN-HoaiMyNeural",
+  "rate": 1.0,
+  "text_hash": "d090f04a6d764f09f32e662339ee5cd03d1f0aca29f07bc0886ec01a775f2ac6",
+  "segments": [
+    {
+      "index": 0,
+      "filename": "chapter-2911-vi-VN-HoaiMyNeural-1_00-part-000.mp3",
+      "duration_seconds": 122.52
+    },
+    {
+      "index": 1,
+      "filename": "chapter-2911-vi-VN-HoaiMyNeural-1_00-part-001.mp3",
+      "duration_seconds": 112.44
+    },
+    {
+      "index": 2,
+      "filename": "chapter-2911-vi-VN-HoaiMyNeural-1_00-part-002.mp3",
+      "duration_seconds": 109.512
+    }
+  ]
+}

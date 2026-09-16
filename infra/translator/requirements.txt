@@ -1,0 +1,6 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+ctranslate2==4.6.0
+huggingface-hub==0.27.0
+transformers==4.48.0
+sentencepiece==0.2.0

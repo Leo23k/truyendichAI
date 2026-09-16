@@ -1,4 +1,52 @@
-# My Novel Reader
+# LeoTruyen
+
+LeoTruyen can run locally, as Docker containers, or on an Oracle Cloud VM. It uses FastAPI, Jinja2, HTMX, SQLite, HachimiMT-60-QT, and Microsoft Edge TTS.
+
+## Docker
+
+```bash
+cp env.example .env
+docker compose up -d --build
+```
+
+Compose runs the FastAPI web app on port `8000`, a HachimiMT-60-QT CTranslate2 translator, and an Edge TTS service. The model is downloaded only once into `./models`; SQLite, covers, translations, and audio caches live in `./data`.
+
+## Vercel
+
+Push the repository to GitHub and import it in Vercel. Add these Environment Variables:
+
+```text
+TRANSLATOR_API_URL=https://your-oracle-domain.example/translate
+TTS_API_URL=https://your-oracle-domain.example/tts
+DATABASE_PATH=/tmp/database.db
+```
+
+Vercel is appropriate for a UI demo. Its filesystem is temporary, so persistent reading history and SQLite data belong on Oracle.
+
+## Oracle
+
+On Ubuntu 24.04, after configuring SSH access to the private repository:
+
+```bash
+chmod +x infra/scripts/*.sh infra/ssl/*.sh
+./infra/scripts/setup-oracle.sh
+```
+
+The script installs Docker and Nginx, creates `.env` when needed, starts Compose, enables restart after reboot, and installs a daily backup timer. After DNS points at the VM, enable HTTPS:
+
+```bash
+./infra/ssl/request-cert.sh your-domain.example you@example.com
+```
+
+## Structure
+
+```text
+app/                 FastAPI, crawler, reader, translator, and TTS
+data/                SQLite, covers, translations, audio caches, backups
+models/              HachimiMT cache
+infra/               Docker services, Nginx, systemd, and Oracle scripts
+tests/               Project tests
+```
 
 Ứng dụng cá nhân để quản lý, đọc và dịch truyện Trung Quốc.
 
