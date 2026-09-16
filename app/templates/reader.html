@@ -35,9 +35,9 @@
         <button type="button" data-toc-button class="icon-button text-stone-600" aria-label="Mục lục">
           <i data-lucide="list" class="h-5 w-5"></i>
         </button>
-        <button type="button" data-translate-button class="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-stone-700 hover:bg-stone-100" aria-label="Dịch chương">
+        <button type="button" data-translate-button class="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-stone-700 hover:bg-stone-100" aria-label="{% if chapter.translated_content %}{% if showing_translation %}Xem bản gốc{% else %}Xem bản dịch{% endif %}{% else %}Dịch chương{% endif %}">
           <i data-lucide="languages" class="h-4 w-4"></i>
-          <span>Dịch</span>
+          <span>{% if chapter.translated_content %}{% if showing_translation %}Xem bản gốc{% else %}Xem bản dịch{% endif %}{% else %}Dịch{% endif %}</span>
         </button>
         <div class="relative">
           <button type="button" class="icon-button text-stone-600" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Cỡ chữ">
@@ -103,6 +103,10 @@
     data-synced-slug="{% if synced_reader %}{{ chapter.book_id }}{% endif %}"
     data-synced-chapter-number="{% if synced_reader %}{{ chapter.chapter_number }}{% endif %}"
     data-synced-title="{{ chapter.title or display_title }}"
+    data-has-translation="{% if chapter.translated_content %}true{% else %}false{% endif %}"
+    data-showing-translation="{% if showing_translation %}true{% else %}false{% endif %}"
+    data-original-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=original{% else %}/chapters/{{ chapter.id }}?mode=original{% endif %}"
+    data-translated-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=translated{% else %}/chapters/{{ chapter.id }}?mode=translated{% endif %}"
     data-audio-url="/chapters/{{ chapter.id }}/audio"
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
     data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
@@ -264,6 +268,10 @@
       const sheetBackdrop = document.querySelector("[data-sheet-backdrop]");
       const readerContent = document.querySelector(".reader-content");
       const nextUrl = player.dataset.nextUrl;
+      const hasTranslation = player.dataset.hasTranslation === "true";
+      const showingTranslation = player.dataset.showingTranslation === "true";
+      const originalViewUrl = player.dataset.originalViewUrl || "";
+      const translatedViewUrl = player.dataset.translatedViewUrl || "";
       const defaultVoice = "vi-VN-HoaiMyNeural";
       const supportedVoices = new Set(["vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"]);
 
@@ -275,6 +283,7 @@
       let hideTimer = null;
       let audioRetryUsed = false;
       let fallbackUtterance = null;
+      let translationStarted = false;
 
       const formatTime = (seconds) => {
         if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -535,6 +544,23 @@
         }
       };
 
+      const updateTranslateButton = () => {
+        if (!translateButton) return;
+        const label = translateButton.querySelector("span");
+        if (hasTranslation) {
+          label.textContent = showingTranslation ? "Xem bản gốc" : "Xem bản dịch";
+          translateButton.setAttribute("aria-label", label.textContent);
+        } else {
+          label.textContent = translationStarted ? "Đang dịch" : "Dịch";
+          translateButton.setAttribute("aria-label", "Dịch chương");
+        }
+      };
+
+      const toggleTranslationView = () => {
+        const targetUrl = showingTranslation ? originalViewUrl : translatedViewUrl;
+        if (targetUrl) window.location.href = targetUrl;
+      };
+
       const renderTranslationFlowState = (job) => {
         const labels = { queued: "Đang xếp hàng.", loading: "Đang tải bản gốc.", translating: "Đang dịch.", saving: "Đang lưu.", completed: "Hoàn thành.", failed: "Thất bại." };
         translationPanel.hidden = false;
@@ -557,12 +583,21 @@
       };
 
       const showTranslationFlowFailure = (error) => {
+        translationStarted = false;
         translateButton.disabled = false;
+        updateTranslateButton();
         renderTranslationFlowState({ status: "failed", progress: 100, error: error.message || "Translator chưa kết nối với PC." });
       };
 
       const startTranslationFlow = async () => {
+        if (hasTranslation) {
+          toggleTranslationView();
+          return;
+        }
+        if (translationStarted) return;
+        translationStarted = true;
         translateButton.disabled = true;
+        updateTranslateButton();
         translationRetry.hidden = true;
         translationError.classList.add("hidden");
         renderTranslationFlowState({ status: "queued", progress: 5 });
@@ -788,6 +823,7 @@
         loadPlaylist(savedPosition, shouldAutoplay);
       }
 
+      updateTranslateButton();
       translateButton?.addEventListener("click", startTranslationFlow);
       translationRetry?.addEventListener("click", startTranslationFlow);
       voiceButton?.addEventListener("click", () => openSheet("voice"));
@@ -834,6 +870,7 @@
       updateToc();
       startSleepInterval();
       showBar();
+      if (!hasTranslation) window.setTimeout(startTranslationFlow, 250);
     })();
   </script>
 </div>

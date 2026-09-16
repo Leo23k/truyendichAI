@@ -234,6 +234,9 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
     previous = entries[position - 1] if position else None
     following = entries[position + 1] if position + 1 < len(entries) else None
+    original_content = payload.get("original_content") or payload.get("content")
+    translated_content = payload.get("translated_content") or payload.get("content")
+    showing_translation = request.query_params.get("mode", "translated") != "original" and bool(translated_content)
     chapter = SimpleNamespace(
         id=f"cdn-{slug}-{chapter_number}",
         book_id=slug,
@@ -241,8 +244,8 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         title=payload.get("original_title") or payload.get("title"),
         translated_title=payload.get("title"),
         source_url=current.get("source_url"),
-        original_content=payload.get("original_content") or payload.get("content"),
-        translated_content=payload.get("translated_content") or payload.get("content"),
+        original_content=original_content,
+        translated_content=translated_content,
     )
     return templates.TemplateResponse(
         request=request,
@@ -251,10 +254,10 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "chapter": chapter,
             "previous": previous,
             "following": following,
-            "mode": "translated",
-            "showing_translation": True,
-            "display_title": payload.get("title"),
-            "display_content": payload.get("translated_content") or payload.get("content"),
+            "mode": "translated" if showing_translation else "original",
+            "showing_translation": showing_translation,
+            "display_title": payload.get("title") if showing_translation else chapter.title,
+            "display_content": translated_content if showing_translation else original_content,
             "translation_error": None,
             "original_url": current.get("source_url"),
             "synced_reader": True,
