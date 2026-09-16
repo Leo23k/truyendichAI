@@ -19,6 +19,7 @@ from app.models import Book
 from app.models import Chapter, TranslationMemory
 from app.search import search_books as run_search
 from app.services.book_service import BookService
+from sync.service import R2SyncError, pull_from_r2, r2_configured
 from app.translator.service import TranslationUnavailableError, translator
 from app.tts.edge_tts_service import (
     DEFAULT_EDGE_VOICE,
@@ -46,6 +47,11 @@ class TTSRequest(BaseModel):
 
 @app.on_event("startup")
 def startup() -> None:
+    if r2_configured():
+        try:
+            pull_from_r2()
+        except R2SyncError:
+            logger.exception("R2 bootstrap sync failed; using local data snapshot")
     create_tables()
 
 
@@ -357,6 +363,8 @@ async def chapter_audio_manifest(
 ):
     chapter = db.get(Chapter, chapter_id)
     if chapter is None:
+        if r2_configured():
+            return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
         raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y chÆ°Æ¡ng.")
     if not chapter.translated_content:
         raise HTTPException(status_code=400, detail="HÃ£y dá»‹ch chÆ°Æ¡ng trÆ°á»›c khi sá»­ dá»¥ng chá»©c nÄƒng nghe.")
