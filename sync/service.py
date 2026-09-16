@@ -1,187 +1,209 @@
-"""Incremental Cloudflare R2 synchronization for LeoTruyen data."""
+"""Export locally processed novels and publish them with Git CLI."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import logging
 import os
+import re
+import shutil
+import sqlite3
+import subprocess
 import time
+import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
-
-from app.config import PROJECT_ROOT
+from dotenv import load_dotenv
 
 
+ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT / ".env")
+DATA_REPO_URL = os.getenv("GITHUB_DATA_REPO_URL", "https://github.com/Leo23k/truyendichAI-data.git")
+DATA_REPO_DIR = Path(os.getenv("GITHUB_DATA_REPO_DIR", ROOT / "temp" / "truyendichAI-data"))
+DATABASE_PATH = Path(os.getenv("SYNC_DATABASE_PATH", ROOT / "data" / "app.db"))
+AUDIO_DIR = Path(os.getenv("SYNC_AUDIO_DIR", ROOT / "data" / "audio"))
+RETRIES = 3
 logger = logging.getLogger(__name__)
-R2_PREFIX = "data"
-SYNC_DIRECTORIES = ("covers", "translations", "audio_cache", "tts_cache", "audio")
-RETRY_ATTEMPTS = 3
 
 
-class R2SyncError(RuntimeError):
+class SyncError(RuntimeError):
     pass
 
 
-def r2_configured() -> bool:
-    return all(
-        os.getenv(name)
-        for name in (
-            "CLOUDFLARE_ACCOUNT_ID",
-            "CLOUDFLARE_R2_BUCKET",
-            "CLOUDFLARE_ACCESS_KEY",
-            "CLOUDFLARE_SECRET_KEY",
-        )
-    )
-
-
-def data_root() -> Path:
-    configured = os.getenv("R2_DATA_DIR")
-    return Path(configured) if configured else PROJECT_ROOT / "data"
-
-
-def r2_client():
-    if not r2_configured():
-        raise R2SyncError("Cloudflare R2 environment variables are not configured.")
-    account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"]
-    return boto3.client(
-        "s3",
-        endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
-        aws_access_key_id=os.environ["CLOUDFLARE_ACCESS_KEY"],
-        aws_secret_access_key=os.environ["CLOUDFLARE_SECRET_KEY"],
-        config=Config(retries={"max_attempts": RETRY_ATTEMPTS, "mode": "standard"}),
-        region_name="auto",
-    )
-
-
-def bucket_name() -> str:
-    return os.environ["CLOUDFLARE_R2_BUCKET"]
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def object_key(path: Path) -> str:
-    return f"{R2_PREFIX}/{path.relative_to(data_root()).as_posix()}"
-
-
-def local_files() -> list[Path]:
-    root = data_root()
-    files: list[Path] = []
-    database = root / "database.db"
-    if database.exists():
-        files.append(database)
-    for directory in SYNC_DIRECTORIES:
-        path = root / directory
-        if path.exists():
-            files.extend(item for item in path.rglob("*") if item.is_file())
-    return files
-
-
-def with_retry(operation, description: str):
-    for attempt in range(1, RETRY_ATTEMPTS + 1):
-        try:
-            return operation()
-        except (BotoCoreError, ClientError, OSError) as exc:
-            if attempt == RETRY_ATTEMPTS:
-                raise R2SyncError(f"R2 {description} failed after {attempt} attempts: {exc}") from exc
-            logger.warning("R2 %s failed (%s/%s): %s", description, attempt, RETRY_ATTEMPTS, exc)
-            time.sleep(attempt)
-
-
-def remote_sha(client, key: str) -> str | None:
+def run_git(*args: str, cwd: Path | None = None) -> str:
     try:
-        response = with_retry(lambda: client.head_object(Bucket=bucket_name(), Key=key), f"inspect {key}")
-    except R2SyncError as exc:
-        error = exc.__cause__
-        if isinstance(error, ClientError) and error.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
-            return None
-        raise
-    return response.get("Metadata", {}).get("sha256")
-
-
-def push_to_r2() -> dict[str, int]:
-    client = r2_client()
-    uploaded = skipped = 0
-    for path in local_files():
-        key = object_key(path)
-        checksum = sha256(path)
-        if remote_sha(client, key) == checksum:
-            skipped += 1
-            continue
-        with_retry(
-            lambda: client.upload_file(
-                str(path), bucket_name(), key, ExtraArgs={"Metadata": {"sha256": checksum}}
-            ),
-            f"upload {key}",
+        result = subprocess.run(
+            ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
         )
-        uploaded += 1
-    logger.info("R2 push complete: uploaded=%s skipped=%s", uploaded, skipped)
-    return {"uploaded": uploaded, "skipped": skipped}
+    except FileNotFoundError as exc:
+        raise SyncError("Git CLI is not installed or is not available in PATH.") from exc
+    except subprocess.CalledProcessError as exc:
+        message = (exc.stderr or exc.stdout).strip()
+        raise SyncError(f"git {' '.join(args)} failed: {message}") from exc
+    return result.stdout.strip()
 
 
-def remote_keys(client) -> list[str]:
-    keys: list[str] = []
-    paginator = client.get_paginator("list_objects_v2")
-    for page in with_retry(lambda: paginator.paginate(Bucket=bucket_name(), Prefix=f"{R2_PREFIX}/"), "list"):
-        keys.extend(item["Key"] for item in page.get("Contents", []))
-    return keys
+def slugify(value: str, book_id: int) -> str:
+    normalized = unicodedata.normalize("NFKD", value or "")
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii").lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_value).strip("-")
+    return f"{slug or 'novel'}-{book_id}"
 
 
-def local_path_for_key(key: str) -> Path | None:
-    prefix = f"{R2_PREFIX}/"
-    if not key.startswith(prefix):
+def chapter_key(number: int) -> str:
+    return f"{number:03d}"
+
+
+def write_if_changed(path: Path, content: bytes) -> bool:
+    if path.exists() and path.read_bytes() == content:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return True
+
+
+def write_json(path: Path, payload: object) -> bool:
+    content = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    return write_if_changed(path, content)
+
+
+def latest_audio(book_id: int, chapter_id: int, destination: Path) -> str | None:
+    manifest = AUDIO_DIR / f"chapter-{chapter_id}-vi-VN-HoaiMyNeural-1_00.json"
+    if not manifest.exists():
         return None
-    relative = Path(key.removeprefix(prefix))
-    if ".." in relative.parts:
+    try:
+        segment_names = [item["filename"] for item in json.loads(manifest.read_text("utf-8"))["segments"]]
+    except (OSError, ValueError, KeyError, TypeError):
         return None
-    if not relative.parts or (
-        relative.parts[0] != "database.db" and relative.parts[0] not in SYNC_DIRECTORIES
-    ):
+    segments = [AUDIO_DIR / name for name in segment_names]
+    if not segments or not all(item.exists() and item.stat().st_size for item in segments):
         return None
-    return data_root() / relative
+    combined = b"".join(item.read_bytes() for item in segments)
+    write_if_changed(destination, combined)
+    return f"audio/{destination.name}"
 
 
-def pull_from_r2() -> dict[str, int]:
-    client = r2_client()
-    downloaded = skipped = 0
-    for key in remote_keys(client):
-        path = local_path_for_key(key)
-        if path is None:
-            continue
-        checksum = remote_sha(client, key)
-        if path.exists() and checksum and sha256(path) == checksum:
-            skipped += 1
-            continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with_retry(lambda: client.download_file(bucket_name(), key, str(path)), f"download {key}")
-        downloaded += 1
-    logger.info("R2 pull complete: downloaded=%s skipped=%s", downloaded, skipped)
-    return {"downloaded": downloaded, "skipped": skipped}
+def export_data() -> dict[str, int]:
+    if not DATABASE_PATH.exists():
+        raise SyncError(f"SQLite database was not found: {DATABASE_PATH}")
+    output_root = DATA_REPO_DIR / "data"
+    novels_root = output_root / "novels"
+    connection = sqlite3.connect(DATABASE_PATH)
+    connection.row_factory = sqlite3.Row
+    books = connection.execute("SELECT * FROM books ORDER BY id").fetchall()
+    changed = chapters_written = 0
+    metadata_novels: list[dict[str, object]] = []
+    try:
+        for book in books:
+            slug = slugify(book["translated_title"] or book["title"], book["id"])
+            novel_root = novels_root / slug
+            chapter_rows = connection.execute(
+                "SELECT * FROM chapters WHERE book_id = ? ORDER BY chapter_number", (book["id"],)
+            ).fetchall()
+            manifest_chapters: list[dict[str, object]] = []
+            for chapter in chapter_rows:
+                key = chapter_key(chapter["chapter_number"])
+                has_content = bool(chapter["translated_content"] or chapter["original_content"])
+                audio_url = latest_audio(book["id"], chapter["id"], novel_root / "audio" / f"{key}.mp3")
+                synced = has_content
+                if has_content:
+                    payload = {
+                        "number": chapter["chapter_number"],
+                        "title": chapter["translated_title"] or chapter["title"],
+                        "original_title": chapter["title"],
+                        "content": chapter["translated_content"] or chapter["original_content"],
+                        "translated": bool(chapter["translated_content"]),
+                        "audio": audio_url,
+                    }
+                    if write_json(novel_root / "chapters" / f"{key}.json", payload):
+                        changed += 1
+                    chapters_written += 1
+                manifest_chapters.append(
+                    {
+                        "number": chapter["chapter_number"],
+                        "title": chapter["translated_title"] or chapter["title"],
+                        "url": f"chapters/{key}.json" if synced else None,
+                        "audio": audio_url,
+                        "synced": synced,
+                    }
+                )
+            latest = next((item["number"] for item in reversed(manifest_chapters) if item["synced"]), 0)
+            manifest = {
+                "slug": slug,
+                "title": book["translated_title"] or book["title"],
+                "author": book["translated_author"] or book["author"],
+                "cover": book["cover_url"],
+                "latest_chapter": latest,
+                "chapters": manifest_chapters,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            if write_json(novel_root / "manifest.json", manifest):
+                changed += 1
+            metadata_novels.append({"slug": slug, "title": manifest["title"], "author": manifest["author"], "cover": manifest["cover"], "latest_chapter": latest})
+    finally:
+        connection.close()
+    if write_json(output_root / "metadata.json", {"novels": metadata_novels, "updated_at": datetime.now(timezone.utc).isoformat()}):
+        changed += 1
+    return {"changed": changed, "chapters": chapters_written}
+
+
+def prepare_repository() -> None:
+    if (DATA_REPO_DIR / ".git").exists():
+        try:
+            run_git("rev-parse", "--verify", "HEAD", cwd=DATA_REPO_DIR)
+            run_git("pull", "--ff-only", "origin", "main", cwd=DATA_REPO_DIR)
+        except SyncError:
+            run_git("checkout", "-b", "main", cwd=DATA_REPO_DIR)
+        return
+    DATA_REPO_DIR.parent.mkdir(parents=True, exist_ok=True)
+    run_git("clone", DATA_REPO_URL, str(DATA_REPO_DIR))
+    if not (DATA_REPO_DIR / ".git").exists():
+        raise SyncError("GitHub data repository could not be cloned.")
+    try:
+        run_git("rev-parse", "--verify", "HEAD", cwd=DATA_REPO_DIR)
+    except SyncError:
+        run_git("checkout", "-b", "main", cwd=DATA_REPO_DIR)
+
+
+def commit_and_push() -> bool:
+    run_git("add", "data", cwd=DATA_REPO_DIR)
+    if not run_git("status", "--porcelain", cwd=DATA_REPO_DIR):
+        return False
+    run_git("commit", "-m", "sync: publish novel data", cwd=DATA_REPO_DIR)
+    for attempt in range(1, RETRIES + 1):
+        try:
+            run_git("push", "origin", "main", cwd=DATA_REPO_DIR)
+            return True
+        except SyncError:
+            if attempt == RETRIES:
+                raise
+            run_git("pull", "--rebase", "origin", "main", cwd=DATA_REPO_DIR)
+            time.sleep(attempt)
+    return False
+
+
+def sync_once() -> dict[str, int | bool]:
+    prepare_repository()
+    exported = export_data()
+    pushed = commit_and_push()
+    logger.info("GitHub data sync complete: %s pushed=%s", exported, pushed)
+    return {**exported, "pushed": pushed}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sync LeoTruyen data with Cloudflare R2")
-    parser.add_argument("command", choices=("push", "pull", "watch"))
+    parser = argparse.ArgumentParser(description="Publish LeoTruyen data repository")
+    parser.add_argument("command", choices=("sync", "watch"), default="sync", nargs="?")
     parser.add_argument("--interval", type=int, default=60)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    if args.command == "push":
-        push_to_r2()
-    elif args.command == "pull":
-        pull_from_r2()
-    else:
-        while True:
-            push_to_r2()
-            time.sleep(max(10, args.interval))
+    while True:
+        sync_once()
+        if args.command == "sync":
+            return
+        time.sleep(max(30, args.interval))
 
 
 if __name__ == "__main__":
