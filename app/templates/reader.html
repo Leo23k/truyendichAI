@@ -465,11 +465,11 @@
         translateButton.disabled = true;
         renderTranslationState({ status: "queued", progress: 5 });
         try {
-          const chapterId = /^\d+$/.test(chapterId) ? Number(chapterId) : null;
+          const numericChapterId = /^\d+$/.test(chapterId) ? Number(chapterId) : null;
           const response = await fetch("/translate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chapter_id: chapterId, source_url: player.dataset.sourceUrl || null }),
+            body: JSON.stringify({ chapter_id: numericChapterId, source_url: player.dataset.sourceUrl || null }),
           });
           const payload = await response.json();
           if (!response.ok) throw new Error(payload.detail || "Không thể bắt đầu dịch.");
