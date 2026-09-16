@@ -16,6 +16,10 @@ SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 LOCAL_SYNC_DATA_DIR = Path(
     os.getenv("SYNCED_DATA_PATH", ROOT / "temp" / "truyendichAI-data" / "data")
 )
+JSDELIVR_DATA_BASE_URL = os.getenv(
+    "JSDELIVR_DATA_BASE_URL",
+    "https://cdn.jsdelivr.net/gh/Leo23k/truyendichAI-data@main/data",
+).rstrip("/")
 
 
 class CdnDataError(RuntimeError):
@@ -43,6 +47,8 @@ def storage_url(bucket: str, path: str) -> str:
 def cdn_url(path: str) -> str:
     relative = _safe_path(path)
     parts = relative.parts
+    if not _configured():
+        return f"{JSDELIVR_DATA_BASE_URL}/{quote(relative.as_posix())}"
     if len(parts) >= 4 and parts[0] == "novels" and parts[2] == "audio":
         return storage_url("audio", f"{parts[1]}/{'/'.join(parts[3:])}")
     if len(parts) >= 4 and parts[0] == "novels" and parts[2] == "chapters":
@@ -92,6 +98,26 @@ def _local_json(path: str) -> dict:
     return payload
 
 
+def _github_json(path: str) -> dict:
+    try:
+        with httpx.Client(timeout=15, trust_env=False) as client:
+            response = client.get(f"{JSDELIVR_DATA_BASE_URL}/{quote(_safe_path(path).as_posix())}")
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise CdnDataError(f"Could not load GitHub fallback data: {path}") from exc
+    if not isinstance(payload, dict):
+        raise CdnDataError(f"Invalid GitHub fallback data: {path}")
+    return payload
+
+
+def _fallback_json(path: str) -> dict:
+    try:
+        return _local_json(path)
+    except CdnDataError:
+        return _github_json(path)
+
+
 def load_novels() -> list[dict]:
     if _configured():
         try:
@@ -112,7 +138,7 @@ def load_novels() -> list[dict]:
             return novels
         except CdnDataError:
             pass
-    return _local_json("metadata.json").get("novels", [])
+    return _fallback_json("metadata.json").get("novels", [])
 
 
 def load_cdn_json(path: str) -> dict:
@@ -129,7 +155,7 @@ def load_cdn_json(path: str) -> dict:
                 return payload
         except (httpx.HTTPError, ValueError):
             pass
-    return _local_json(path)
+    return _fallback_json(path)
 
 
 def load_chapters_index(slug: str) -> list[dict]:
@@ -148,7 +174,7 @@ def load_chapters_index(slug: str) -> list[dict]:
             )
         except CdnDataError:
             pass
-    payload = _local_json(f"novels/{slug}/chapters_index.json")
+    payload = _fallback_json(f"novels/{slug}/chapters_index.json")
     chapters = payload.get("chapters", [])
     if not isinstance(chapters, list):
         raise CdnDataError(f"Invalid chapters index: {slug}")

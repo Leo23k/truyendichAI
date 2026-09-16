@@ -78,6 +78,17 @@ class SupabaseSync:
             raise SyncError(f"Supabase did not return {table} upsert result.")
         return rows[0]
 
+    def ensure_buckets(self) -> None:
+        for bucket in ("covers", "chapters", "audio"):
+            with httpx.Client(timeout=30, trust_env=False) as client:
+                response = client.get(f"{SUPABASE_URL}/storage/v1/bucket/{bucket}", headers=self.headers)
+            if response.status_code == 404:
+                self.request("POST", "/storage/v1/bucket", json={"id": bucket, "name": bucket, "public": True})
+            elif response.is_success:
+                self.request("PUT", f"/storage/v1/bucket/{bucket}", json={"public": True})
+            else:
+                response.raise_for_status()
+
     def upload_if_changed(self, bucket: str, path: str, content: bytes, content_type: str) -> bool:
         encoded = quote(path, safe="/")
         public_path = f"/storage/v1/object/public/{bucket}/{encoded}"
@@ -127,6 +138,7 @@ def sync_once() -> dict[str, int | bool]:
     if not DATABASE_PATH.exists():
         raise SyncError(f"SQLite database was not found: {DATABASE_PATH}")
     remote = SupabaseSync()
+    remote.ensure_buckets()
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     counts = {"novels": 0, "chapters": 0, "json_uploaded": 0, "audio_uploaded": 0, "covers_uploaded": 0}

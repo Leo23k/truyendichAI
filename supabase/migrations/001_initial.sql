@@ -23,13 +23,16 @@ create table if not exists public.chapters (
 
 create index if not exists chapters_novel_number_idx on public.chapters (novel_id, chapter_number);
 
+grant usage on schema public to anon, authenticated;
+grant select on public.novels, public.chapters to anon, authenticated;
+
 alter table public.novels enable row level security;
 alter table public.chapters enable row level security;
 
 drop policy if exists "public read novels" on public.novels;
-create policy "public read novels" on public.novels for select using (true);
+create policy "public read novels" on public.novels for select to anon, authenticated using (true);
 drop policy if exists "public read chapters" on public.chapters;
-create policy "public read chapters" on public.chapters for select using (true);
+create policy "public read chapters" on public.chapters for select to anon, authenticated using (true);
 
 insert into storage.buckets (id, name, public)
 values ('covers', 'covers', true), ('chapters', 'chapters', true), ('audio', 'audio', true)
@@ -37,5 +40,5 @@ on conflict (id) do update set public = true;
 
 drop policy if exists "public read leotruyen storage" on storage.objects;
 create policy "public read leotruyen storage"
-on storage.objects for select
+on storage.objects for select to anon, authenticated
 using (bucket_id in ('covers', 'chapters', 'audio'));
