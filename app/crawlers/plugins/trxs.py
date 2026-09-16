@@ -29,6 +29,7 @@ class TrxsCrawler(BaseCrawler):
             async with httpx.AsyncClient(
                 timeout=settings.crawler_timeout,
                 follow_redirects=True,
+                trust_env=False,
                 headers={"User-Agent": "Mozilla/5.0 MyNovelReader/1.0"},
             ) as client:
                 response = await client.get(url)
