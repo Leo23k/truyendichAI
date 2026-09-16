@@ -64,9 +64,9 @@
       <div class="p-4">
         <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ book.translated_title or book.title }}</h2>
         <p class="mt-2 text-sm text-stone-500">{{ book.translated_author or book.author or 'Chưa rõ tác giả' }}</p>
-        <div class="mt-4 flex items-center justify-between gap-3">
+        <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
           <span class="text-xs font-medium text-stone-500">{{ book.chapters|length }} chương</span>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center justify-end gap-2">
             <a data-book-continue-reading="{{ book.id }}" hidden href="#" onclick="return startTranslationProgress(this)" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100">
               <i data-lucide="bookmark-check" class="h-4 w-4"></i>
               <span>Đọc tiếp</span>
@@ -79,6 +79,16 @@
               <i data-lucide="book-open" class="h-4 w-4"></i>
               <span>Đọc</span>
             </a>
+            <form action="/books/{{ book.id }}/update" method="post">
+              <button type="submit" title="Cập nhật chương mới" class="icon-button h-9 w-9 text-stone-600 hover:bg-stone-100" aria-label="Cập nhật chương mới">
+                <i data-lucide="refresh-cw" class="h-4 w-4"></i>
+              </button>
+            </form>
+            <form action="/books/{{ book.id }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');">
+              <button type="submit" title="Xóa truyện" class="icon-button h-9 w-9 text-red-600 hover:bg-red-50" aria-label="Xóa truyện">
+                <i data-lucide="trash-2" class="h-4 w-4"></i>
+              </button>
+            </form>
           </div>
         </div>
       </div>
