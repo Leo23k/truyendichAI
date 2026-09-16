@@ -21,7 +21,7 @@
 >
   <header class="sticky top-0 z-30 border-b border-stone-200/70 bg-white/85 backdrop-blur">
     <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-      <a href="/books/{{ chapter.book_id }}" class="icon-button text-stone-600" aria-label="Quay lại chi tiết truyện">
+      <a href="{{ back_url or '/books/' ~ chapter.book_id }}" class="icon-button text-stone-600" aria-label="Quay lại chi tiết truyện">
         <i data-lucide="arrow-left" class="h-5 w-5"></i>
       </a>
       <div class="min-w-0 flex-1 text-center">
@@ -44,7 +44,7 @@
             </div>
           </div>
         </div>
-        <div class="relative">
+        {% if not synced_reader %}<div class="relative">
           <button type="button" class="icon-button text-stone-600" @click="settingsPanel = !settingsPanel; fontPanel = false" aria-label="Cài đặt đọc">
             <i data-lucide="settings" class="h-5 w-5"></i>
           </button>
@@ -61,15 +61,15 @@
             {% endif %}
             <a href="/chapters/{{ chapter.id }}/edit" class="block rounded-md px-3 py-2 hover:bg-stone-50">Chỉnh sửa bản dịch</a>
           </div>
-        </div>
+        </div>{% endif %}
       </div>
     </div>
   </header>
 
-  <div data-translation-progress class="crawl-progress-panel mx-auto mt-4 max-w-3xl px-4" role="progressbar" aria-label="Tiến độ dịch" aria-valuemin="0" aria-valuemax="100">
+  {% if not synced_reader %}<div data-translation-progress class="crawl-progress-panel mx-auto mt-4 max-w-3xl px-4" role="progressbar" aria-label="Tiến độ dịch" aria-valuemin="0" aria-valuemax="100">
     <div class="mb-1 flex justify-between text-xs opacity-70"><span>Đang dịch chương...</span><span data-progress-value>0%</span></div>
     <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
-  </div>
+  </div>{% endif %}
   {% if translation_error %}
   <div class="mx-auto mt-4 max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ translation_error }} Đang hiển thị bản gốc.</div>
   {% endif %}
@@ -80,8 +80,8 @@
     data-reader-player
     data-chapter-id="{{ chapter.id }}"
     data-audio-url="/chapters/{{ chapter.id }}/audio"
-    data-audio-manifest-url="/chapters/{{ chapter.id }}/audio/manifest"
-    data-next-url="{% if following %}/chapters/{{ following.id }}{% endif %}"
+    data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
+    data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
     data-has-audio="{% if showing_translation and chapter.translated_content %}true{% else %}false{% endif %}"
     class="reader-bottom-bar fixed bottom-4 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-4xl -translate-x-1/2 rounded-lg border border-stone-200 bg-white/95 px-2.5 py-2 text-stone-900 shadow-xl backdrop-blur sm:px-4"
   >
@@ -90,7 +90,7 @@
     {% endif %}
     <div class="grid grid-cols-[auto_auto_1fr_auto] items-center gap-2 sm:gap-3">
       {% if previous %}
-      <a href="/chapters/{{ previous.id }}" data-reader-prev class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương trước">
+      <a href="{{ previous_url or '/chapters/' ~ previous.id }}" data-reader-prev class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương trước">
         <i data-lucide="chevron-left" class="h-5 w-5"></i>
         <span class="hidden sm:inline">Chương trước</span>
       </a>
@@ -120,7 +120,7 @@
       </div>
 
       {% if following %}
-      <a href="/chapters/{{ following.id }}" data-reader-next class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương sau">
+      <a href="{{ following_url or '/chapters/' ~ following.id }}" data-reader-next class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương sau">
         <span class="hidden sm:inline">Chương sau</span>
         <i data-lucide="chevron-right" class="h-5 w-5"></i>
       </a>

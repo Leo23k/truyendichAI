@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import logging
 
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
+from app.cdn import CdnDataError, cdn_url, load_cdn_json
 from app.database import create_tables, get_db
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
@@ -19,7 +21,6 @@ from app.models import Book
 from app.models import Chapter, TranslationMemory
 from app.search import search_books as run_search
 from app.services.book_service import BookService
-from sync.service import R2SyncError, pull_from_r2, r2_configured
 from app.translator.service import TranslationUnavailableError, translator
 from app.tts.edge_tts_service import (
     DEFAULT_EDGE_VOICE,
@@ -47,18 +48,79 @@ class TTSRequest(BaseModel):
 
 @app.on_event("startup")
 def startup() -> None:
-    if r2_configured():
-        try:
-            pull_from_r2()
-        except R2SyncError:
-            logger.exception("R2 bootstrap sync failed; using local data snapshot")
     create_tables()
 
 
 @app.get("/", name="library")
 def library(request: Request, db: Session = Depends(get_db)):
     books = db.scalars(select(Book).order_by(Book.updated_at.desc())).all()
+    if not books:
+        try:
+            metadata = load_cdn_json("metadata.json")
+            return templates.TemplateResponse(
+                request=request,
+                name="synced_library.html",
+                context={"novels": [item for item in metadata.get("novels", []) if item.get("latest_chapter")]},
+            )
+        except CdnDataError:
+            pass
     return templates.TemplateResponse(request=request, name="library.html", context={"books": books})
+
+
+@app.get("/synced/{slug}/{chapter_number}")
+def read_synced_chapter(slug: str, chapter_number: int, request: Request):
+    key = f"{chapter_number:03d}"
+    try:
+        manifest = load_cdn_json(f"novels/{slug}/manifest.json")
+        entries = manifest.get("chapters", [])
+        position = next((index for index, item in enumerate(entries) if item.get("number") == chapter_number), None)
+        if position is None or not entries[position].get("synced"):
+            return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
+        payload = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
+    except CdnDataError:
+        return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
+    previous = next((item for item in reversed(entries[:position]) if item.get("synced")), None)
+    following = next((item for item in entries[position + 1 :] if item.get("synced")), None)
+    chapter = SimpleNamespace(
+        id=f"cdn-{slug}-{chapter_number}",
+        book_id=slug,
+        title=payload.get("original_title") or payload.get("title"),
+        translated_title=payload.get("title"),
+        original_content=payload.get("content"),
+        translated_content=payload.get("content"),
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="reader.html",
+        context={
+            "chapter": chapter,
+            "previous": previous,
+            "following": following,
+            "mode": "translated",
+            "showing_translation": True,
+            "display_title": payload.get("title"),
+            "display_content": payload.get("content"),
+            "translation_error": None,
+            "synced_reader": True,
+            "back_url": "/",
+            "previous_url": f"/synced/{slug}/{previous['number']}" if previous else "",
+            "following_url": f"/synced/{slug}/{following['number']}" if following else "",
+            "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
+        },
+    )
+
+
+@app.get("/synced/{slug}/{chapter_number}/audio/manifest")
+def synced_audio_manifest(slug: str, chapter_number: int):
+    key = f"{chapter_number:03d}"
+    try:
+        chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
+        audio_path = chapter.get("audio")
+        if not audio_path:
+            raise CdnDataError("No synced audio")
+        return {"segments": [{"index": 0, "url": cdn_url(f"novels/{slug}/{audio_path}"), "duration": 0}]}
+    except CdnDataError:
+        raise HTTPException(status_code=404, detail="Chương này chưa được đồng bộ.") from None
 
 
 @app.get("/books/preview")
@@ -363,8 +425,6 @@ async def chapter_audio_manifest(
 ):
     chapter = db.get(Chapter, chapter_id)
     if chapter is None:
-        if r2_configured():
-            return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
         raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y chÆ°Æ¡ng.")
     if not chapter.translated_content:
         raise HTTPException(status_code=400, detail="HÃ£y dá»‹ch chÆ°Æ¡ng trÆ°á»›c khi sá»­ dá»¥ng chá»©c nÄƒng nghe.")

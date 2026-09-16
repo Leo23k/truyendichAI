@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}My Novel Reader{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+  <h1 class="text-xl font-semibold text-stone-900">Thư viện</h1>
+  <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    {% for novel in novels %}
+    <a href="/synced/{{ novel.slug }}/{{ novel.latest_chapter }}" class="rounded-lg border border-stone-200 bg-white p-4 shadow-sm hover:border-teal-500">
+      <p class="font-semibold text-stone-900">{{ novel.title }}</p>
+      {% if novel.author %}<p class="mt-1 text-sm text-stone-500">{{ novel.author }}</p>{% endif %}
+      <p class="mt-3 text-xs text-stone-500">Chương {{ novel.latest_chapter }}</p>
+    </a>
+    {% else %}
+    <p class="text-sm text-stone-500">Chưa có truyện nào được đồng bộ.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
