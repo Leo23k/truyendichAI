@@ -136,7 +136,7 @@ def _run_translation_job(
         _queue_supabase_sync()
         _update_translation_job(job_id, status="completed", progress=100)
     except TranslationUnavailableError as exc:
-        _update_translation_job(job_id, status="failed", progress=100, error=f"Translator offline: {exc}")
+        _update_translation_job(job_id, status="failed", progress=100, error="Translator chưa kết nối với PC.")
     except Exception as exc:
         logger.exception("Translation job %s failed", job_id)
         _update_translation_job(job_id, status="failed", progress=100, error=str(exc))
@@ -442,25 +442,9 @@ async def read_chapter(chapter_id: int, request: Request, db: Session = Depends(
     if not chapter.original_content:
         crawler = registry.get_for_url(chapter.url)
         chapter.original_content = await crawler.get_chapter_content(chapter.url)
-    elif chapter.original_content:
+    if chapter.original_content:
         chapter.original_content = clean_chapter_text(chapter.original_content)
     translation_error = None
-    if not chapter.translated_content and chapter.original_content:
-        try:
-            chapter.translated_content = translator.translate(chapter.original_content, db)
-        except TranslationUnavailableError as exc:
-            translation_error = str(exc)
-        except Exception:
-            logger.exception("Automatic chapter translation failed for %s", chapter_id)
-            translation_error = "Không thể dịch chương lúc này."
-    if not chapter.translated_title:
-        try:
-            chapter.translated_title = translator.translate(chapter.title, db)
-        except TranslationUnavailableError as exc:
-            translation_error = translation_error or str(exc)
-        except Exception:
-            logger.exception("Automatic chapter title translation failed for %s", chapter_id)
-            translation_error = translation_error or "Không thể dịch tiêu đề chương lúc này."
     db.commit()
     _queue_supabase_sync()
     previous = db.scalar(select(Chapter).where(Chapter.book_id == chapter.book_id, Chapter.chapter_number < chapter.chapter_number).order_by(Chapter.chapter_number.desc()))

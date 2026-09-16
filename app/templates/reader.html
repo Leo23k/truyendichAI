@@ -235,7 +235,7 @@
       const player = document.querySelector("[data-reader-player]");
       if (!player) return;
 
-      var chapterId = player.dataset.chapterId;
+      const readerChapterKey = player.dataset.chapterId || "";
       const storage = window.localStorage;
       storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
       storage.setItem("reader.lastTitle", document.title.replace(" | My Novel Reader", ""));
@@ -386,8 +386,8 @@
 
       const saveState = () => {
         if (!hasAudio) return;
-        storage.setItem("reader.chapterId", chapterId);
-        storage.setItem(`reader.position.${chapterId}`, String(getCurrentPosition()));
+        storage.setItem("reader.chapterId", readerChapterKey);
+        storage.setItem(`reader.position.${readerChapterKey}`, String(getCurrentPosition()));
         storage.setItem("reader.rate", String(getRate()));
         storage.setItem("reader.volume", String(audio.volume));
       };
@@ -470,12 +470,12 @@
         translateButton.disabled = true;
         renderTranslationState({ status: "queued", progress: 5 });
         try {
-          const numericChapterId = /^\d+$/.test(chapterId) ? Number(chapterId) : null;
+          const numericReaderChapterId = /^\d+$/.test(readerChapterKey) ? Number(readerChapterKey) : null;
           const response = await fetch("/translate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              chapter_id: numericChapterId,
+              chapter_id: numericReaderChapterId,
               source_url: player.dataset.sourceUrl || null,
               synced_slug: player.dataset.syncedSlug || null,
               synced_chapter_number: player.dataset.syncedChapterNumber ? Number(player.dataset.syncedChapterNumber) : null,
@@ -507,6 +507,94 @@
       const showTranslationFailure = (error) => {
         translateButton.disabled = false;
         renderTranslationState({ status: "failed", progress: 100, error: error.message || "Không thể kết nối translator." });
+      };
+
+      const fetchTranslationJson = async (url, options = {}, timeoutMs = 20000) => {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const response = await fetch(url, { ...options, signal: controller.signal });
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch (_) {
+            payload = {};
+          }
+          if (!response.ok) {
+            const message = response.status === 503 ? "Translator chưa kết nối với PC." : payload.detail || "Không thể xử lý yêu cầu.";
+            throw new Error(message);
+          }
+          return payload;
+        } catch (error) {
+          if (error.name === "AbortError") {
+            throw new Error("Quá thời gian chờ translator.");
+          }
+          throw error;
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+      };
+
+      const renderTranslationFlowState = (job) => {
+        const labels = { queued: "Đang xếp hàng.", loading: "Đang tải bản gốc.", translating: "Đang dịch.", saving: "Đang lưu.", completed: "Hoàn thành.", failed: "Thất bại." };
+        translationPanel.hidden = false;
+        translationStatus.textContent = labels[job.status] || "Đang xử lý.";
+        translationBar.style.width = `${job.progress || 0}%`;
+        translationError.textContent = job.error || "";
+        translationError.classList.toggle("hidden", !job.error);
+        translationRetry.hidden = job.status !== "failed";
+        const currentItem = tocList?.querySelector('[data-current="true"]');
+        const status = currentItem?.querySelector("[data-toc-status]");
+        if (status && ["queued", "loading", "translating", "saving"].includes(job.status)) {
+          status.textContent = "⟳ Đang dịch";
+          status.className = "shrink-0 text-xs text-teal-700";
+        }
+        if (status && job.status === "completed") {
+          status.textContent = "✓ Đã dịch";
+          status.className = "shrink-0 text-xs text-teal-700";
+          currentItem.dataset.translated = "true";
+        }
+      };
+
+      const showTranslationFlowFailure = (error) => {
+        translateButton.disabled = false;
+        renderTranslationFlowState({ status: "failed", progress: 100, error: error.message || "Translator chưa kết nối với PC." });
+      };
+
+      const startTranslationFlow = async () => {
+        translateButton.disabled = true;
+        translationRetry.hidden = true;
+        translationError.classList.add("hidden");
+        renderTranslationFlowState({ status: "queued", progress: 5 });
+        try {
+          const numericReaderChapterId = /^\d+$/.test(readerChapterKey) ? Number(readerChapterKey) : null;
+          const payload = await fetchTranslationJson("/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chapter_id: numericReaderChapterId,
+              source_url: player.dataset.sourceUrl || null,
+              synced_slug: player.dataset.syncedSlug || null,
+              synced_chapter_number: player.dataset.syncedChapterNumber ? Number(player.dataset.syncedChapterNumber) : null,
+              synced_title: player.dataset.syncedTitle || null,
+            }),
+          }, 20000);
+          renderTranslationFlowState(payload);
+          const poll = async () => {
+            const status = await fetchTranslationJson(`/translate/${payload.job_id}`, { cache: "no-store" }, 15000);
+            renderTranslationFlowState(status);
+            if (["queued", "loading", "translating", "saving"].includes(status.status)) {
+              window.setTimeout(() => poll().catch(showTranslationFlowFailure), 900);
+            } else if (status.status === "completed") {
+              window.setTimeout(() => window.location.reload(), 700);
+            } else {
+              translateButton.disabled = false;
+            }
+          };
+          window.setTimeout(() => poll().catch(showTranslationFlowFailure), 500);
+        } catch (error) {
+          showTranslationFlowFailure(error);
+        }
       };
 
       const updateSleepCountdown = () => {
@@ -566,7 +654,7 @@
       };
 
       const finishChapter = () => {
-        storage.removeItem(`reader.position.${chapterId}`);
+        storage.removeItem(`reader.position.${readerChapterKey}`);
         if (sleepMode === "chapter") {
           setSleep("off");
           return;
@@ -646,7 +734,7 @@
         });
 
         audio.addEventListener("error", () => {
-          const resumeAt = getCurrentPosition() || Number(storage.getItem(`reader.position.${chapterId}`) || 0);
+          const resumeAt = getCurrentPosition() || Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0);
           if (!audioRetryUsed) {
             audioRetryUsed = true;
             seekTo(resumeAt, true, false);
@@ -664,7 +752,7 @@
             return;
           }
           if (!playlistReady) {
-            loadPlaylist(Number(storage.getItem(`reader.position.${chapterId}`) || 0), true);
+            loadPlaylist(Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0), true);
             return;
           }
           if (audio.paused) audio.play().catch(playBrowserVietnameseFallback);
@@ -694,14 +782,14 @@
         });
 
         const savedChapter = storage.getItem("reader.chapterId");
-        const savedPosition = savedChapter === chapterId ? Number(storage.getItem(`reader.position.${chapterId}`) || 0) : 0;
+        const savedPosition = savedChapter === readerChapterKey ? Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0) : 0;
         const shouldAutoplay = storage.getItem("reader.autoplayNext") === "true";
         storage.removeItem("reader.autoplayNext");
         loadPlaylist(savedPosition, shouldAutoplay);
       }
 
-      translateButton?.addEventListener("click", startTranslation);
-      translationRetry?.addEventListener("click", startTranslation);
+      translateButton?.addEventListener("click", startTranslationFlow);
+      translationRetry?.addEventListener("click", startTranslationFlow);
       voiceButton?.addEventListener("click", () => openSheet("voice"));
       sleepButton?.addEventListener("click", () => openSheet("sleep"));
       tocButton?.addEventListener("click", () => openSheet("toc"));
