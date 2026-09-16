@@ -24,7 +24,7 @@ load_dotenv(ROOT / ".env")
 DATABASE_PATH = Path(os.getenv("SYNC_DATABASE_PATH", ROOT / "data" / "app.db"))
 AUDIO_DIR = Path(os.getenv("SYNC_AUDIO_DIR", ROOT / "data" / "audio"))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")
 RETRIES = 3
 logger = logging.getLogger(__name__)
 app = FastAPI(title="LeoTruyen Sync")
@@ -49,10 +49,7 @@ class SupabaseSync:
     def __init__(self) -> None:
         if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
             raise SyncError("SUPABASE_URL and SUPABASE_SERVICE_KEY are required for sync.")
-        self.headers = {
-            "apikey": SUPABASE_SERVICE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-        }
+        self.headers = {"apikey": SUPABASE_SERVICE_KEY}
 
     def request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
         error: Exception | None = None
