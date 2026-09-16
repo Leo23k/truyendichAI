@@ -2,6 +2,28 @@
 
 LeoTruyen can run locally, as Docker containers, or on an Oracle Cloud VM. It uses FastAPI, Jinja2, HTMX, SQLite, HachimiMT-60-QT, and Microsoft Edge TTS.
 
+## GitHub, jsDelivr, and Vercel
+
+Keep the application repository private. Publish only processed novel snapshots to the public `Leo23k/truyendichAI-data` repository. jsDelivr serves those snapshots from:
+
+```text
+https://cdn.jsdelivr.net/gh/Leo23k/truyendichAI-data@main/data/
+```
+
+On the local PC, run a one-time sync after crawling, translating, and generating audio:
+
+```powershell
+.venv\Scripts\python.exe sync\service.py sync
+```
+
+Or keep it running while the PC is on:
+
+```powershell
+.venv\Scripts\python.exe sync\service.py watch --interval 60
+```
+
+Set `GITHUB_DATA_TOKEN` only when the sync service runs in Docker. The token needs repository contents read/write access to `Leo23k/truyendichAI-data`; do not commit it. Vercel only needs `JSDELIVR_DATA_BASE_URL` to read published chapters and MP3 files.
+
 ## Docker
 
 ```bash

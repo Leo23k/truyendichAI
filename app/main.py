@@ -54,17 +54,16 @@ def startup() -> None:
 @app.get("/", name="library")
 def library(request: Request, db: Session = Depends(get_db)):
     books = db.scalars(select(Book).order_by(Book.updated_at.desc())).all()
+    synced_novels = []
     if not books:
         try:
             metadata = load_cdn_json("metadata.json")
-            return templates.TemplateResponse(
-                request=request,
-                name="synced_library.html",
-                context={"novels": [item for item in metadata.get("novels", []) if item.get("latest_chapter")]},
-            )
+            synced_novels = [item for item in metadata.get("novels", []) if item.get("latest_chapter")]
         except CdnDataError:
             pass
-    return templates.TemplateResponse(request=request, name="library.html", context={"books": books})
+    return templates.TemplateResponse(
+        request=request, name="library.html", context={"books": books, "synced_novels": synced_novels}
+    )
 
 
 @app.get("/synced/{slug}/{chapter_number}")

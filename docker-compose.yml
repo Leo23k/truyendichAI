@@ -49,3 +49,24 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  sync:
+    build: .
+    command: uvicorn sync.service:app --host 0.0.0.0 --port 8003
+    env_file: .env
+    environment:
+      SYNC_AUTOSTART: "true"
+      SYNC_INTERVAL: ${SYNC_INTERVAL:-60}
+      SYNC_DATABASE_PATH: ${SYNC_DATABASE_PATH:-/app/data/app.db}
+      SYNC_AUDIO_DIR: ${SYNC_AUDIO_DIR:-/app/data/audio}
+      GITHUB_DATA_REPO_URL: ${GITHUB_DATA_REPO_URL:-https://github.com/Leo23k/truyendichAI-data.git}
+      GITHUB_DATA_TOKEN: ${GITHUB_DATA_TOKEN:-}
+      GITHUB_DATA_REPO_DIR: /app/temp/truyendichAI-data
+    volumes:
+      - ./data:/app/data
+      - ./temp:/app/temp
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

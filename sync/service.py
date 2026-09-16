@@ -11,12 +11,14 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import threading
 import time
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,6 +29,7 @@ DATABASE_PATH = Path(os.getenv("SYNC_DATABASE_PATH", ROOT / "data" / "app.db"))
 AUDIO_DIR = Path(os.getenv("SYNC_AUDIO_DIR", ROOT / "data" / "audio"))
 RETRIES = 3
 logger = logging.getLogger(__name__)
+app = FastAPI(title="LeoTruyen Sync")
 
 
 class SyncError(RuntimeError):
@@ -44,6 +47,13 @@ def run_git(*args: str, cwd: Path | None = None) -> str:
         message = (exc.stderr or exc.stdout).strip()
         raise SyncError(f"git {' '.join(args)} failed: {message}") from exc
     return result.stdout.strip()
+
+
+def authenticated_repo_url() -> str:
+    token = os.getenv("GITHUB_DATA_TOKEN")
+    if token and DATA_REPO_URL.startswith("https://github.com/"):
+        return DATA_REPO_URL.replace("https://", f"https://x-access-token:{token}@", 1)
+    return DATA_REPO_URL
 
 
 def slugify(value: str, book_id: int) -> str:
@@ -159,7 +169,7 @@ def prepare_repository() -> None:
             run_git("checkout", "-b", "main", cwd=DATA_REPO_DIR)
         return
     DATA_REPO_DIR.parent.mkdir(parents=True, exist_ok=True)
-    run_git("clone", DATA_REPO_URL, str(DATA_REPO_DIR))
+    run_git("clone", authenticated_repo_url(), str(DATA_REPO_DIR))
     if not (DATA_REPO_DIR / ".git").exists():
         raise SyncError("GitHub data repository could not be cloned.")
     try:
@@ -191,6 +201,44 @@ def sync_once() -> dict[str, int | bool]:
     pushed = commit_and_push()
     logger.info("GitHub data sync complete: %s pushed=%s", exported, pushed)
     return {**exported, "pushed": pushed}
+
+
+sync_status: dict[str, object] = {"last_sync": None, "last_error": None}
+
+
+def run_watch() -> None:
+    interval = max(30, int(os.getenv("SYNC_INTERVAL", "60")))
+    while True:
+        try:
+            sync_status["last_sync"] = sync_once()
+            sync_status["last_error"] = None
+        except SyncError as exc:
+            logger.exception("Scheduled GitHub data sync failed")
+            sync_status["last_error"] = str(exc)
+        time.sleep(interval)
+
+
+@app.on_event("startup")
+def start_watch() -> None:
+    if os.getenv("SYNC_AUTOSTART", "false").lower() == "true":
+        threading.Thread(target=run_watch, daemon=True, name="leotruyen-sync").start()
+
+
+@app.get("/health")
+def health() -> dict[str, object]:
+    return {"status": "ok", **sync_status}
+
+
+@app.post("/sync")
+def trigger_sync() -> dict[str, int | bool]:
+    try:
+        result = sync_once()
+        sync_status["last_sync"] = result
+        sync_status["last_error"] = None
+        return result
+    except SyncError as exc:
+        sync_status["last_error"] = str(exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def main() -> None:
