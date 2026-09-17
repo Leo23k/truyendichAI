@@ -100,6 +100,18 @@ def _service_patch(table: str, params: dict[str, str], payload: dict) -> None:
         raise CdnDataError(f"Could not update Supabase {table}") from exc
 
 
+def _service_delete(table: str, params: dict[str, str]) -> None:
+    try:
+        with httpx.Client(timeout=30, trust_env=False) as client:
+            response = client.delete(
+                f"{SUPABASE_URL}/rest/v1/{table}", params=params,
+                headers={**_service_headers(), "Prefer": "return=minimal"},
+            )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise CdnDataError(f"Could not delete Supabase {table}") from exc
+
+
 def _rest_rows(table: str, params: dict[str, str]) -> list[dict]:
     if not _configured():
         raise CdnDataError("Supabase is not configured")
@@ -212,6 +224,13 @@ def get_synced_novel_for_management(slug: str) -> dict:
     return rows[0]
 
 
+def load_deleted_synced_novels() -> list[dict]:
+    return _service_rows(
+        "novels",
+        {"select": "slug,title,deleted_at,delete_after", "deleted_at": "not.is.null", "order": "deleted_at.desc"},
+    )
+
+
 def add_synced_chapters(slug: str, chapters: list[object]) -> int:
     novel = get_synced_novel_for_management(slug)
     existing_rows = _service_rows("chapters", {"select": "source_url", "novel_id": f"eq.{novel['id']}"})
@@ -249,6 +268,10 @@ def set_synced_novel_deletion(slug: str, *, deleted_at: str | None, delete_after
         {"slug": f"eq.{slug}"},
         {"deleted_at": deleted_at, "delete_after": delete_after},
     )
+
+
+def delete_synced_novel_permanently(slug: str) -> None:
+    _service_delete("novels", {"slug": f"eq.{slug}"})
 
 
 def load_translation_progress(chapter_id: int) -> dict | None:

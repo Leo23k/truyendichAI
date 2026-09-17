@@ -21,9 +21,11 @@ from app.cdn import (
     CdnDataError,
     add_synced_chapters,
     cdn_url,
+    delete_synced_novel_permanently,
     get_synced_novel_for_management,
     load_cdn_json,
     load_chapters_index,
+    load_deleted_synced_novels,
     load_translation_progress,
     publish_translated_chapter,
     set_synced_novel_deletion,
@@ -203,6 +205,11 @@ def library(request: Request, db: Session = Depends(get_db)):
     _purge_expired_deleted_books(db)
     books = db.scalars(select(Book).where(Book.deleted_at.is_(None)).order_by(Book.updated_at.desc())).all()
     deleted_books = db.scalars(select(Book).where(Book.deleted_at.is_not(None)).order_by(Book.deleted_at.desc())).all()
+    deleted_synced_novels = []
+    try:
+        deleted_synced_novels = load_deleted_synced_novels()
+    except CdnDataError:
+        pass
     synced_novels = []
     if not books:
         try:
@@ -211,7 +218,7 @@ def library(request: Request, db: Session = Depends(get_db)):
         except CdnDataError:
             pass
     return templates.TemplateResponse(
-        request=request, name="library.html", context={"books": books, "deleted_books": deleted_books, "synced_novels": synced_novels}
+        request=request, name="library.html", context={"books": books, "deleted_books": deleted_books, "deleted_synced_novels": deleted_synced_novels, "synced_novels": synced_novels}
     )
 
 
@@ -356,6 +363,24 @@ def delete_synced_book(slug: str):
             delete_after=(now + BOOK_RESTORE_WINDOW).isoformat(),
         )
         return RedirectResponse("/", status_code=303)
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/synced/{slug}/restore")
+def restore_synced_book(slug: str):
+    try:
+        set_synced_novel_deletion(slug, deleted_at=None, delete_after=None)
+        return RedirectResponse(f"/synced/{slug}", status_code=303)
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/synced/{slug}/delete-permanently")
+def delete_synced_book_permanently(slug: str):
+    try:
+        delete_synced_novel_permanently(slug)
+        return RedirectResponse("/?restore=1", status_code=303)
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
