@@ -354,6 +354,18 @@
         if (totalDuration) progress.value = String(Math.round((current / totalDuration) * 1000));
       };
 
+      const refreshPlaylistDuration = () => {
+        let cursor = 0;
+        segmentStarts = playlist.map((segment) => {
+          const start = cursor;
+          cursor += Number(segment.duration || 0);
+          return start;
+        });
+        totalDuration = cursor;
+        durationLabel.textContent = formatTime(totalDuration);
+        if (playlistReady) voiceSessions.set(voiceSessionKey(), { playlist, segmentStarts, totalDuration });
+      };
+
       const findSegmentIndex = (time) => {
         if (!playlist.length) return 0;
         for (let index = playlist.length - 1; index >= 0; index -= 1) {
@@ -380,6 +392,10 @@
         audio.onloadedmetadata = () => {
           if (loadToken !== audioLoadToken) return;
           const segmentDuration = audio.duration || playlist[index].duration || 0;
+          if (Number.isFinite(audio.duration) && audio.duration > 0) {
+            playlist[index].duration = audio.duration;
+            refreshPlaylistDuration();
+          }
           if (offset > 0 && segmentDuration) audio.currentTime = Math.min(offset, Math.max(0, segmentDuration - 0.25));
           updateProgress();
           preloadNextSegment();
@@ -428,7 +444,11 @@
             if (!playlistReady) throw new Error("TTS playlist empty");
             voiceSessions.set(voiceSessionKey(), { playlist, segmentStarts, totalDuration });
             durationLabel.textContent = formatTime(totalDuration);
-            if (selectSegment) seekTo(resumeAt, autoplay);
+            if (streamingFirstSegment) {
+              const streamPosition = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+              streamingFirstSegment = false;
+              setAudioSegment(0, streamPosition, !audio.paused);
+            } else if (selectSegment) seekTo(resumeAt, autoplay);
           })
           .catch((error) => {
             playlistReady = false;
