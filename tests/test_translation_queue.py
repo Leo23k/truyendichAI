@@ -89,3 +89,20 @@ def test_enqueue_remote_crawl_reuses_an_active_job(monkeypatch) -> None:
     monkeypatch.setattr(service, "SupabaseSync", CrawlRemote)
 
     assert service.enqueue_remote_crawl("https://example.com/novel") == {"id": "crawl-1", "status": "crawling"}
+
+
+def test_enqueue_remote_crawl_recovers_from_concurrent_insert(monkeypatch) -> None:
+    class CrawlRemote:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def rows(self, _table: str, _params: dict[str, str]) -> list[dict]:
+            self.calls += 1
+            return [] if self.calls == 1 else [{"id": "crawl-2", "status": "queued"}]
+
+        def insert(self, _table: str, _payload: dict) -> dict:
+            raise service.SyncError("unique index conflict")
+
+    monkeypatch.setattr(service, "SupabaseSync", CrawlRemote)
+
+    assert service.enqueue_remote_crawl("https://example.com/novel") == {"id": "crawl-2", "status": "queued"}

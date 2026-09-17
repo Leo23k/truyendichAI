@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import contextmanager
 import json
 import logging
 import os
@@ -270,7 +271,16 @@ def enqueue_remote_crawl(source_url: str) -> dict:
     )
     if active:
         return active[0]
-    return remote.insert("remote_crawl_jobs", {"source_url": source_url, "status": "queued"})
+    try:
+        return remote.insert("remote_crawl_jobs", {"source_url": source_url, "status": "queued"})
+    except SyncError:
+        active = remote.rows(
+            "remote_crawl_jobs",
+            {"select": "*", "source_url": f"eq.{source_url}", "status": "in.(queued,crawling,syncing,translating)", "limit": "1"},
+        )
+        if active:
+            return active[0]
+        raise
 
 
 def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
@@ -407,6 +417,39 @@ sync_status: dict[str, object] = {"last_sync": None, "last_error": None}
 pc_crawl_jobs: dict[str, dict[str, object]] = {}
 
 
+@contextmanager
+def worker_process_lock():
+    """Keep a second PC worker from claiming crawl or translation work."""
+    lock_path = ROOT / "temp" / "supabase-worker.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+")
+    try:
+        handle.seek(0)
+        handle.write("0")
+        handle.flush()
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield True
+    except OSError:
+        yield False
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        handle.close()
+
+
 async def _crawl_and_translate_url(url: str, update_status) -> None:
     """Crawl locally, publish raw text first, then let the chunk worker translate."""
     db = SessionLocal()
@@ -471,21 +514,25 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
 def run_watch() -> None:
     interval = max(5, int(os.getenv("PC_WORKER_POLL_INTERVAL", "10")))
     next_sync_at = time.monotonic() + max(30, int(os.getenv("SYNC_INTERVAL", "60")))
-    while True:
-        try:
-            remote = SupabaseSync()
-            if process_remote_crawl_job_once(remote):
-                sync_status["last_error"] = None
-            else:
-                run_translation_worker_once(remote)
-            if time.monotonic() >= next_sync_at:
-                sync_status["last_sync"] = sync_once()
-                sync_status["last_error"] = None
-                next_sync_at = time.monotonic() + max(30, int(os.getenv("SYNC_INTERVAL", "60")))
-        except SyncError as exc:
-            logger.exception("Scheduled Supabase sync failed")
-            sync_status["last_error"] = str(exc)
-        time.sleep(interval)
+    with worker_process_lock() as acquired:
+        if not acquired:
+            logger.warning("Another PC worker is already running; exiting duplicate worker.")
+            return
+        while True:
+            try:
+                remote = SupabaseSync()
+                if process_remote_crawl_job_once(remote):
+                    sync_status["last_error"] = None
+                else:
+                    run_translation_worker_once(remote)
+                if time.monotonic() >= next_sync_at:
+                    sync_status["last_sync"] = sync_once()
+                    sync_status["last_error"] = None
+                    next_sync_at = time.monotonic() + max(30, int(os.getenv("SYNC_INTERVAL", "60")))
+            except SyncError as exc:
+                logger.exception("Scheduled Supabase sync failed")
+                sync_status["last_error"] = str(exc)
+            time.sleep(interval)
 
 
 @app.on_event("startup")
