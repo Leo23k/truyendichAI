@@ -75,3 +75,17 @@ def test_remote_crawl_job_is_claimed_only_while_queued() -> None:
     assert service.claim_remote_crawl_job(remote) == {"id": "crawl-1", "status": "crawling"}
     assert remote.patches[0][1] == {"id": "eq.crawl-1", "status": "eq.queued"}
     assert remote.patches[0][2]["status"] == "crawling"
+
+
+def test_enqueue_remote_crawl_reuses_an_active_job(monkeypatch) -> None:
+    class CrawlRemote:
+        def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
+            assert table == "remote_crawl_jobs"
+            return [{"id": "crawl-1", "status": "crawling"}]
+
+        def insert(self, _table: str, _payload: dict) -> dict:
+            raise AssertionError("active crawl must not be duplicated")
+
+    monkeypatch.setattr(service, "SupabaseSync", CrawlRemote)
+
+    assert service.enqueue_remote_crawl("https://example.com/novel") == {"id": "crawl-1", "status": "crawling"}

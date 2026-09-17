@@ -257,7 +257,20 @@ def prioritize_translation(remote: SupabaseSync, chapter_id: int, priority: int)
 
 def enqueue_remote_crawl(source_url: str) -> dict:
     """Persist a production crawl request for the outbound-only PC worker."""
-    return SupabaseSync().insert("remote_crawl_jobs", {"source_url": source_url, "status": "queued"})
+    remote = SupabaseSync()
+    active = remote.rows(
+        "remote_crawl_jobs",
+        {
+            "select": "*",
+            "source_url": f"eq.{source_url}",
+            "status": "in.(queued,crawling,syncing,translating)",
+            "order": "created_at.asc",
+            "limit": "1",
+        },
+    )
+    if active:
+        return active[0]
+    return remote.insert("remote_crawl_jobs", {"source_url": source_url, "status": "queued"})
 
 
 def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
