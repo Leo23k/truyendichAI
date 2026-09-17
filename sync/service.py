@@ -232,6 +232,16 @@ def claim_translation_job(remote: SupabaseSync) -> dict | None:
     return claimed[0] if claimed else None
 
 
+def prioritize_translation(remote: SupabaseSync, chapter_id: int, priority: int) -> bool:
+    """Raise a queued chapter without interrupting the chunk already translating."""
+    rows = remote.patch_rows(
+        "translation_queue",
+        {"chapter_id": f"eq.{chapter_id}", "status": "eq.queued"},
+        {"priority": max(0, min(priority, 100)), "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    return bool(rows)
+
+
 def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     remote = remote or SupabaseSync()
     job = claim_translation_job(remote)
@@ -432,6 +442,17 @@ def crawl_status(job_id: str, x_worker_token: str | None = Header(default=None))
     if job_id not in pc_crawl_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     return pc_crawl_jobs[job_id]
+
+
+@app.post("/priority")
+def prioritize(payload: dict[str, int], x_worker_token: str | None = Header(default=None)) -> dict[str, bool]:
+    if not PC_WORKER_TOKEN or x_worker_token != PC_WORKER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid PC worker token")
+    chapter_id = int(payload.get("chapter_id", 0))
+    priority = int(payload.get("priority", 0))
+    if chapter_id < 1:
+        raise HTTPException(status_code=400, detail="Invalid chapter id")
+    return {"updated": prioritize_translation(SupabaseSync(), chapter_id, priority)}
 
 
 def main() -> None:

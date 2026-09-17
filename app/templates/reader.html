@@ -115,6 +115,8 @@
     data-original-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=original{% else %}/chapters/{{ chapter.id }}?mode=original{% endif %}"
     data-translated-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=translated{% else %}/chapters/{{ chapter.id }}?mode=translated{% endif %}"
     data-audio-url="{{ audio_stream_url or '/chapters/' ~ chapter.id ~ '/audio/stream' }}"
+    data-queue-chapter-id="{{ queue_chapter_id or chapter.id }}"
+    data-next-queue-chapter-id="{{ following.id if following else '' }}"
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
     data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
     data-has-audio="{% if showing_translation and chapter.translated_content %}true{% else %}false{% endif %}"
@@ -319,6 +321,7 @@
       let nextAudio = null;
       let audioLoadToken = 0;
       let streamingFirstSegment = false;
+      let priorityRequested = false;
 
       const buildManifestUrl = () => {
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
@@ -328,6 +331,12 @@
       const buildStreamUrl = () => {
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
         return `${player.dataset.audioUrl}?${params.toString()}`;
+      };
+
+      const requestTranslationPriority = (value, priority) => {
+        const chapterId = Number(value);
+        if (!Number.isInteger(chapterId) || chapterId < 1) return;
+        fetch(`/api/translation-priority/${chapterId}?priority=${priority}`, { method: "POST", keepalive: true }).catch(() => {});
       };
 
       const getCurrentPosition = () => {
@@ -760,7 +769,14 @@
           scheduleSave();
         });
 
-        audio.addEventListener("play", () => setPlayIcon("pause"));
+        audio.addEventListener("play", () => {
+          setPlayIcon("pause");
+          if (!priorityRequested) {
+            priorityRequested = true;
+            requestTranslationPriority(player.dataset.queueChapterId, 100);
+            requestTranslationPriority(player.dataset.nextQueueChapterId, 80);
+          }
+        });
         audio.addEventListener("pause", () => {
           setPlayIcon("play");
           saveState();

@@ -72,6 +72,23 @@ class TranslateRequest(BaseModel):
     synced_title: str | None = None
 
 
+@app.post("/api/translation-priority/{chapter_id}")
+async def request_translation_priority(chapter_id: int, priority: int = 100) -> dict[str, bool]:
+    if not settings.pc_worker_url or not settings.pc_worker_token:
+        return {"updated": False}
+    try:
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+            response = await client.post(
+                f"{settings.pc_worker_url.rstrip('/')}/priority",
+                headers={"X-Worker-Token": settings.pc_worker_token},
+                json={"chapter_id": chapter_id, "priority": priority},
+            )
+            response.raise_for_status()
+        return {"updated": bool(response.json().get("updated"))}
+    except (httpx.HTTPError, ValueError, KeyError):
+        return {"updated": False}
+
+
 translation_jobs: dict[str, dict[str, object]] = {}
 translation_jobs_lock = threading.Lock()
 BOOK_RESTORE_WINDOW = timedelta(days=3)
@@ -261,6 +278,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "following_url": f"/synced/{slug}/{entries[position + 1]['chapter_number']}" if position + 1 < len(entries) else "",
                     "audio_manifest_url": "",
                     "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/stream",
+                    "queue_chapter_id": current.get("id"),
                 },
             )
         payload = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
@@ -301,6 +319,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "following_url": f"/synced/{slug}/{following['chapter_number']}" if following else "",
             "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
             "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/stream",
+            "queue_chapter_id": current.get("id"),
             "translation_progress": progress,
         },
     )
