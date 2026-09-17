@@ -26,27 +26,27 @@
   class="min-h-screen pb-36"
 >
   <header data-reader-header class="reader-header sticky top-0 z-30 border-b border-stone-200/70 bg-white/85 backdrop-blur">
-    <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+    <div class="mx-auto grid max-w-5xl grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 sm:flex sm:justify-between sm:gap-4 sm:px-6 sm:py-3">
       <a href="{{ back_url or '/books/' ~ chapter.book_id }}" class="icon-button text-stone-600" aria-label="Quay lại chi tiết truyện">
         <i data-lucide="arrow-left" class="h-5 w-5"></i>
       </a>
       <div class="min-w-0 flex-1 text-center">
-        <h1 class="truncate text-sm font-semibold text-stone-900">{{ display_title }}</h1>
+        <h1 class="line-clamp-2 text-sm font-semibold leading-5 text-stone-900 sm:truncate">{{ display_title }}</h1>
         <p class="mt-0.5 text-xs text-stone-500">{% if showing_translation %}Bản dịch{% else %}Bản gốc{% endif %}</p>
       </div>
-      <div class="flex items-center gap-1">
-        <button type="button" class="icon-button text-stone-600" @click="theme = theme === 'dark' ? 'paper' : 'dark'" aria-label="Đổi nền đọc">
+      <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
+        <button type="button" class="icon-button hidden text-stone-600 sm:inline-flex" @click="theme = theme === 'dark' ? 'paper' : 'dark'" aria-label="Đổi nền đọc">
           <i data-lucide="palette" class="h-5 w-5"></i>
         </button>
-        <button type="button" data-toc-button class="icon-button text-stone-600" aria-label="Mục lục">
+        <button type="button" data-toc-button class="icon-button hidden text-stone-600 sm:inline-flex" aria-label="Mục lục">
           <i data-lucide="list" class="h-5 w-5"></i>
         </button>
         <button type="button" data-translate-button class="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-stone-700 hover:bg-stone-100" aria-label="{% if chapter.translated_content %}{% if showing_translation %}Xem bản gốc{% else %}Xem bản dịch{% endif %}{% else %}Dịch chương{% endif %}">
           <i data-lucide="languages" class="h-4 w-4"></i>
-          <span>{% if chapter.translated_content %}{% if showing_translation %}Xem bản gốc{% else %}Xem bản dịch{% endif %}{% else %}Dịch{% endif %}</span>
+          <span class="hidden sm:inline">{% if chapter.translated_content %}{% if showing_translation %}Xem bản gốc{% else %}Xem bản dịch{% endif %}{% else %}Dịch{% endif %}</span>
         </button>
         <div class="relative">
-          <button type="button" class="icon-button text-stone-600" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Cỡ chữ">
+          <button type="button" class="icon-button hidden text-stone-600 sm:inline-flex" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Cỡ chữ">
             <i data-lucide="type" class="h-5 w-5"></i>
           </button>
           <div x-cloak x-show="fontPanel" @click.outside="fontPanel = false" class="absolute right-0 mt-2 w-52 rounded-lg border border-stone-200 bg-white p-3 text-stone-900 shadow-xl">
