@@ -55,3 +55,23 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
     assert [patch[2]["translated_text"] for patch in remote.patches if patch[0] == "chapter_chunks"] == ["Dịch Một.", "Dịch Hai."]
     assert [patch[0] for patch in remote.patches].index("chapter_chunks") < [patch[0] for patch in remote.patches].index("translation_queue", 1)
     assert remote.patches[-1][2]["status"] == "completed"
+
+
+def test_remote_crawl_job_is_claimed_only_while_queued() -> None:
+    class CrawlRemote:
+        def __init__(self) -> None:
+            self.patches: list[tuple[str, dict, dict]] = []
+
+        def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
+            assert table == "remote_crawl_jobs"
+            return [{"id": "crawl-1", "source_url": "https://example.com/novel", "status": "queued"}]
+
+        def patch_rows(self, table: str, params: dict[str, str], payload: dict) -> list[dict]:
+            self.patches.append((table, params, payload))
+            return [{"id": "crawl-1", "status": "crawling"}]
+
+    remote = CrawlRemote()
+
+    assert service.claim_remote_crawl_job(remote) == {"id": "crawl-1", "status": "crawling"}
+    assert remote.patches[0][1] == {"id": "eq.crawl-1", "status": "eq.queued"}
+    assert remote.patches[0][2]["status"] == "crawling"

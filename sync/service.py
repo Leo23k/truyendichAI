@@ -148,6 +148,18 @@ class SupabaseSync:
         rows = response.json()
         return rows if isinstance(rows, list) else []
 
+    def insert(self, table: str, payload: dict) -> dict:
+        response = self.request(
+            "POST",
+            f"/rest/v1/{table}",
+            json=payload,
+            headers={**self.headers, "Prefer": "return=representation"},
+        )
+        rows = response.json()
+        if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+            raise SyncError(f"Supabase did not return {table} insert result.")
+        return rows[0]
+
     def ensure_buckets(self) -> None:
         buckets = self.request("GET", "/storage/v1/bucket").json()
         existing = {bucket.get("id") for bucket in buckets if isinstance(bucket, dict)}
@@ -240,6 +252,27 @@ def prioritize_translation(remote: SupabaseSync, chapter_id: int, priority: int)
         {"priority": max(0, min(priority, 100)), "updated_at": datetime.now(timezone.utc).isoformat()},
     )
     return bool(rows)
+
+
+def enqueue_remote_crawl(source_url: str) -> dict:
+    """Persist a production crawl request for the outbound-only PC worker."""
+    return SupabaseSync().insert("remote_crawl_jobs", {"source_url": source_url, "status": "queued"})
+
+
+def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
+    rows = remote.rows(
+        "remote_crawl_jobs",
+        {"select": "*", "status": "eq.queued", "order": "created_at.asc", "limit": "1"},
+    )
+    if not rows:
+        return None
+    job = rows[0]
+    claimed = remote.patch_rows(
+        "remote_crawl_jobs",
+        {"id": f"eq.{job['id']}", "status": "eq.queued"},
+        {"status": "crawling", "started_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    return claimed[0] if claimed else None
 
 
 def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
@@ -360,14 +393,59 @@ sync_status: dict[str, object] = {"last_sync": None, "last_error": None}
 pc_crawl_jobs: dict[str, dict[str, object]] = {}
 
 
+async def _crawl_and_translate_url(url: str, update_status) -> None:
+    """Crawl locally, publish raw text first, then let the chunk worker translate."""
+    db = SessionLocal()
+    try:
+        update_status(status="crawling")
+        crawler = registry.get_for_url(url)
+        book, added = await BookService(db, crawler).import_book(url)
+        chapters = db.query(Chapter).filter(Chapter.book_id == book.id, Chapter.original_content.is_(None)).all()
+        for chapter in chapters:
+            chapter.original_content = clean_chapter_text(await crawler.get_chapter_content(chapter.url))
+        db.commit()
+        update_status(status="syncing", book_id=book.id, chapters_added=added, raw_loaded=len(chapters))
+        synced = sync_once()
+        update_status(status="translating", sync=synced)
+        while run_translation_worker_once():
+            pass
+        update_status(status="completed", result={"book_id": book.id, "raw_loaded": len(chapters)})
+    except Exception as exc:
+        db.rollback()
+        logger.exception("PC crawl worker failed")
+        update_status(status="failed", error=str(exc))
+    finally:
+        db.close()
+
+
+def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
+    remote = remote or SupabaseSync()
+    job = claim_remote_crawl_job(remote)
+    if not job:
+        return False
+
+    def update_status(**values: object) -> None:
+        values["updated_at"] = datetime.now(timezone.utc).isoformat()
+        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job['id']}"}, values)
+
+    asyncio.run(_crawl_and_translate_url(str(job["source_url"]), update_status))
+    return True
+
+
 def run_watch() -> None:
-    interval = max(30, int(os.getenv("SYNC_INTERVAL", "60")))
+    interval = max(5, int(os.getenv("PC_WORKER_POLL_INTERVAL", "10")))
+    next_sync_at = 0.0
     while True:
         try:
-            sync_status["last_sync"] = sync_once()
-            sync_status["last_error"] = None
-            while run_translation_worker_once():
-                pass
+            remote = SupabaseSync()
+            if process_remote_crawl_job_once(remote):
+                sync_status["last_error"] = None
+            elif time.monotonic() >= next_sync_at:
+                sync_status["last_sync"] = sync_once()
+                sync_status["last_error"] = None
+                while run_translation_worker_once(remote):
+                    pass
+                next_sync_at = time.monotonic() + max(30, int(os.getenv("SYNC_INTERVAL", "60")))
         except SyncError as exc:
             logger.exception("Scheduled Supabase sync failed")
             sync_status["last_error"] = str(exc)
@@ -402,27 +480,7 @@ class CrawlRequest(BaseModel):
 
 
 async def _crawl_and_translate(job_id: str, url: str) -> None:
-    db = SessionLocal()
-    try:
-        pc_crawl_jobs[job_id].update(status="crawling")
-        crawler = registry.get_for_url(url)
-        book, added = await BookService(db, crawler).import_book(url)
-        chapters = db.query(Chapter).filter(Chapter.book_id == book.id, Chapter.original_content.is_(None)).all()
-        for chapter in chapters:
-            chapter.original_content = clean_chapter_text(await crawler.get_chapter_content(chapter.url))
-        db.commit()
-        pc_crawl_jobs[job_id].update(status="syncing", book_id=book.id, chapters_added=added, raw_loaded=len(chapters))
-        synced = sync_once()
-        pc_crawl_jobs[job_id].update(status="translating", sync=synced)
-        while run_translation_worker_once():
-            pass
-        pc_crawl_jobs[job_id].update(status="completed")
-    except Exception as exc:
-        db.rollback()
-        logger.exception("PC crawl worker failed")
-        pc_crawl_jobs[job_id].update(status="failed", error=str(exc))
-    finally:
-        db.close()
+    await _crawl_and_translate_url(url, lambda **values: pc_crawl_jobs[job_id].update(values))
 
 
 @app.post("/crawl", status_code=202)
@@ -461,11 +519,11 @@ def main() -> None:
     parser.add_argument("--interval", type=int, default=60)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    while True:
-        logger.info("Sync result: %s", sync_once())
-        if args.command == "sync":
-            return
-        time.sleep(max(30, args.interval))
+    if args.command == "watch":
+        os.environ["SYNC_INTERVAL"] = str(max(30, args.interval))
+        run_watch()
+        return
+    logger.info("Sync result: %s", sync_once())
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ from app.tts.edge_tts_service import (
     synthesize_edge_tts,
     stream_edge_tts,
 )
-from sync.service import SyncError, sync_once
+from sync.service import SyncError, SupabaseSync, enqueue_remote_crawl, prioritize_translation, sync_once
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -74,6 +74,11 @@ class TranslateRequest(BaseModel):
 
 @app.post("/api/translation-priority/{chapter_id}")
 async def request_translation_priority(chapter_id: int, priority: int = 100) -> dict[str, bool]:
+    if os.getenv("VERCEL"):
+        try:
+            return {"updated": prioritize_translation(SupabaseSync(), chapter_id, priority)}
+        except SyncError:
+            return {"updated": False}
     if not settings.pc_worker_url or not settings.pc_worker_token:
         return {"updated": False}
     try:
@@ -236,9 +241,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         if position is None:
             return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
         current = entries[position]
-        # The direct chapter translator is the production fallback. Do not block
-        # readers on a stale incremental queue while the PC worker is unavailable.
-        progress = None
+        progress = load_translation_progress(int(current["id"])) if current.get("id") else None
         if not current.get("translated"):
             payload = {}
             if current.get("content_path"):
@@ -496,10 +499,8 @@ async def lookup_books(request: Request, query: str = Form(...), db: Session = D
     query = query.strip()
     try:
         if query.startswith(("http://", "https://")):
-            if os.getenv("VERCEL") and settings.pc_worker_url and settings.pc_worker_token:
-                async with httpx.AsyncClient(timeout=settings.model_service_timeout, trust_env=False) as client:
-                    response = await client.post(f"{settings.pc_worker_url.rstrip('/')}/crawl", json={"url": query}, headers={"X-Worker-Token": settings.pc_worker_token})
-                response.raise_for_status()
+            if os.getenv("VERCEL"):
+                enqueue_remote_crawl(query)
                 if request.headers.get("HX-Request"):
                     return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "PC đang crawl và dịch truyện. Hãy quay lại thư viện sau ít phút.", "error": False})
                 return RedirectResponse("/", status_code=303)
