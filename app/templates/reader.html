@@ -114,7 +114,7 @@
     data-showing-translation="{% if showing_translation %}true{% else %}false{% endif %}"
     data-original-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=original{% else %}/chapters/{{ chapter.id }}?mode=original{% endif %}"
     data-translated-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=translated{% else %}/chapters/{{ chapter.id }}?mode=translated{% endif %}"
-    data-audio-url="/chapters/{{ chapter.id }}/audio"
+    data-audio-url="{{ audio_stream_url or '/chapters/' ~ chapter.id ~ '/audio/stream' }}"
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
     data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
     data-has-audio="{% if showing_translation and chapter.translated_content %}true{% else %}false{% endif %}"
@@ -327,7 +327,7 @@
 
       const buildStreamUrl = () => {
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
-        return `${player.dataset.audioUrl}/stream?${params.toString()}`;
+        return `${player.dataset.audioUrl}?${params.toString()}`;
       };
 
       const getCurrentPosition = () => {

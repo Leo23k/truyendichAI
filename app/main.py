@@ -260,6 +260,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "previous_url": f"/synced/{slug}/{entries[position - 1]['chapter_number']}" if position else "",
                     "following_url": f"/synced/{slug}/{entries[position + 1]['chapter_number']}" if position + 1 < len(entries) else "",
                     "audio_manifest_url": "",
+                    "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/stream",
                 },
             )
         payload = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
@@ -299,6 +300,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "previous_url": f"/synced/{slug}/{previous['chapter_number']}" if previous else "",
             "following_url": f"/synced/{slug}/{following['chapter_number']}" if following else "",
             "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
+            "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/stream",
             "translation_progress": progress,
         },
     )
@@ -345,6 +347,37 @@ def synced_audio_manifest(slug: str, chapter_number: int):
         return {"segments": [{"index": 0, "url": cdn_url(f"novels/{slug}/{audio_path}"), "duration": 0}]}
     except CdnDataError:
         raise HTTPException(status_code=404, detail="Chương này chưa được đồng bộ.") from None
+
+
+@app.get("/synced/{slug}/{chapter_number}/audio/stream")
+async def stream_synced_chapter_audio(
+    slug: str,
+    chapter_number: int,
+    voice: str = DEFAULT_EDGE_VOICE,
+    rate: float = 1.0,
+) -> StreamingResponse:
+    key = f"{chapter_number:03d}"
+    try:
+        chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
+    except CdnDataError:
+        raise HTTPException(status_code=404, detail="Chương này chưa được đồng bộ.") from None
+    translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
+    try:
+        entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
+        progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
+        partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
+        if partial_text.strip():
+            translated_content = partial_text
+    except (CdnDataError, KeyError, StopIteration, TypeError, ValueError):
+        pass
+    chunks = split_chapter_text(translated_content)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="Hãy dịch chương trước khi nghe.")
+    return StreamingResponse(
+        stream_edge_tts(chunks[0], voice=normalize_voice(voice), rate=normalize_rate(rate)),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/books/preview")
