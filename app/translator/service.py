@@ -35,6 +35,7 @@ class TranslatorService:
                 f"{settings.model_service_url.rstrip('/')}/v1/translate",
                 json={"text": protected.text, "beam_size": settings.model_beam_size},
                 timeout=settings.model_service_timeout,
+                trust_env=False,
             )
             response.raise_for_status()
             translated = response.json()["translated_text"]

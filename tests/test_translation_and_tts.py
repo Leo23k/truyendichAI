@@ -29,7 +29,7 @@ def test_translator_delegates_full_text_to_model_service(monkeypatch) -> None:
         def json(self) -> dict[str, str]:
             return {"translated_text": "Câu một.\r\nCâu hai."}
 
-    def fake_post(url, json, timeout):
+    def fake_post(url, json, timeout, **kwargs):
         calls.append({"url": url, "json": json, "timeout": timeout})
         return Response()
 
@@ -64,7 +64,7 @@ def test_user_glossary_restores_after_model_postprocess(monkeypatch) -> None:
             assert "陆江仙" not in source
             return {"translated_text": " <PH1> đã đến.\r\n"}
 
-    def fake_post(url, json, timeout):
+    def fake_post(url, json, timeout, **kwargs):
         calls.append({"url": url, "json": json, "timeout": timeout})
         return Response()
 
@@ -85,7 +85,7 @@ def test_short_titles_and_names_go_through_model_service(monkeypatch) -> None:
         def json(self) -> dict[str, str]:
             return {"translated_text": "Huyền Giám Tiên Tộc"}
 
-    def fake_post(url, json, timeout):
+    def fake_post(url, json, timeout, **kwargs):
         calls.append({"url": url, "json": json, "timeout": timeout})
         return Response()
 
