@@ -11,6 +11,7 @@ import sqlite3
 import threading
 import time
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from urllib.parse import quote
@@ -25,6 +26,7 @@ if str(ROOT) not in sys.path:
 
 from app.config import PROJECT_ROOT, settings
 from app.translator.chunking import chunk_text
+from app.translator.service import TranslationUnavailableError, translator
 
 load_dotenv(ROOT / ".env")
 def default_database_path() -> Path:
@@ -127,6 +129,17 @@ class SupabaseSync:
                 headers={**self.headers, "Prefer": "resolution=ignore-duplicates,return=minimal"},
             )
 
+    def patch_rows(self, table: str, params: dict[str, str], payload: dict) -> list[dict]:
+        response = self.request(
+            "PATCH",
+            f"/rest/v1/{table}",
+            params=params,
+            json=payload,
+            headers={**self.headers, "Prefer": "return=representation"},
+        )
+        rows = response.json()
+        return rows if isinstance(rows, list) else []
+
     def ensure_buckets(self) -> None:
         buckets = self.request("GET", "/storage/v1/bucket").json()
         existing = {bucket.get("id") for bucket in buckets if isinstance(bucket, dict)}
@@ -200,6 +213,39 @@ def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict]) ->
     remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
     remote.insert_many_ignore("translation_queue", jobs, "chapter_id")
     return len(jobs)
+
+
+def claim_translation_job(remote: SupabaseSync) -> dict | None:
+    rows = remote.rows("translation_queue", {"select": "*", "status": "eq.queued", "order": "priority.desc,created_at.asc", "limit": "1"})
+    if not rows:
+        return None
+    job = rows[0]
+    claimed = remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"}, {"status": "translating", "updated_at": datetime.now(timezone.utc).isoformat()})
+    return claimed[0] if claimed else None
+
+
+def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
+    remote = remote or SupabaseSync()
+    job = claim_translation_job(remote)
+    if not job:
+        return False
+    try:
+        while int(job["current_chunk"]) < int(job["total_chunks"]):
+            index = int(job["current_chunk"])
+            rows = remote.rows("chapter_chunks", {"select": "id,original_text", "chapter_id": f"eq.{job['chapter_id']}", "chunk_index": f"eq.{index}", "status": "eq.queued", "limit": "1"})
+            if not rows:
+                raise SyncError(f"Missing queued chunk {index} for chapter {job['chapter_id']}")
+            chunk = rows[0]
+            translated = translator.translate(str(chunk["original_text"]))
+            remote.patch_rows("chapter_chunks", {"id": f"eq.{chunk['id']}"}, {"translated_text": translated, "status": "completed"})
+            next_index = index + 1
+            status = "completed" if next_index == int(job["total_chunks"]) else "translating"
+            remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}"}, {"current_chunk": next_index, "status": status, "updated_at": datetime.now(timezone.utc).isoformat()})
+            job["current_chunk"] = next_index
+        return True
+    except (TranslationUnavailableError, SyncError):
+        remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}"}, {"status": "failed", "updated_at": datetime.now(timezone.utc).isoformat()})
+        return False
 
 
 def sync_once() -> dict[str, int | bool]:
