@@ -11,6 +11,7 @@ import sqlite3
 import threading
 import time
 import unicodedata
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -18,7 +19,7 @@ from urllib.parse import quote
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -346,6 +347,7 @@ def sync_once() -> dict[str, int | bool]:
 
 
 sync_status: dict[str, object] = {"last_sync": None, "last_error": None}
+pc_crawl_jobs: dict[str, dict[str, object]] = {}
 
 
 def run_watch() -> None:
@@ -389,28 +391,47 @@ class CrawlRequest(BaseModel):
     url: str
 
 
-@app.post("/crawl")
-async def crawl_and_translate(payload: CrawlRequest, x_worker_token: str | None = Header(default=None)) -> dict[str, object]:
-    if not PC_WORKER_TOKEN or x_worker_token != PC_WORKER_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid PC worker token")
+async def _crawl_and_translate(job_id: str, url: str) -> None:
     db = SessionLocal()
     try:
-        crawler = registry.get_for_url(payload.url)
-        book, added = await BookService(db, crawler).import_book(payload.url)
+        pc_crawl_jobs[job_id].update(status="crawling")
+        crawler = registry.get_for_url(url)
+        book, added = await BookService(db, crawler).import_book(url)
         chapters = db.query(Chapter).filter(Chapter.book_id == book.id, Chapter.original_content.is_(None)).all()
         for chapter in chapters:
             chapter.original_content = clean_chapter_text(await crawler.get_chapter_content(chapter.url))
         db.commit()
+        pc_crawl_jobs[job_id].update(status="syncing", book_id=book.id, chapters_added=added, raw_loaded=len(chapters))
         synced = sync_once()
+        pc_crawl_jobs[job_id].update(status="translating", sync=synced)
         while run_translation_worker_once():
             pass
-        return {"book_id": book.id, "chapters_added": added, "raw_loaded": len(chapters), "sync": synced}
+        pc_crawl_jobs[job_id].update(status="completed")
     except Exception as exc:
         db.rollback()
         logger.exception("PC crawl worker failed")
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        pc_crawl_jobs[job_id].update(status="failed", error=str(exc))
     finally:
         db.close()
+
+
+@app.post("/crawl", status_code=202)
+async def crawl_and_translate(payload: CrawlRequest, background_tasks: BackgroundTasks, x_worker_token: str | None = Header(default=None)) -> dict[str, object]:
+    if not PC_WORKER_TOKEN or x_worker_token != PC_WORKER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid PC worker token")
+    job_id = str(uuid.uuid4())
+    pc_crawl_jobs[job_id] = {"status": "queued"}
+    background_tasks.add_task(_crawl_and_translate, job_id, payload.url)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/crawl/{job_id}")
+def crawl_status(job_id: str, x_worker_token: str | None = Header(default=None)) -> dict[str, object]:
+    if not PC_WORKER_TOKEN or x_worker_token != PC_WORKER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid PC worker token")
+    if job_id not in pc_crawl_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return pc_crawl_jobs[job_id]
 
 
 def main() -> None:
