@@ -811,6 +811,11 @@
 
         audio.addEventListener("error", () => {
           const resumeAt = getCurrentPosition() || Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0);
+          if (streamingFirstSegment) {
+            streamingFirstSegment = false;
+            (playlistLoading || loadPlaylist(resumeAt, false)).then(() => seekTo(resumeAt, true));
+            return;
+          }
           if (!audioRetryUsed) {
             audioRetryUsed = true;
             seekTo(resumeAt, true, false);
@@ -861,6 +866,7 @@
         const shouldAutoplay = storage.getItem("reader.autoplayNext") === window.location.pathname;
         storage.removeItem("reader.autoplayNext");
         if (shouldAutoplay) startFirstSegmentStream();
+        else loadPlaylist(savedPosition, false);
       }
 
       updateTranslateButton();
