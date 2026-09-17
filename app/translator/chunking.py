@@ -1,68 +1,59 @@
+"""Sentence-aware chapter chunking for incremental translation."""
+
 from __future__ import annotations
 
 import re
 
-_SENTENCE_END = re.compile(r"(?<=[。！？!?；;])|(?<=……)|(?<=[.!?])\s+")
+
+MIN_CHUNK_SIZE = 1200
+MAX_CHUNK_SIZE = 1800
+_SENTENCE_END = re.compile(r"(?<=[。！？!?；;])")
 
 
-def split_sentences(text: str) -> list[str]:
-    sentences: list[str] = []
-    for paragraph in text.splitlines(keepends=True):
-        if not paragraph.strip():
-            sentences.append(paragraph)
-            continue
-        sentences.extend(part for part in _SENTENCE_END.split(paragraph) if part)
-    return sentences or [text]
-
-
-def chunk_text(text: str, max_chars: int = 500) -> list[str]:
-    """Pack complete sentences and retain every final residual chunk."""
+def chunk_text(text: str, *, min_size: int = MIN_CHUNK_SIZE, max_size: int = MAX_CHUNK_SIZE) -> list[str]:
+    """Split text at paragraph and sentence boundaries without retaining all chunks in callers."""
+    if min_size <= 0 or max_size < min_size:
+        raise ValueError("Invalid chunk size range")
+    units = _sentence_units(text)
     chunks: list[str] = []
     current = ""
-    for sentence in split_sentences(text):
-        if not sentence.strip():
-            current += sentence
-            continue
-        if current and len(current) + len(sentence) > max_chars:
-            chunks.append(current)
-            current = ""
-        if len(sentence) <= max_chars:
-            current += sentence
-            continue
-        for fragment in re.split(r"(?<=[，、,])", sentence):
-            if current and len(current) + len(fragment) > max_chars:
+    for unit in units:
+        for piece in _split_long_unit(unit, max_size):
+            candidate = _join(current, piece)
+            if current and len(candidate) > max_size:
                 chunks.append(current)
-                current = ""
-            current += fragment
-        if len(current) > max_chars:
-            chunks.extend(_split_long_han_safe(current, max_chars))
-            current = ""
+                current = piece
+            else:
+                current = candidate
     if current:
-        chunks.append(current)
-    return chunks or [text]
-
-
-def _split_long_han_safe(text: str, max_chars: int) -> list[str]:
-    chunks: list[str] = []
-    cursor = 0
-    while cursor < len(text):
-        end = min(cursor + max_chars, len(text))
-        if end < len(text):
-            end = _avoid_four_han_boundary(text, cursor, end)
-        chunks.append(text[cursor:end])
-        cursor = end
+        if chunks and len(current) < min_size and len(_join(chunks[-1], current)) <= max_size:
+            chunks[-1] = _join(chunks[-1], current)
+        else:
+            chunks.append(current)
     return chunks
 
 
-def _avoid_four_han_boundary(text: str, start: int, end: int) -> int:
-    min_end = min(len(text), start + 1)
-    for candidate in range(end, max(min_end, end - 4), -1):
-        left = text[max(start, candidate - 2) : candidate]
-        right = text[candidate : candidate + 2]
-        if not (_is_han(left) and _is_han(right)):
-            return candidate
-    return end
+def _sentence_units(text: str) -> list[str]:
+    units: list[str] = []
+    for paragraph in (part.strip() for part in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")):
+        if not paragraph:
+            continue
+        units.extend(part.strip() for part in _SENTENCE_END.split(paragraph) if part.strip())
+    return units
 
 
-def _is_han(text: str) -> bool:
-    return bool(text) and all("\u3400" <= char <= "\u9fff" for char in text)
+def _split_long_unit(unit: str, max_size: int) -> list[str]:
+    parts: list[str] = []
+    remaining = unit
+    while len(remaining) > max_size:
+        boundary = max(remaining.rfind(mark, 0, max_size + 1) for mark in "，、,:： ")
+        cut = boundary + 1 if boundary > max_size // 2 else max_size
+        parts.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    if remaining:
+        parts.append(remaining)
+    return parts
+
+
+def _join(left: str, right: str) -> str:
+    return f"{left}\n{right}" if left else right
