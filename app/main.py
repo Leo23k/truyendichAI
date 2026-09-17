@@ -525,7 +525,8 @@ async def lookup_books(request: Request, query: str = Form(...), db: Session = D
     try:
         if query.startswith(("http://", "https://")):
             if os.getenv("VERCEL"):
-                enqueue_remote_crawl(query)
+                job = enqueue_remote_crawl(query)
+                request.state.crawl_job_id = str(job["id"])
                 if request.headers.get("HX-Request"):
                     return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "PC đang crawl và dịch truyện. Hãy quay lại thư viện sau ít phút.", "error": False})
                 return RedirectResponse("/", status_code=303)
@@ -902,6 +903,19 @@ async def chapter_audio(
         return FileResponse(first_segment.path, media_type="audio/mpeg", filename=first_segment.path.name)
     except EdgeTTSUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/crawl-jobs/{job_id}")
+def crawl_job_status(job_id: str) -> dict[str, object]:
+    try:
+        rows = SupabaseSync().rows(
+            "remote_crawl_jobs", {"select": "status,error,result,updated_at", "id": f"eq.{job_id}", "limit": "1"}
+        )
+    except SyncError as exc:
+        raise HTTPException(status_code=503, detail="Could not read crawl progress") from exc
+    if not rows:
+        raise HTTPException(status_code=404, detail="Crawl job not found")
+    return rows[0]
 
 
 @app.get("/health")

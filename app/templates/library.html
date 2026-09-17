@@ -150,6 +150,34 @@
     document.addEventListener("htmx:afterSwap", (event) => {
       if (event.detail.target?.id === "lookup-results") {
         console.debug("[search] rendered items=", event.detail.target.querySelectorAll("[data-search-item]").length);
+        const job = event.detail.target.querySelector("[data-crawl-job]");
+        if (!job) return;
+        const status = document.querySelector("#lookup-status");
+        const bar = document.querySelector("[data-progress-bar]");
+        const value = document.querySelector("[data-progress-value]");
+        const labels = { queued: "Dang cho PC nhan job...", crawling: "Dang tai noi dung goc...", syncing: "Dang luu noi dung goc len Supabase...", translating: "Dang dich tung doan...", completed: "Da crawl va dich xong.", failed: "Crawl that bai." };
+        const poll = async () => {
+          try {
+            const response = await fetch(`/api/crawl-jobs/${job.dataset.crawlJob}`, { cache: "no-store" });
+            if (!response.ok) throw new Error("Khong the doc tien do");
+            const current = await response.json();
+            const result = current.result || {};
+            let text = labels[current.status] || "Dang xu ly...";
+            let percent = current.status === "completed" ? 100 : current.status === "translating" ? 90 : current.status === "syncing" ? 80 : 5;
+            if (current.status === "crawling" && result.total_raw) {
+              percent = Math.min(70, Math.round((result.raw_loaded || 0) / result.total_raw * 70));
+              text += ` ${result.raw_loaded || 0}/${result.total_raw} chuong.`;
+            }
+            if (current.error) text = current.error;
+            status.textContent = text;
+            value.textContent = `${percent}%`;
+            bar.style.width = `${percent}%`;
+            if (!["completed", "failed"].includes(current.status)) window.setTimeout(poll, 3000);
+          } catch (error) {
+            status.textContent = error.message;
+          }
+        };
+        poll();
       }
     });
   })();

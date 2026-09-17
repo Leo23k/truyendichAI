@@ -419,8 +419,12 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
             book.delete_after = None
             db.commit()
         chapters = db.query(Chapter).filter(Chapter.book_id == book.id, Chapter.original_content.is_(None)).all()
-        for chapter in chapters:
+        total_raw = len(chapters)
+        update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
+        for index, chapter in enumerate(chapters, start=1):
             chapter.original_content = clean_chapter_text(await crawler.get_chapter_content(chapter.url))
+            if index == total_raw or index % 10 == 0:
+                update_status(status="crawling", raw_loaded=index, total_raw=total_raw)
         db.commit()
         update_status(status="syncing", book_id=book.id, chapters_added=added, raw_loaded=len(chapters))
         synced = sync_once()
@@ -442,11 +446,17 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
     if not job:
         return False
 
+    job_result = dict(job.get("result") or {})
+
     def update_status(**values: object) -> None:
         payload = {key: values[key] for key in ("status", "error", "result") if key in values}
         details = {key: value for key, value in values.items() if key not in {"status", "error", "result"}}
+        if isinstance(payload.get("result"), dict):
+            job_result.update(payload["result"])
         if details:
-            payload["result"] = {**dict(payload.get("result") or {}), **details}
+            job_result.update(details)
+        if job_result:
+            payload["result"] = job_result
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
         remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job['id']}"}, payload)
 
