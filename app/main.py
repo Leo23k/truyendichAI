@@ -176,6 +176,7 @@ def startup() -> None:
 def library(request: Request, db: Session = Depends(get_db)):
     _purge_expired_deleted_books(db)
     books = db.scalars(select(Book).where(Book.deleted_at.is_(None)).order_by(Book.updated_at.desc())).all()
+    deleted_books = db.scalars(select(Book).where(Book.deleted_at.is_not(None)).order_by(Book.deleted_at.desc())).all()
     synced_novels = []
     if not books:
         try:
@@ -184,7 +185,7 @@ def library(request: Request, db: Session = Depends(get_db)):
         except CdnDataError:
             pass
     return templates.TemplateResponse(
-        request=request, name="library.html", context={"books": books, "synced_novels": synced_novels}
+        request=request, name="library.html", context={"books": books, "deleted_books": deleted_books, "synced_novels": synced_novels}
     )
 
 
@@ -518,6 +519,16 @@ def restore_book(book_id: int, db: Session = Depends(get_db)):
     book.delete_after = None
     db.commit()
     return RedirectResponse(f"/books/{book.id}", status_code=303)
+
+
+@app.post("/books/{book_id}/delete-permanently")
+def delete_book_permanently(book_id: int, db: Session = Depends(get_db)):
+    book = db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy truyện.")
+    db.delete(book)
+    db.commit()
+    return RedirectResponse("/?restore=1", status_code=303)
 
 
 @app.get("/chapters/{chapter_id}")
