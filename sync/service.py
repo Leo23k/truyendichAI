@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -400,6 +401,10 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
         update_status(status="crawling")
         crawler = registry.get_for_url(url)
         book, added = await BookService(db, crawler).import_book(url)
+        if book.deleted_at:
+            book.deleted_at = None
+            book.delete_after = None
+            db.commit()
         chapters = db.query(Chapter).filter(Chapter.book_id == book.id, Chapter.original_content.is_(None)).all()
         for chapter in chapters:
             chapter.original_content = clean_chapter_text(await crawler.get_chapter_content(chapter.url))
@@ -428,7 +433,11 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
         values["updated_at"] = datetime.now(timezone.utc).isoformat()
         remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job['id']}"}, values)
 
-    asyncio.run(_crawl_and_translate_url(str(job["source_url"]), update_status))
+    try:
+        asyncio.run(_crawl_and_translate_url(str(job["source_url"]), update_status))
+    except Exception as exc:
+        logger.exception("Remote crawl job failed before it could start")
+        update_status(status="failed", error=str(exc))
     return True
 
 
