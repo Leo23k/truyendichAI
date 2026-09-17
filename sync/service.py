@@ -18,7 +18,8 @@ from urllib.parse import quote
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -27,6 +28,11 @@ if str(ROOT) not in sys.path:
 from app.config import PROJECT_ROOT, settings
 from app.translator.chunking import chunk_text
 from app.translator.service import TranslationUnavailableError, translator
+from app.crawlers.base import clean_chapter_text
+from app.crawlers.bootstrap import registry
+from app.database import SessionLocal
+from app.models import Chapter
+from app.services.book_service import BookService
 
 load_dotenv(ROOT / ".env")
 def default_database_path() -> Path:
@@ -50,6 +56,7 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPAB
 RETRIES = 3
 logger = logging.getLogger(__name__)
 app = FastAPI(title="LeoTruyen Sync")
+PC_WORKER_TOKEN = os.getenv("PC_WORKER_TOKEN", "")
 
 
 class SyncError(RuntimeError):
@@ -376,6 +383,34 @@ def trigger_sync() -> dict[str, int | bool]:
     except SyncError as exc:
         sync_status["last_error"] = str(exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+class CrawlRequest(BaseModel):
+    url: str
+
+
+@app.post("/crawl")
+async def crawl_and_translate(payload: CrawlRequest, x_worker_token: str | None = Header(default=None)) -> dict[str, object]:
+    if not PC_WORKER_TOKEN or x_worker_token != PC_WORKER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid PC worker token")
+    db = SessionLocal()
+    try:
+        crawler = registry.get_for_url(payload.url)
+        book, added = await BookService(db, crawler).import_book(payload.url)
+        chapters = db.query(Chapter).filter(Chapter.book_id == book.id, Chapter.original_content.is_(None)).all()
+        for chapter in chapters:
+            chapter.original_content = clean_chapter_text(await crawler.get_chapter_content(chapter.url))
+        db.commit()
+        synced = sync_once()
+        while run_translation_worker_once():
+            pass
+        return {"book_id": book.id, "chapters_added": added, "raw_loaded": len(chapters), "sync": synced}
+    except Exception as exc:
+        db.rollback()
+        logger.exception("PC crawl worker failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        db.close()
 
 
 def main() -> None:

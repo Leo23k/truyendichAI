@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     tts_api_url: str | None = Field(default=None, validation_alias=AliasChoices("TTS_API_URL"))
     model_service_timeout: int = 300
     model_beam_size: int = 2
+    pc_worker_url: str | None = Field(default=None, validation_alias=AliasChoices("PC_WORKER_URL"))
+    pc_worker_token: str | None = Field(default=None, validation_alias=AliasChoices("PC_WORKER_TOKEN"))
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

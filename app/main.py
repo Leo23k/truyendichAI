@@ -1,11 +1,13 @@
 import asyncio
 from datetime import datetime, timedelta
 import logging
+import os
 from pathlib import Path
 import threading
 import uuid
 from types import SimpleNamespace
 
+import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -415,6 +417,13 @@ async def lookup_books(request: Request, query: str = Form(...), db: Session = D
     query = query.strip()
     try:
         if query.startswith(("http://", "https://")):
+            if os.getenv("VERCEL") and settings.pc_worker_url and settings.pc_worker_token:
+                async with httpx.AsyncClient(timeout=settings.model_service_timeout, trust_env=False) as client:
+                    response = await client.post(f"{settings.pc_worker_url.rstrip('/')}/crawl", json={"url": query}, headers={"X-Worker-Token": settings.pc_worker_token})
+                response.raise_for_status()
+                if request.headers.get("HX-Request"):
+                    return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "PC đang crawl và dịch truyện. Hãy quay lại thư viện sau ít phút.", "error": False})
+                return RedirectResponse("/", status_code=303)
             crawler = registry.get_for_url(query)
             book, _ = await BookService(db, crawler).import_book(query)
             if book.deleted_at:
