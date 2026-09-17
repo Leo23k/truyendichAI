@@ -6,6 +6,12 @@
 <style>
   .reader-bottom-bar{transition:transform 190ms ease,opacity 190ms ease}
   .reader-bottom-bar.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem))}
+  .reader-header{transition:transform 190ms ease,opacity 190ms ease}
+  .reader-header.is-hidden{opacity:0;transform:translateY(-110%);pointer-events:none}
+  .reader-chapter-nav{transition:transform 190ms ease,opacity 190ms ease}
+  .reader-chapter-nav.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem));pointer-events:none}
+  .reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:none}
+  @media (min-width:640px){.reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:inline-flex}.reader-chapter-nav{display:none}}
   .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}
   .reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}
   .reader-sheet{transform:translateY(100%);transition:transform 210ms ease}
@@ -19,7 +25,7 @@
   :class="theme === 'dark' ? 'bg-stone-950 text-stone-100' : 'bg-[#fbfaf7] text-stone-900'"
   class="min-h-screen pb-36"
 >
-  <header class="sticky top-0 z-30 border-b border-stone-200/70 bg-white/85 backdrop-blur">
+  <header data-reader-header class="reader-header sticky top-0 z-30 border-b border-stone-200/70 bg-white/85 backdrop-blur">
     <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
       <a href="{{ back_url or '/books/' ~ chapter.book_id }}" class="icon-button text-stone-600" aria-label="Quay lại chi tiết truyện">
         <i data-lucide="arrow-left" class="h-5 w-5"></i>
@@ -125,7 +131,7 @@
     {% if showing_translation and chapter.translated_content %}
     <audio data-reader-audio preload="metadata"></audio>
     {% endif %}
-    <div class="grid grid-cols-[auto_auto_auto_1fr_auto_auto] items-center gap-2 sm:gap-3">
+    <div class="grid grid-cols-[auto_auto_1fr_auto] items-center gap-2 sm:grid-cols-[auto_auto_auto_1fr_auto_auto] sm:gap-3">
       {% if previous %}
       <a href="{{ previous_url or '/chapters/' ~ previous.id }}" data-reader-prev class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương trước">
         <i data-lucide="chevron-left" class="h-5 w-5"></i>
@@ -183,6 +189,10 @@
     </div>
   </div>
 
+  <nav data-reader-chapter-nav class="reader-chapter-nav fixed bottom-[8.5rem] left-1/2 z-30 flex w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 items-center justify-between rounded-lg border border-stone-200 bg-white/95 px-3 py-1.5 text-sm shadow-lg backdrop-blur" aria-label="Chuyển chương">
+    {% if previous %}<a href="{{ previous_url or '/chapters/' ~ previous.id }}" class="inline-flex h-9 items-center gap-1 text-stone-600"><i data-lucide="chevron-left" class="h-4 w-4"></i>Chương trước</a>{% else %}<span class="text-stone-300">Chương trước</span>{% endif %}
+    {% if following %}<a href="{{ following_url or '/chapters/' ~ following.id }}" class="inline-flex h-9 items-center gap-1 text-stone-600">Chương sau<i data-lucide="chevron-right" class="h-4 w-4"></i></a>{% else %}<span class="text-stone-300">Chương sau</span>{% endif %}
+  </nav>
   <div data-sheet-backdrop class="reader-sheet-backdrop fixed inset-0 z-50 bg-stone-950/25">
     <section data-sheet="voice" class="reader-sheet absolute inset-x-0 bottom-0 rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl">
       <div class="mx-auto max-w-lg">
@@ -256,6 +266,8 @@
     (() => {
       const player = document.querySelector("[data-reader-player]");
       if (!player) return;
+      const readerHeader = document.querySelector("[data-reader-header]");
+      const chapterNav = document.querySelector("[data-reader-chapter-nav]");
 
       const readerChapterKey = player.dataset.chapterId || "";
       const readerBookKey = player.dataset.bookId || "";
@@ -353,7 +365,8 @@
       };
 
       const getCurrentPosition = () => {
-        if (!hasAudio || !playlistReady) return 0;
+        if (!hasAudio) return 0;
+        if (!playlistReady) return audio.currentTime || 0;
         return (segmentStarts[currentSegmentIndex] || 0) + (audio.currentTime || 0);
       };
 
@@ -504,14 +517,24 @@
 
       const showBar = () => {
         player.classList.remove("is-hidden");
+        readerHeader?.classList.remove("is-hidden");
+        chapterNav?.classList.remove("is-hidden");
         clearTimeout(hideTimer);
         hideTimer = setTimeout(() => {
-          if (!sheetBackdrop.classList.contains("is-open")) player.classList.add("is-hidden");
+          if (!sheetBackdrop.classList.contains("is-open")) {
+            player.classList.add("is-hidden");
+            readerHeader?.classList.add("is-hidden");
+            chapterNav?.classList.add("is-hidden");
+          }
         }, 2600);
       };
 
       const hideBar = () => {
-        if (!sheetBackdrop.classList.contains("is-open")) player.classList.add("is-hidden");
+        if (!sheetBackdrop.classList.contains("is-open")) {
+          player.classList.add("is-hidden");
+          readerHeader?.classList.add("is-hidden");
+          chapterNav?.classList.add("is-hidden");
+        }
       };
 
       const openSheet = (name) => {
@@ -887,13 +910,24 @@
 
         segmentPrevButton.addEventListener("click", () => {
           if (!playlistReady) return;
-          const index = audio.currentTime > 3 ? currentSegmentIndex : Math.max(0, currentSegmentIndex - 1);
-          setAudioSegment(index, 0, !audio.paused);
+          if (audio.currentTime >= 10) {
+            audio.currentTime -= 10;
+            updateProgress();
+            return;
+          }
+          const index = Math.max(0, currentSegmentIndex - 1);
+          setAudioSegment(index, Math.max(0, (playlist[index]?.duration || 0) - 10), !audio.paused);
         });
 
         segmentNextButton.addEventListener("click", () => {
-          if (!playlistReady || currentSegmentIndex >= playlist.length - 1) return;
-          setAudioSegment(currentSegmentIndex + 1, 0, !audio.paused);
+          if (!playlistReady) return;
+          const duration = Number(playlist[currentSegmentIndex]?.duration || audio.duration || 0);
+          if (!duration || audio.currentTime + 10 < duration) {
+            audio.currentTime += 10;
+            updateProgress();
+            return;
+          }
+          if (currentSegmentIndex < playlist.length - 1) setAudioSegment(currentSegmentIndex + 1, 0, !audio.paused);
         });
 
         progress.addEventListener("input", () => {
