@@ -53,4 +53,5 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
 
     assert service.run_translation_worker_once(remote) is True
     assert [patch[2]["translated_text"] for patch in remote.patches if patch[0] == "chapter_chunks"] == ["Dịch Một.", "Dịch Hai."]
+    assert [patch[0] for patch in remote.patches].index("chapter_chunks") < [patch[0] for patch in remote.patches].index("translation_queue", 1)
     assert remote.patches[-1][2]["status"] == "completed"
