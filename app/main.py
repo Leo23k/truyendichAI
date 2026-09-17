@@ -236,7 +236,9 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         if position is None:
             return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
         current = entries[position]
-        progress = load_translation_progress(int(current["id"])) if current.get("id") else None
+        # The direct chapter translator is the production fallback. Do not block
+        # readers on a stale incremental queue while the PC worker is unavailable.
+        progress = None
         if not current.get("translated"):
             payload = {}
             if current.get("content_path"):
