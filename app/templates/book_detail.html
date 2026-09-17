@@ -72,7 +72,7 @@
           <i data-lucide="book-open" class="h-4 w-4"></i>
           <span>Đọc từ đầu</span>
         </a>
-        <button type="button" data-batch-translate-open class="inline-flex h-11 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-5 font-medium text-teal-800 hover:bg-teal-100">
+        <button type="button" data-batch-translate-open data-batch-novel-id="{{ book.id }}" data-batch-total="{{ book.chapters|length }}" class="inline-flex h-11 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-5 font-medium text-teal-800 hover:bg-teal-100">
           <i data-lucide="languages" class="h-4 w-4"></i>
           <span>Dịch nhiều chương</span>
         </button>
@@ -121,4 +121,5 @@
     button.hidden = false;
   })();
 </script>
+<script src="/static/batch_translate.js" defer></script>
 {% endblock %}
