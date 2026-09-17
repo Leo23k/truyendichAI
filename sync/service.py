@@ -347,6 +347,8 @@ def run_watch() -> None:
         try:
             sync_status["last_sync"] = sync_once()
             sync_status["last_error"] = None
+            while run_translation_worker_once():
+                pass
         except SyncError as exc:
             logger.exception("Scheduled Supabase sync failed")
             sync_status["last_error"] = str(exc)
