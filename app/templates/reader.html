@@ -322,6 +322,7 @@
       let audioLoadToken = 0;
       let streamingFirstSegment = false;
       let priorityRequested = false;
+      const voiceSessions = new Map();
 
       const buildManifestUrl = () => {
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
@@ -332,6 +333,8 @@
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
         return `${player.dataset.audioUrl}?${params.toString()}`;
       };
+
+      const voiceSessionKey = () => `${getVoice()}@${getRate()}`;
 
       const requestTranslationPriority = (value, priority) => {
         const chapterId = Number(value);
@@ -396,6 +399,16 @@
         if (!hasAudio) return Promise.resolve();
         stopFallbackSpeech();
         playlistReady = false;
+        const cachedSession = voiceSessions.get(voiceSessionKey());
+        if (cachedSession) {
+          playlist = cachedSession.playlist;
+          segmentStarts = cachedSession.segmentStarts;
+          totalDuration = cachedSession.totalDuration;
+          playlistReady = true;
+          durationLabel.textContent = formatTime(totalDuration);
+          if (selectSegment) seekTo(resumeAt, autoplay);
+          return Promise.resolve();
+        }
         playlistLoading = fetch(buildManifestUrl())
           .then((response) => {
             if (!response.ok) throw new Error(`TTS manifest ${response.status}`);
@@ -413,6 +426,7 @@
             if (!totalDuration) totalDuration = cursor;
             playlistReady = playlist.length > 0;
             if (!playlistReady) throw new Error("TTS playlist empty");
+            voiceSessions.set(voiceSessionKey(), { playlist, segmentStarts, totalDuration });
             durationLabel.textContent = formatTime(totalDuration);
             if (selectSegment) seekTo(resumeAt, autoplay);
           })
