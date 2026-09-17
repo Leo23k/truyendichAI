@@ -434,17 +434,17 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
 
 def run_watch() -> None:
     interval = max(5, int(os.getenv("PC_WORKER_POLL_INTERVAL", "10")))
-    next_sync_at = 0.0
+    next_sync_at = time.monotonic() + max(30, int(os.getenv("SYNC_INTERVAL", "60")))
     while True:
         try:
             remote = SupabaseSync()
             if process_remote_crawl_job_once(remote):
                 sync_status["last_error"] = None
-            elif time.monotonic() >= next_sync_at:
+            else:
+                run_translation_worker_once(remote)
+            if time.monotonic() >= next_sync_at:
                 sync_status["last_sync"] = sync_once()
                 sync_status["last_error"] = None
-                while run_translation_worker_once(remote):
-                    pass
                 next_sync_at = time.monotonic() + max(30, int(os.getenv("SYNC_INTERVAL", "60")))
         except SyncError as exc:
             logger.exception("Scheduled Supabase sync failed")
