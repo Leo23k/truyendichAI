@@ -88,6 +88,12 @@
   {% if translation_error %}
   <div class="mx-auto mt-4 max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ translation_error }}{% if display_content %} Đang hiển thị bản gốc.{% endif %}{% if original_url %} <a href="{{ original_url }}" target="_blank" rel="noopener" class="ml-2 font-medium underline">Xem bản gốc</a>{% endif %}</div>
   {% endif %}
+  {% if translation_progress and translation_progress.status != 'completed' %}
+  <div class="mx-auto mt-4 max-w-3xl rounded-md border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900" aria-live="polite">
+    ⟳ Đang dịch đoạn {{ translation_progress.current_chunk + 1 }} / {{ translation_progress.total_chunks }}...
+  </div>
+  <script>window.setTimeout(() => window.location.reload(), 4000);</script>
+  {% endif %}
   <section data-translation-panel hidden class="mx-auto mt-4 max-w-3xl rounded-md border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950" aria-live="polite">
     <div class="flex items-center justify-between gap-3"><span data-translation-status>Đang xếp hàng.</span><button type="button" data-translation-retry hidden class="font-medium underline">Thử lại</button></div>
     <p data-translation-error class="mt-1 hidden text-red-700"></p>

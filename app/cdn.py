@@ -251,6 +251,14 @@ def set_synced_novel_deletion(slug: str, *, deleted_at: str | None, delete_after
     )
 
 
+def load_translation_progress(chapter_id: int) -> dict | None:
+    queues = _service_rows("translation_queue", {"select": "status,current_chunk,total_chunks", "chapter_id": f"eq.{chapter_id}", "limit": "1"})
+    if not queues:
+        return None
+    chunks = _service_rows("chapter_chunks", {"select": "chunk_index,translated_text,status", "chapter_id": f"eq.{chapter_id}", "order": "chunk_index.asc"})
+    return {**queues[0], "chunks": chunks}
+
+
 def load_cdn_json(path: str) -> dict:
     relative = _safe_path(path)
     if relative.as_posix() == "metadata.json":
@@ -277,7 +285,7 @@ def load_chapters_index(slug: str) -> list[dict]:
             return _all_rows(
                 "chapters",
                 {
-                    "select": "chapter_number,title,source_url,translated,audio_available,content_path",
+                    "select": "id,chapter_number,title,source_url,translated,audio_available,content_path",
                     "novel_id": f"eq.{novels[0]['id']}",
                     "order": "chapter_number.asc",
                 },

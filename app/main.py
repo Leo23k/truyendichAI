@@ -22,6 +22,7 @@ from app.cdn import (
     get_synced_novel_for_management,
     load_cdn_json,
     load_chapters_index,
+    load_translation_progress,
     publish_translated_chapter,
     set_synced_novel_deletion,
 )
@@ -213,6 +214,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         if position is None:
             return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
         current = entries[position]
+        progress = load_translation_progress(int(current["id"])) if current.get("id") else None
         if not current.get("translated"):
             payload = {}
             if current.get("content_path"):
@@ -221,6 +223,8 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                 except CdnDataError:
                     payload = {}
             original_content = payload.get("original_content") or payload.get("content") or ""
+            translated_parts = [str(item.get("translated_text") or "Đang dịch đoạn tiếp theo...") for item in (progress or {}).get("chunks", [])]
+            progressive = bool(progress and translated_parts)
             chapter = SimpleNamespace(
                 id=f"cdn-{slug}-{chapter_number}",
                 book_id=slug,
@@ -229,7 +233,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                 translated_title=current.get("title"),
                 source_url=current.get("source_url"),
                 original_content=original_content,
-                translated_content="",
+                translated_content="\n\n".join(translated_parts) if progressive else "",
             )
             return templates.TemplateResponse(
                 request=request,
@@ -239,10 +243,11 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "previous": entries[position - 1] if position else None,
                     "following": entries[position + 1] if position + 1 < len(entries) else None,
                     "mode": "translated",
-                    "showing_translation": False,
+                    "showing_translation": progressive,
                     "display_title": current.get("title"),
-                    "display_content": original_content,
-                    "translation_error": "Chương này chưa được dịch. Hãy đồng bộ hoặc dịch trước.",
+                    "display_content": chapter.translated_content if progressive else original_content,
+                    "translation_error": None if progressive else "Chương này chưa được dịch. Hãy đồng bộ hoặc dịch trước.",
+                    "translation_progress": progress,
                     "original_url": current.get("source_url"),
                     "synced_reader": True,
                     "chapter_list": entries,
@@ -289,6 +294,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "previous_url": f"/synced/{slug}/{previous['chapter_number']}" if previous else "",
             "following_url": f"/synced/{slug}/{following['chapter_number']}" if following else "",
             "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
+            "translation_progress": progress,
         },
     )
 
