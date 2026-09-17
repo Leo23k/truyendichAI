@@ -344,9 +344,8 @@ async def update_synced_book(slug: str):
         source_url = novel.get("source_url")
         if not source_url:
             raise CdnDataError("Truyện chưa có URL nguồn để cập nhật. Hãy đồng bộ lại từ máy local.")
-        crawler = registry.get_for_url(source_url)
-        chapters_added = add_synced_chapters(slug, await crawler.get_chapters(source_url))
-        return RedirectResponse(f"/synced/{slug}", status_code=303, headers={"X-Chapters-Added": str(chapters_added)})
+        enqueue_remote_crawl(str(source_url))
+        return RedirectResponse(f"/synced/{slug}", status_code=303)
     except CrawlerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except CdnDataError as exc:
