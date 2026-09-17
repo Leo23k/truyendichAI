@@ -191,8 +191,11 @@ def sync_once() -> dict[str, int | bool]:
                     "title": book["translated_title"] or book["title"],
                     "author": book["translated_author"] or book["author"],
                     "cover_url": f"covers/{cover_path}" if cover_path else None,
+                    "source_url": book["source_url"],
                     "latest_chapter": latest,
                     "updated_at": book["updated_at"],
+                    "deleted_at": book["deleted_at"],
+                    "delete_after": book["delete_after"],
                 },
                 "slug",
             )

@@ -15,7 +15,16 @@ from sqlalchemy.orm import Session
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
-from app.cdn import CdnDataError, cdn_url, load_cdn_json, load_chapters_index, publish_translated_chapter
+from app.cdn import (
+    CdnDataError,
+    add_synced_chapters,
+    cdn_url,
+    get_synced_novel_for_management,
+    load_cdn_json,
+    load_chapters_index,
+    publish_translated_chapter,
+    set_synced_novel_deletion,
+)
 from app.database import SessionLocal, create_tables, get_db
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
@@ -282,6 +291,36 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
         },
     )
+
+
+@app.post("/synced/{slug}/update")
+async def update_synced_book(slug: str):
+    try:
+        novel = get_synced_novel_for_management(slug)
+        source_url = novel.get("source_url")
+        if not source_url:
+            raise CdnDataError("Truyện chưa có URL nguồn để cập nhật. Hãy đồng bộ lại từ máy local.")
+        crawler = registry.get_for_url(source_url)
+        chapters_added = add_synced_chapters(slug, await crawler.get_chapters(source_url))
+        return RedirectResponse(f"/synced/{slug}", status_code=303, headers={"X-Chapters-Added": str(chapters_added)})
+    except CrawlerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/synced/{slug}/delete")
+def delete_synced_book(slug: str):
+    try:
+        now = datetime.utcnow()
+        set_synced_novel_deletion(
+            slug,
+            deleted_at=now.isoformat(),
+            delete_after=(now + BOOK_RESTORE_WINDOW).isoformat(),
+        )
+        return RedirectResponse("/", status_code=303)
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/synced/{slug}/{chapter_number}/audio/manifest")

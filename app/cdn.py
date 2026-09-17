@@ -75,6 +75,31 @@ def _service_headers() -> dict[str, str]:
     return headers
 
 
+def _service_rows(table: str, params: dict[str, str]) -> list[dict]:
+    try:
+        with httpx.Client(timeout=30, trust_env=False) as client:
+            response = client.get(f"{SUPABASE_URL}/rest/v1/{table}", params=params, headers=_service_headers())
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise CdnDataError(f"Could not load Supabase {table}") from exc
+    if not isinstance(payload, list):
+        raise CdnDataError(f"Invalid Supabase {table} response")
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _service_patch(table: str, params: dict[str, str], payload: dict) -> None:
+    try:
+        with httpx.Client(timeout=30, trust_env=False) as client:
+            response = client.patch(
+                f"{SUPABASE_URL}/rest/v1/{table}", params=params, json=payload,
+                headers={**_service_headers(), "Prefer": "return=minimal"},
+            )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise CdnDataError(f"Could not update Supabase {table}") from exc
+
+
 def _rest_rows(table: str, params: dict[str, str]) -> list[dict]:
     if not _configured():
         raise CdnDataError("Supabase is not configured")
@@ -142,7 +167,14 @@ def _resolved_cover_url(cover_path: str | None, slug: str, fallback_covers: dict
 def load_novels() -> list[dict]:
     if _configured():
         try:
-            novels = _all_rows("novels", {"select": "id,slug,title,author,cover_url,latest_chapter,updated_at", "order": "updated_at.desc"})
+            novels = _all_rows(
+                "novels",
+                {
+                    "select": "id,slug,title,author,cover_url,latest_chapter,updated_at,source_url",
+                    "deleted_at": "is.null",
+                    "order": "updated_at.desc",
+                },
+            )
             translated = _all_rows("chapters", {"select": "novel_id", "translated": "eq.true"})
             totals = _all_rows("chapters", {"select": "novel_id"})
             translated_counts: dict[int, int] = {}
@@ -168,6 +200,55 @@ def load_novels() -> list[dict]:
         except CdnDataError:
             pass
     return _fallback_json("metadata.json").get("novels", [])
+
+
+def get_synced_novel_for_management(slug: str) -> dict:
+    rows = _service_rows(
+        "novels",
+        {"select": "id,slug,source_url", "slug": f"eq.{slug}", "limit": "1"},
+    )
+    if not rows:
+        raise CdnDataError("Novel was not found")
+    return rows[0]
+
+
+def add_synced_chapters(slug: str, chapters: list[object]) -> int:
+    novel = get_synced_novel_for_management(slug)
+    existing_rows = _service_rows("chapters", {"select": "source_url", "novel_id": f"eq.{novel['id']}"})
+    existing_urls = {row.get("source_url") for row in existing_rows}
+    payload = [
+        {
+            "novel_id": novel["id"],
+            "chapter_number": chapter.chapter_number,
+            "title": chapter.title,
+            "source_url": chapter.url,
+            "translated": False,
+            "audio_available": False,
+        }
+        for chapter in chapters
+        if chapter.url not in existing_urls
+    ]
+    if not payload:
+        return 0
+    try:
+        with httpx.Client(timeout=60, trust_env=False) as client:
+            response = client.post(
+                f"{SUPABASE_URL}/rest/v1/chapters?on_conflict=novel_id,source_url",
+                json=payload,
+                headers={**_service_headers(), "Prefer": "resolution=ignore-duplicates,return=minimal"},
+            )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise CdnDataError("Could not add Supabase chapters") from exc
+    return len(payload)
+
+
+def set_synced_novel_deletion(slug: str, *, deleted_at: str | None, delete_after: str | None) -> None:
+    _service_patch(
+        "novels",
+        {"slug": f"eq.{slug}"},
+        {"deleted_at": deleted_at, "delete_after": delete_after},
+    )
 
 
 def load_cdn_json(path: str) -> dict:

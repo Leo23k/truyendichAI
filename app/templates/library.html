@@ -106,7 +106,15 @@
       <div class="p-4">
         <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ novel.title }}</h2>
         <p class="mt-2 text-sm text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
-        <div class="mt-4 flex items-center justify-between gap-3"><span class="text-xs font-medium text-stone-500">{{ novel.total_chapters or 0 }} chương · {{ novel.translated_chapters or 0 }} đã dịch</span><a href="/synced/{{ novel.slug }}" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="book-open" class="h-4 w-4"></i><span>Đọc</span></a></div>
+        <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <span class="text-xs font-medium text-stone-500">{{ novel.total_chapters or 0 }} chương · {{ novel.translated_chapters or 0 }} đã dịch</span>
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <a data-book-continue-reading="{{ novel.slug }}" hidden href="#" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100"><i data-lucide="bookmark-check" class="h-4 w-4"></i><span>Đọc tiếp</span></a>
+            <a href="/synced/{{ novel.slug }}" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="book-open" class="h-4 w-4"></i><span>Đọc</span></a>
+            <form action="/synced/{{ novel.slug }}/update" method="post"><button type="submit" title="Cập nhật chương mới" class="icon-button h-9 w-9 text-stone-600 hover:bg-stone-100" aria-label="Cập nhật chương mới"><i data-lucide="refresh-cw" class="h-4 w-4"></i></button></form>
+            <form action="/synced/{{ novel.slug }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');"><button type="submit" title="Xóa truyện" class="icon-button h-9 w-9 text-red-600 hover:bg-red-50" aria-label="Xóa truyện"><i data-lucide="trash-2" class="h-4 w-4"></i></button></form>
+          </div>
+        </div>
       </div>
     </article>
     {% endfor %}
