@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.config import PROJECT_ROOT, settings
+from app.translator.chunking import chunk_text
 
 load_dotenv(ROOT / ".env")
 def default_database_path() -> Path:
@@ -111,6 +112,21 @@ class SupabaseSync:
                 headers={**self.headers, "Prefer": "resolution=merge-duplicates,return=minimal"},
             )
 
+    def rows(self, table: str, params: dict[str, str]) -> list[dict]:
+        payload = self.request("GET", f"/rest/v1/{table}", params=params).json()
+        if not isinstance(payload, list):
+            raise SyncError(f"Supabase did not return rows for {table}.")
+        return [row for row in payload if isinstance(row, dict)]
+
+    def insert_many_ignore(self, table: str, payloads: list[dict], conflict: str) -> None:
+        for start in range(0, len(payloads), 500):
+            self.request(
+                "POST",
+                f"/rest/v1/{table}?on_conflict={quote(conflict)}",
+                json=payloads[start : start + 500],
+                headers={**self.headers, "Prefer": "resolution=ignore-duplicates,return=minimal"},
+            )
+
     def ensure_buckets(self) -> None:
         buckets = self.request("GET", "/storage/v1/bucket").json()
         existing = {bucket.get("id") for bucket in buckets if isinstance(bucket, dict)}
@@ -163,6 +179,29 @@ def cover_bytes(url: str | None) -> bytes | None:
         return None
 
 
+def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict]) -> int:
+    candidates = [row for row in chapters if row.get("id") and row.get("original_content") and not row.get("translated_content")]
+    if not candidates:
+        return 0
+    ids = ",".join(str(row["id"]) for row in candidates)
+    existing = {row.get("chapter_id") for row in remote.rows("translation_queue", {"select": "chapter_id", "chapter_id": f"in.({ids})"})}
+    chunks: list[dict] = []
+    jobs: list[dict] = []
+    for chapter in candidates:
+        if chapter["id"] in existing:
+            continue
+        parts = chunk_text(str(chapter["original_content"]))
+        if not parts:
+            continue
+        chunks.extend({"chapter_id": chapter["id"], "chunk_index": index, "original_text": part, "status": "queued"} for index, part in enumerate(parts))
+        jobs.append({"chapter_id": chapter["id"], "status": "queued", "priority": 0, "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0})
+    if not jobs:
+        return 0
+    remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
+    remote.insert_many_ignore("translation_queue", jobs, "chapter_id")
+    return len(jobs)
+
+
 def sync_once() -> dict[str, int | bool]:
     if not DATABASE_PATH.exists():
         raise SyncError(f"SQLite database was not found: {DATABASE_PATH}")
@@ -170,7 +209,7 @@ def sync_once() -> dict[str, int | bool]:
     remote.ensure_buckets()
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
-    counts = {"novels": 0, "chapters": 0, "json_uploaded": 0, "audio_uploaded": 0, "covers_uploaded": 0}
+    counts = {"novels": 0, "chapters": 0, "queued": 0, "json_uploaded": 0, "audio_uploaded": 0, "covers_uploaded": 0}
     try:
         for book in connection.execute("SELECT * FROM books ORDER BY id").fetchall():
             slug = slugify(book["translated_title"] or book["title"], book["id"])
@@ -241,6 +280,12 @@ def sync_once() -> dict[str, int | bool]:
                 )
                 counts["chapters"] += 1
             remote.upsert_many("chapters", chapter_payloads, "novel_id,source_url")
+            remote_chapters = remote.rows("chapters", {"select": "id,source_url", "novel_id": f"eq.{novel['id']}"})
+            ids_by_url = {row.get("source_url"): row.get("id") for row in remote_chapters}
+            counts["queued"] += enqueue_untranslated_chapters(remote, [
+                {"id": ids_by_url.get(chapter["url"]), "original_content": chapter["original_content"], "translated_content": chapter["translated_content"]}
+                for chapter in chapter_rows
+            ])
             logger.info("Synced %s (%s chapters)", slug, len(chapter_rows))
     finally:
         connection.close()
