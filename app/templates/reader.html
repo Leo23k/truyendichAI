@@ -318,10 +318,16 @@
       let playlistLoading = null;
       let nextAudio = null;
       let audioLoadToken = 0;
+      let streamingFirstSegment = false;
 
       const buildManifestUrl = () => {
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
         return `${player.dataset.audioManifestUrl}?${params.toString()}`;
+      };
+
+      const buildStreamUrl = () => {
+        const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
+        return `${player.dataset.audioUrl}/stream?${params.toString()}`;
       };
 
       const getCurrentPosition = () => {
@@ -377,7 +383,7 @@
         setAudioSegment(index, bounded - segmentStarts[index], autoplay, resetRetry);
       };
 
-      const loadPlaylist = (resumeAt = 0, autoplay = false) => {
+      const loadPlaylist = (resumeAt = 0, autoplay = false, selectSegment = true) => {
         if (!hasAudio) return Promise.resolve();
         stopFallbackSpeech();
         playlistReady = false;
@@ -399,7 +405,7 @@
             playlistReady = playlist.length > 0;
             if (!playlistReady) throw new Error("TTS playlist empty");
             durationLabel.textContent = formatTime(totalDuration);
-            seekTo(resumeAt, autoplay);
+            if (selectSegment) seekTo(resumeAt, autoplay);
           })
           .catch((error) => {
             playlistReady = false;
@@ -407,6 +413,15 @@
             setPlayIcon("play");
           });
         return playlistLoading;
+      };
+
+      const startFirstSegmentStream = () => {
+        streamingFirstSegment = true;
+        audio.src = buildStreamUrl();
+        audio.playbackRate = 1;
+        audio.load();
+        audio.play().catch(() => setPlayIcon("play"));
+        loadPlaylist(0, false, false);
       };
 
       const saveState = () => {
@@ -752,6 +767,11 @@
         });
 
         audio.addEventListener("ended", () => {
+          streamingFirstSegment = false;
+          if (!playlistReady) {
+            loadPlaylist(0, true);
+            return;
+          }
           if (currentSegmentIndex < playlist.length - 1) {
             setAudioSegment(currentSegmentIndex + 1, 0, true);
           } else {
@@ -771,8 +791,13 @@
 
         playButton.addEventListener("click", () => {
           showBar();
+          if (streamingFirstSegment) {
+            if (audio.paused) audio.play().catch(() => setPlayIcon("play"));
+            else audio.pause();
+            return;
+          }
           if (!playlistReady) {
-            loadPlaylist(Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0), true);
+            startFirstSegmentStream();
             return;
           }
           if (audio.paused) audio.play().catch(() => setPlayIcon("play"));
@@ -805,7 +830,7 @@
         const savedPosition = savedChapter === readerChapterKey ? Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0) : 0;
         const shouldAutoplay = storage.getItem("reader.autoplayNext") === window.location.pathname;
         storage.removeItem("reader.autoplayNext");
-        loadPlaylist(savedPosition, shouldAutoplay);
+        if (shouldAutoplay) startFirstSegmentStream();
       }
 
       updateTranslateButton();

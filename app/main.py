@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -42,8 +42,10 @@ from app.tts.edge_tts_service import (
     EdgeTTSUnavailableError,
     normalize_rate,
     normalize_voice,
+    split_chapter_text,
     synthesize_chapter_playlist,
     synthesize_edge_tts,
+    stream_edge_tts,
 )
 from sync.service import SyncError, sync_once
 
@@ -752,6 +754,26 @@ async def chapter_audio_manifest(
         }
     except EdgeTTSUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/chapters/{chapter_id}/audio/stream")
+async def stream_chapter_audio(
+    chapter_id: int,
+    voice: str = DEFAULT_EDGE_VOICE,
+    rate: float = 1.0,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    chapter = db.get(Chapter, chapter_id)
+    if chapter is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy chương.")
+    chunks = split_chapter_text(chapter.translated_content or "")
+    if not chunks:
+        raise HTTPException(status_code=400, detail="Hãy dịch chương trước khi nghe.")
+    return StreamingResponse(
+        stream_edge_tts(chunks[0], voice=normalize_voice(voice), rate=normalize_rate(rate)),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/chapters/{chapter_id}/audio")

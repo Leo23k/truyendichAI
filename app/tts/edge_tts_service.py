@@ -7,6 +7,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import AsyncIterator
 from urllib.parse import urljoin
 
 import httpx
@@ -117,6 +118,45 @@ async def synthesize_remote_tts(text: str, *, voice: str, rate: float, path: Pat
         path.write_bytes(audio_response.content)
     except (httpx.HTTPError, KeyError, ValueError) as exc:
         raise EdgeTTSUnavailableError("Khong the tao audio bang TTS service.") from exc
+
+
+async def stream_edge_tts(
+    text: str,
+    *,
+    voice: str | None = None,
+    rate: float | int | str | None = 1.0,
+) -> AsyncIterator[bytes]:
+    """Yield Edge MP3 frames as soon as they arrive for instant playback."""
+    text = (text or "").strip()
+    if not text:
+        raise EdgeTTSUnavailableError("Khong co van ban de tao audio.")
+    selected_voice = normalize_voice(voice)
+    selected_rate = normalize_rate(rate)
+    if settings.tts_api_url:
+        try:
+            async with httpx.AsyncClient(timeout=EDGE_TTS_TIMEOUT_SECONDS, trust_env=False) as client:
+                async with client.stream(
+                    "POST",
+                    f"{settings.tts_api_url.rstrip('/')}/stream",
+                    json={"text": text, "voice": selected_voice, "rate": selected_rate},
+                ) as response:
+                    response.raise_for_status()
+                    async for frame in response.aiter_bytes():
+                        if frame:
+                            yield frame
+            return
+        except httpx.HTTPError as exc:
+            raise EdgeTTSUnavailableError("Khong the stream audio bang TTS service.") from exc
+
+    try:
+        import edge_tts
+
+        communicate = edge_tts.Communicate(text, selected_voice, rate=edge_rate(selected_rate))
+        async for event in communicate.stream():
+            if event["type"] == "audio":
+                yield event["data"]
+    except Exception as exc:  # pragma: no cover - network/service dependent
+        raise EdgeTTSUnavailableError("Khong the stream audio bang Microsoft Edge TTS.") from exc
 
 
 def split_long_paragraph(paragraph: str) -> list[str]:
