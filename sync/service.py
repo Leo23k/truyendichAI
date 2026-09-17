@@ -443,8 +443,12 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
         return False
 
     def update_status(**values: object) -> None:
-        values["updated_at"] = datetime.now(timezone.utc).isoformat()
-        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job['id']}"}, values)
+        payload = {key: values[key] for key in ("status", "error", "result") if key in values}
+        details = {key: value for key, value in values.items() if key not in {"status", "error", "result"}}
+        if details:
+            payload["result"] = {**dict(payload.get("result") or {}), **details}
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job['id']}"}, payload)
 
     try:
         asyncio.run(_crawl_and_translate_url(str(job["source_url"]), update_status))
