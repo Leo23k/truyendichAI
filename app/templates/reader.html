@@ -125,7 +125,7 @@
     {% if showing_translation and chapter.translated_content %}
     <audio data-reader-audio preload="metadata"></audio>
     {% endif %}
-    <div class="grid grid-cols-[auto_auto_1fr_auto] items-center gap-2 sm:gap-3">
+    <div class="grid grid-cols-[auto_auto_auto_1fr_auto_auto] items-center gap-2 sm:gap-3">
       {% if previous %}
       <a href="{{ previous_url or '/chapters/' ~ previous.id }}" data-reader-prev class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương trước">
         <i data-lucide="chevron-left" class="h-5 w-5"></i>
@@ -143,6 +143,10 @@
         <i data-play-icon="pause" data-lucide="pause" class="hidden h-5 w-5"></i>
       </button>
 
+      <button type="button" data-segment-prev disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc lại đoạn trước" title="Đoạn trước">
+        <i data-lucide="rewind" class="h-4 w-4"></i>
+      </button>
+
       <div class="min-w-0">
         <input data-audio-progress class="reader-range h-2 w-full" type="range" min="0" max="1000" value="0" aria-label="Tiến trình audio" {% if not showing_translation or not chapter.translated_content %}disabled{% endif %}>
         <div class="mt-1 flex items-center justify-between gap-2 text-[11px] text-stone-500">
@@ -156,6 +160,10 @@
           <span data-duration>0:00</span>
         </div>
       </div>
+
+      <button type="button" data-segment-next disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc đoạn kế tiếp" title="Đoạn kế tiếp">
+        <i data-lucide="fast-forward" class="h-4 w-4"></i>
+      </button>
 
       {% if following %}
       <a href="{{ following_url or '/chapters/' ~ following.id }}" data-reader-next class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương sau">
@@ -258,6 +266,8 @@
       const audio = player.querySelector("[data-reader-audio]");
       const hasAudio = player.dataset.hasAudio === "true" && audio;
       const playButton = player.querySelector("[data-play-toggle]");
+      const segmentPrevButton = player.querySelector("[data-segment-prev]");
+      const segmentNextButton = player.querySelector("[data-segment-next]");
       const progress = player.querySelector("[data-audio-progress]");
       const currentLabel = player.querySelector("[data-current-time]");
       const durationLabel = player.querySelector("[data-duration]");
@@ -374,6 +384,16 @@
         return 0;
       };
 
+      const updateSegmentButtons = () => {
+        if (!playlistReady) {
+          segmentPrevButton.disabled = true;
+          segmentNextButton.disabled = true;
+          return;
+        }
+        segmentPrevButton.disabled = currentSegmentIndex === 0 && audio.currentTime < 1;
+        segmentNextButton.disabled = currentSegmentIndex >= playlist.length - 1;
+      };
+
       const preloadNextSegment = () => {
         const next = playlist[currentSegmentIndex + 1];
         if (!next) return;
@@ -398,6 +418,7 @@
           }
           if (offset > 0 && segmentDuration) audio.currentTime = Math.min(offset, Math.max(0, segmentDuration - 0.25));
           updateProgress();
+          updateSegmentButtons();
           preloadNextSegment();
           if (autoplay) audio.play().catch(() => setPlayIcon("play"));
         };
@@ -449,6 +470,7 @@
               streamingFirstSegment = false;
               setAudioSegment(0, streamPosition, !audio.paused);
             } else if (selectSegment) seekTo(resumeAt, autoplay);
+            updateSegmentButtons();
           })
           .catch((error) => {
             playlistReady = false;
@@ -800,6 +822,7 @@
 
         audio.addEventListener("timeupdate", () => {
           updateProgress();
+          updateSegmentButtons();
           scheduleSave();
         });
 
@@ -860,6 +883,17 @@
             audio.pause();
             stopFallbackSpeech();
           }
+        });
+
+        segmentPrevButton.addEventListener("click", () => {
+          if (!playlistReady) return;
+          const index = audio.currentTime > 3 ? currentSegmentIndex : Math.max(0, currentSegmentIndex - 1);
+          setAudioSegment(index, 0, !audio.paused);
+        });
+
+        segmentNextButton.addEventListener("click", () => {
+          if (!playlistReady || currentSegmentIndex >= playlist.length - 1) return;
+          setAudioSegment(currentSegmentIndex + 1, 0, !audio.paused);
         });
 
         progress.addEventListener("input", () => {

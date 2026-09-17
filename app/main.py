@@ -356,16 +356,39 @@ def delete_synced_book(slug: str):
 
 
 @app.get("/synced/{slug}/{chapter_number}/audio/manifest")
-def synced_audio_manifest(slug: str, chapter_number: int):
+async def synced_audio_manifest(
+    slug: str,
+    chapter_number: int,
+    voice: str = DEFAULT_EDGE_VOICE,
+    rate: float = 1.0,
+):
     key = f"{chapter_number:03d}"
     try:
         chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
         audio_path = chapter.get("audio") or chapter.get("audio_url")
-        if not audio_path:
-            raise CdnDataError("No synced audio")
-        return {"segments": [{"index": 0, "url": cdn_url(f"novels/{slug}/{audio_path}"), "duration": 0}]}
+        if audio_path:
+            return {"segments": [{"index": 0, "url": cdn_url(f"novels/{slug}/{audio_path}"), "duration": 0}]}
+        entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
+        progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
+        partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
+        translated_content = partial_text or str(chapter.get("translated_content") or chapter.get("content") or "")
+        playlist = await synthesize_chapter_playlist(
+            translated_content,
+            chapter_id=int(entry["id"]),
+            voice=normalize_voice(voice),
+            rate=normalize_rate(rate),
+        )
+        return {
+            "total_duration": playlist.total_duration_seconds,
+            "segments": [
+                {"index": segment.index, "url": segment.url, "duration": segment.duration_seconds}
+                for segment in playlist.segments
+            ],
+        }
     except CdnDataError:
         raise HTTPException(status_code=404, detail="Chương này chưa được đồng bộ.") from None
+    except (EdgeTTSUnavailableError, KeyError, StopIteration, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="Không thể tạo playlist audio.") from exc
 
 
 @app.get("/synced/{slug}/{chapter_number}/audio/stream")
