@@ -563,7 +563,7 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
     job = claim_remote_crawl_job(remote)
     if not job:
         logger.info("No remote crawl job found.")
-    return False
+        return False
     logger.info("Claimed crawl job %s", job["id"])
 
 
