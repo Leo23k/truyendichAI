@@ -30,7 +30,12 @@ class Shuba69Crawler(BaseCrawler):
                 timeout=settings.crawler_timeout,
                 follow_redirects=True,
                 trust_env=False,
-                headers={"User-Agent": "Mozilla/5.0 MyNovelReader/1.0"},
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9",
+                    "Referer": "https://www.69shuba.com/",
+                },
             ) as client:
                 response = await client.get(url)
                 response.raise_for_status()
