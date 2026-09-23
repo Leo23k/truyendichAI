@@ -395,10 +395,10 @@ async def synced_audio_manifest(
     try:
         chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
         entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
-        progress = load_translation_progress(int(entry["id"])) if entry.get("id") and not entry.get("translated") else None
+        progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
         translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
-        if (progress or {}).get("status") != "completed" and partial_text.strip():
+        if partial_text.strip():
             translated_content = partial_text
         chunks = split_chapter_text(translated_content)
         selected_voice, selected_rate = normalize_voice(voice), normalize_rate(rate)
@@ -422,10 +422,10 @@ async def synced_audio_segment(slug: str, chapter_number: int, index: int, voice
     try:
         chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
         entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
-        progress = load_translation_progress(int(entry["id"])) if entry.get("id") and not entry.get("translated") else None
+        progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
         translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
-        if (progress or {}).get("status") != "completed" and partial_text.strip():
+        if partial_text.strip():
             translated_content = partial_text
         chunks = split_chapter_text(translated_content)
     except (CdnDataError, KeyError, StopIteration, TypeError, ValueError):
@@ -454,9 +454,9 @@ async def stream_synced_chapter_audio(
     translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
     try:
         entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
-        progress = load_translation_progress(int(entry["id"])) if entry.get("id") and not entry.get("translated") else None
+        progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
-        if (progress or {}).get("status") != "completed" and partial_text.strip():
+        if partial_text.strip():
             translated_content = partial_text
     except (CdnDataError, KeyError, StopIteration, TypeError, ValueError):
         pass

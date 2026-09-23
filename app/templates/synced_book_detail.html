@@ -10,7 +10,7 @@
       <p class="text-sm font-medium text-teal-700">{{ novel.source_name or 'Supabase' }}</p>
       <h1 class="mt-2 text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">{{ novel.title }}</h1>
       <p class="mt-2 text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
-      <p class="mt-4 text-sm text-stone-500">Tổng chương: {{ chapters|length }} · Đã dịch: {{ chapters|selectattr('translated')|list|length }}</p>
+      <p class="mt-4 text-sm text-stone-500">Tổng chương: {{ chapters|length }}</p>
     </div>
     {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" class="aspect-[3/4] w-28 rounded-md border border-stone-200 object-cover">{% endif %}
   </div>
@@ -23,9 +23,8 @@
     </div>
     <div class="mt-4 flex max-h-[32rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
       {% for chapter in chapters %}
-      <a href="/synced/{{ novel.slug }}/{{ chapter.chapter_number }}" class="flex items-center justify-between gap-4 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+      <a href="/synced/{{ novel.slug }}/{{ chapter.chapter_number }}" class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
         <span class="min-w-0 truncate">{{ chapter.title }}</span>
-        {% if chapter.translated %}<span class="shrink-0 rounded-full bg-teal-50 px-2 py-1 text-xs text-teal-700">✓ Đã dịch</span>{% else %}<span class="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-xs text-stone-500">○ Chưa dịch</span>{% endif %}
       </a>
       {% else %}<p class="px-4 py-5 text-stone-500">Chưa có chương.</p>{% endfor %}
     </div>

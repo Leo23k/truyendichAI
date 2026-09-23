@@ -97,9 +97,8 @@
     </div>
     <div class="mt-4 flex max-h-[28rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
       {% for chapter in book.chapters %}
-      <a href="/chapters/{{ chapter.id }}" onclick="return startTranslationProgress(this)" class="flex items-center justify-between gap-4 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+      <a href="/chapters/{{ chapter.id }}" onclick="return startTranslationProgress(this)" class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
         <span class="min-w-0 truncate">{{ chapter.translated_title or chapter.title }}</span>
-        <span class="shrink-0 rounded-full px-2 py-1 text-xs {% if chapter.translated_content %}bg-teal-50 text-teal-700{% else %}bg-stone-100 text-stone-500{% endif %}">{% if chapter.translated_content %}Đã dịch{% else %}Chưa dịch{% endif %}</span>
       </a>
       {% else %}
       <p class="px-4 py-5 text-stone-500">Chưa có chương.</p>

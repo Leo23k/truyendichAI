@@ -230,12 +230,7 @@
           <h2 class="text-base font-semibold">Mục lục</h2>
           <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
         </div>
-        <div class="mb-3 flex items-center justify-between gap-3">
-          <div class="inline-flex overflow-hidden rounded-md border border-stone-200 text-xs" role="group" aria-label="Lọc chương">
-            <button type="button" data-toc-filter="all" class="bg-stone-950 px-2.5 py-2 text-white">Tất cả</button>
-            <button type="button" data-toc-filter="translated" class="px-2.5 py-2 text-stone-600 hover:bg-stone-50">Đã dịch</button>
-            <button type="button" data-toc-filter="untranslated" class="px-2.5 py-2 text-stone-600 hover:bg-stone-50">Chưa dịch</button>
-          </div>
+        <div class="mb-3 flex justify-end">
           <select data-toc-sort class="h-9 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700" aria-label="Sắp xếp chương">
             <option value="asc">Cũ nhất</option>
             <option value="desc">Mới nhất</option>
@@ -246,15 +241,12 @@
           {% if synced_reader %}
           {% set item_number = item['chapter_number'] %}
           {% set item_title = item['title'] %}
-          {% set item_translated = item['translated'] %}
           {% else %}
           {% set item_number = item.chapter_number %}
           {% set item_title = item.translated_title or item.title %}
-          {% set item_translated = item.translated_content %}
           {% endif %}
-          <a href="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ item_number }}{% else %}/chapters/{{ item.id }}{% endif %}" data-toc-item data-number="{{ item_number }}" data-translated="{% if item_translated %}true{% else %}false{% endif %}" {% if item_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex items-center justify-between gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+          <a href="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ item_number }}{% else %}/chapters/{{ item.id }}{% endif %}" data-toc-item data-number="{{ item_number }}" {% if item_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
             <span class="min-w-0 truncate text-sm {% if item_number == chapter.chapter_number %}font-semibold text-teal-700{% endif %}">{{ item_title }}</span>
-            <span data-toc-status class="shrink-0 text-xs {% if item_translated %}text-teal-700{% else %}text-stone-500{% endif %}">{% if item_translated %}✓ Đã dịch{% else %}○ Chưa dịch{% endif %}</span>
           </a>
           {% endfor %}
         </div>
@@ -296,7 +288,6 @@
       const translationRetry = document.querySelector("[data-translation-retry]");
       const tocList = document.querySelector("[data-toc-list]");
       const tocSort = document.querySelector("[data-toc-sort]");
-      const tocFilters = document.querySelectorAll("[data-toc-filter]");
       const sleepCountdown = player.querySelector("[data-sleep-countdown]");
       const sheetBackdrop = document.querySelector("[data-sheet-backdrop]");
       const nextUrl = player.dataset.nextUrl;
@@ -619,7 +610,6 @@
 
       const closeSheet = () => sheetBackdrop.classList.remove("is-open");
 
-      let tocFilter = "all";
       const tocItems = () => [...document.querySelectorAll("[data-toc-item]")];
       const scrollToActiveTocItem = () => {
         const active = tocList?.querySelector('[data-current="true"]');
@@ -629,11 +619,7 @@
         if (!tocList) return;
         const items = tocItems().sort((left, right) => Number(left.dataset.number) - Number(right.dataset.number));
         if (tocSort?.value === "desc") items.reverse();
-        items.forEach((item) => {
-          const translated = item.dataset.translated === "true";
-          item.hidden = tocFilter === "translated" ? !translated : tocFilter === "untranslated" ? translated : false;
-          tocList.append(item);
-        });
+        items.forEach((item) => tocList.append(item));
         if (tocSort?.value === "desc") {
           const newest = items.find((item) => !item.hidden);
           newest?.classList.add("bg-teal-50");
@@ -652,17 +638,6 @@
         translationError.textContent = job.error || "";
         translationError.classList.toggle("hidden", !job.error);
         translationRetry.hidden = job.status !== "failed";
-        const currentItem = tocList?.querySelector('[data-current="true"]');
-        const status = currentItem?.querySelector("[data-toc-status]");
-        if (status && ["queued", "translating", "saving"].includes(job.status)) {
-          status.textContent = "⟳ Đang dịch";
-          status.className = "shrink-0 text-xs text-teal-700";
-        }
-        if (status && job.status === "completed") {
-          status.textContent = "✓ Đã dịch";
-          status.className = "shrink-0 text-xs text-teal-700";
-          currentItem.dataset.translated = "true";
-        }
       };
 
       const startTranslation = async () => {
@@ -759,17 +734,6 @@
         translationError.textContent = job.error || "";
         translationError.classList.toggle("hidden", !job.error);
         translationRetry.hidden = job.status !== "failed";
-        const currentItem = tocList?.querySelector('[data-current="true"]');
-        const status = currentItem?.querySelector("[data-toc-status]");
-        if (status && ["queued", "loading", "translating", "saving"].includes(job.status)) {
-          status.textContent = "⟳ Đang dịch";
-          status.className = "shrink-0 text-xs text-teal-700";
-        }
-        if (status && job.status === "completed") {
-          status.textContent = "✓ Đã dịch";
-          status.className = "shrink-0 text-xs text-teal-700";
-          currentItem.dataset.translated = "true";
-        }
       };
 
       const showTranslationFlowFailure = (error) => {
@@ -1060,12 +1024,6 @@
       voiceButton?.addEventListener("click", () => openSheet("voice"));
       sleepButton?.addEventListener("click", () => openSheet("sleep"));
       tocButton?.addEventListener("click", () => openSheet("toc"));
-      tocFilters.forEach((button) => button.addEventListener("click", () => {
-        tocFilter = button.dataset.tocFilter;
-        tocFilters.forEach((item) => item.className = "px-2.5 py-2 text-stone-600 hover:bg-stone-50");
-        button.className = "bg-stone-950 px-2.5 py-2 text-white";
-        updateToc();
-      }));
       tocSort?.addEventListener("change", updateToc);
       sheetBackdrop.addEventListener("click", (event) => {
         if (event.target === sheetBackdrop || event.target.closest("[data-close-sheet]")) closeSheet();
