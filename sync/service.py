@@ -302,24 +302,99 @@ def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
 def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     remote = remote or SupabaseSync()
     job = claim_translation_job(remote)
+
     if not job:
         return False
+
+    BATCH_SIZE = 4
+
     try:
-        while int(job["current_chunk"]) < int(job["total_chunks"]):
-            index = int(job["current_chunk"])
-            rows = remote.rows("chapter_chunks", {"select": "id,original_text", "chapter_id": f"eq.{job['chapter_id']}", "chunk_index": f"eq.{index}", "status": "eq.queued", "limit": "1"})
+        total_chunks = int(job["total_chunks"])
+
+        while int(job["current_chunk"]) < total_chunks:
+            current = int(job["current_chunk"])
+
+            # Lấy tối đa 4 chunk liên tiếp
+            rows = remote.rows(
+                "chapter_chunks",
+                {
+                    "select": "id,original_text,chunk_index",
+                    "chapter_id": f"eq.{job['chapter_id']}",
+                    "status": "eq.queued",
+                    "order": "chunk_index.asc",
+                    "limit": str(BATCH_SIZE),
+                },
+            )
+
             if not rows:
-                raise SyncError(f"Missing queued chunk {index} for chapter {job['chapter_id']}")
-            chunk = rows[0]
-            translated = translator.translate(str(chunk["original_text"]))
-            remote.patch_rows("chapter_chunks", {"id": f"eq.{chunk['id']}"}, {"translated_text": translated, "status": "completed"})
-            next_index = index + 1
-            status = "completed" if next_index == int(job["total_chunks"]) else "translating"
-            remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}"}, {"current_chunk": next_index, "status": status, "updated_at": datetime.now(timezone.utc).isoformat()})
+                raise SyncError(
+                    f"Missing queued chunk for chapter {job['chapter_id']}"
+                )
+
+            logger.info(
+                "Chapter %s | Translating %s chunk(s) (%s-%s/%s)",
+                job["chapter_id"],
+                len(rows),
+                current + 1,
+                current + len(rows),
+                total_chunks,
+            )
+
+            # Gom nhiều chunk gửi GPU một lần
+            texts = [str(r["original_text"]) for r in rows]
+            translated_texts = translator.translate_batch(texts)
+
+            # Lưu kết quả
+            for row, translated in zip(rows, translated_texts):
+                remote.patch_rows(
+                    "chapter_chunks",
+                    {"id": f"eq.{row['id']}"},
+                    {
+                        "translated_text": translated,
+                        "status": "completed",
+                    },
+                )
+
+            next_index = current + len(rows)
+            status = "completed" if next_index >= total_chunks else "translating"
+
+            remote.patch_rows(
+                "translation_queue",
+                {"id": f"eq.{job['id']}"},
+                {
+                    "current_chunk": next_index,
+                    "status": status,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+            logger.info(
+                "Chapter %s | Completed %s/%s chunk(s)",
+                job["chapter_id"],
+                next_index,
+                total_chunks,
+            )
+
             job["current_chunk"] = next_index
+
+        logger.info("Chapter %s finished.", job["chapter_id"])
         return True
+
     except (TranslationUnavailableError, SyncError):
-        remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}"}, {"status": "failed", "updated_at": datetime.now(timezone.utc).isoformat()})
+        logger.exception(
+            "Translation failed for chapter %s",
+            job["chapter_id"],
+        )
+
+        remote.patch_rows(
+            "translation_queue",
+            {"id": f"eq.{job['id']}"},
+            {
+                "status": "failed",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
         return False
 
 
@@ -487,7 +562,10 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
     remote = remote or SupabaseSync()
     job = claim_remote_crawl_job(remote)
     if not job:
-        return False
+        logger.info("No remote crawl job found.")
+    return False
+    logger.info("Claimed crawl job %s", job["id"])
+
 
     job_result = dict(job.get("result") or {})
 
@@ -504,6 +582,7 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
         remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job['id']}"}, payload)
 
     try:
+        logger.info("Starting crawl: %s", job["source_url"])
         asyncio.run(_crawl_and_translate_url(str(job["source_url"]), update_status))
     except Exception as exc:
         logger.exception("Remote crawl job failed before it could start")
@@ -524,7 +603,8 @@ def run_watch() -> None:
                 if process_remote_crawl_job_once(remote):
                     sync_status["last_error"] = None
                 else:
-                    run_translation_worker_once(remote)
+                    while run_translation_worker_once(remote):
+                        sync_status["last_error"] = None
                 if time.monotonic() >= next_sync_at:
                     sync_status["last_sync"] = sync_once()
                     sync_status["last_error"] = None

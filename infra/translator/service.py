@@ -8,9 +8,9 @@ from huggingface_hub import snapshot_download
 from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
 
-
 MODEL_NAME = os.getenv("MODEL_NAME", "ngocdang83/HachimiMT-60-QT")
 MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models/hachimi"))
+
 app = FastAPI(title="LeoTruyen Translator")
 
 
@@ -22,18 +22,40 @@ class TranslateRequest(BaseModel):
 @lru_cache(maxsize=1)
 def engine() -> tuple[object, ctranslate2.Translator]:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    path = Path(snapshot_download(
-        MODEL_NAME,
-        local_dir=MODEL_DIR,
-        allow_patterns=[
-            "config.json", "source.spm", "target.spm", "vocab.json",
-            "tokenizer_config.json", "ct2-int8_float32/*",
-        ],
-    ))
-    tokenizer = AutoTokenizer.from_pretrained(path)
-    translator = ctranslate2.Translator(
-        str(path / "ct2-int8_float32"), device="cpu", compute_type="int8_float32"
+
+    path = Path(
+        snapshot_download(
+            MODEL_NAME,
+            local_dir=MODEL_DIR,
+            allow_patterns=[
+                "config.json",
+                "source.spm",
+                "target.spm",
+                "vocab.json",
+                "tokenizer_config.json",
+                "ct2-int8_float32/*",
+            ],
+        )
     )
+
+    tokenizer = AutoTokenizer.from_pretrained(path)
+
+    device = os.getenv("DEVICE", "auto")
+
+    translator = ctranslate2.Translator(
+        str(path / "ct2-int8_float32"),
+        device="cuda",
+        compute_type="int8_float16",
+        inter_threads=2,
+        intra_threads=0,
+    )
+
+    # translator = ctranslate2.Translator(
+    #     str(path / "ct2-int8_float32"),
+    #     device="cpu",
+    #     compute_type="int8_float32",
+    # )
+
     return tokenizer, translator
 
 
@@ -46,11 +68,56 @@ def health() -> dict[str, str]:
 @app.post("/v1/translate")
 def translate(payload: TranslateRequest) -> dict[str, str]:
     tokenizer, translator = engine()
-    tokens = tokenizer.convert_ids_to_tokens(tokenizer(payload.text).input_ids)
-    result = translator.translate_batch(
-        [tokens], beam_size=payload.beam_size, max_decoding_length=512
-    )[0]
-    translated = tokenizer.decode(
-        tokenizer.convert_tokens_to_ids(result.hypotheses[0]), skip_special_tokens=True
-    )
-    return {"translated_text": translated}
+
+    MAX_INPUT_TOKENS = 480
+    translated_parts = []
+
+    # Chia theo đoạn trước để tránh cắt giữa câu
+    paragraphs = payload.text.split("\n")
+
+    for paragraph in paragraphs:
+        if not paragraph.strip():
+            translated_parts.append("")
+            continue
+
+        tokens = tokenizer.convert_ids_to_tokens(
+            tokenizer(paragraph).input_ids
+        )
+
+        # Nếu đoạn ngắn thì dịch luôn
+        if len(tokens) <= MAX_INPUT_TOKENS:
+            result = translator.translate_batch(
+                [tokens],
+                beam_size=payload.beam_size,
+                max_decoding_length=512,
+            )[0]
+
+            translated_parts.append(
+                tokenizer.decode(
+                    tokenizer.convert_tokens_to_ids(result.hypotheses[0]),
+                    skip_special_tokens=True,
+                )
+            )
+        else:
+            # Đoạn quá dài thì chia tiếp theo token
+            chunk_results = []
+
+            for i in range(0, len(tokens), MAX_INPUT_TOKENS):
+                chunk = tokens[i:i + MAX_INPUT_TOKENS]
+
+                result = translator.translate_batch(
+                    [chunk],
+                    beam_size=payload.beam_size,
+                    max_decoding_length=512,
+                )[0]
+
+                chunk_results.append(
+                    tokenizer.decode(
+                        tokenizer.convert_tokens_to_ids(result.hypotheses[0]),
+                        skip_special_tokens=True,
+                    )
+                )
+
+            translated_parts.append("".join(chunk_results))
+
+    return {"translated_text": "\n".join(translated_parts)}

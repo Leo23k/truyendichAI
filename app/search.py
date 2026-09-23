@@ -33,9 +33,7 @@ HAN_VIET_SEARCH = {
     "鉴": "giam",
     "仙": "tien",
     "族": "toc",
-    "葬": "tang",
-    "神": "than",
-    "棺": "quan",
+
 }
 
 

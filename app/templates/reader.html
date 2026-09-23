@@ -119,7 +119,7 @@
     data-showing-translation="{% if showing_translation %}true{% else %}false{% endif %}"
     data-original-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=original{% else %}/chapters/{{ chapter.id }}?mode=original{% endif %}"
     data-translated-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=translated{% else %}/chapters/{{ chapter.id }}?mode=translated{% endif %}"
-    data-audio-url="{{ audio_stream_url or '/chapters/' ~ chapter.id ~ '/audio/stream' }}"
+    data-audio-url="{{ audio_stream_url or '/chapters/' ~ chapter.id ~ '/audio/tts/stream' }}"
     data-queue-chapter-id="{{ queue_chapter_id or chapter.id }}"
     data-next-queue-chapter-id="{{ following.id if following else '' }}"
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
@@ -146,6 +146,7 @@
       <button type="button" data-play-toggle class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-stone-950 text-white disabled:bg-stone-300" aria-label="Phát hoặc tạm dừng">
         <i data-play-icon="play" data-lucide="play" class="h-5 w-5"></i>
         <i data-play-icon="pause" data-lucide="pause" class="hidden h-5 w-5"></i>
+        <i data-play-icon="loading" data-lucide="loader-circle" class="hidden h-5 w-5 animate-spin"></i>
       </button>
 
       <button type="button" data-segment-prev disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc lại đoạn trước" title="Đoạn trước">
@@ -337,6 +338,7 @@
       let segmentStarts = [];
       let totalDuration = 0;
       let currentSegmentIndex = 0;
+      let pendingSegmentOffset = 0;
       let playlistReady = false;
       let playlistLoading = null;
       let nextAudio = null;
@@ -344,6 +346,15 @@
       let streamingFirstSegment = false;
       let priorityRequested = false;
       const voiceSessions = new Map();
+      const segmentRequests = new Map();
+      const PRELOAD_AHEAD = 3;
+      let playerState = "idle";
+      let wantToPlay = false;
+
+      const setPlayerState = (state) => {
+        playerState = state;
+        setPlayIcon(state === "loading" ? "loading" : state === "playing" ? "pause" : "play");
+      };
 
       const buildManifestUrl = () => {
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
@@ -390,6 +401,11 @@
 
       const findSegmentIndex = (time) => {
         if (!playlist.length) return 0;
+        // The manifest intentionally arrives before synthesis, so durations
+        // are initially unknown and every start offset is zero. In that case
+        // a saved position cannot be mapped yet; beginning at chunk zero is
+        // the only ordered, safe choice.
+        if (!totalDuration || !segmentStarts.some((start, index) => index > 0 && start > 0)) return 0;
         for (let index = playlist.length - 1; index >= 0; index -= 1) {
           if (time >= segmentStarts[index]) return index;
         }
@@ -406,20 +422,39 @@
         segmentNextButton.disabled = currentSegmentIndex >= playlist.length - 1;
       };
 
-      const preloadNextSegment = () => {
-        const next = playlist[currentSegmentIndex + 1];
-        if (!next) return;
-        nextAudio = new Audio(next.url);
-        nextAudio.preload = "auto";
+      const ensureSegment = (index) => {
+        const segment = playlist[index];
+        if (!segment) return Promise.reject(new Error("TTS segment missing"));
+        if (segment.objectUrl) return Promise.resolve(segment);
+        if (segmentRequests.has(index)) return segmentRequests.get(index);
+        segment.status = "loading";
+        const request = fetch(segment.url)
+          .then((response) => { if (!response.ok) throw new Error(`TTS segment ${response.status}`); return response.blob(); })
+          .then((blob) => {
+            segment.objectUrl = URL.createObjectURL(blob);
+            segment.status = "ready";
+            return segment;
+          })
+          .catch((error) => { segment.status = "error"; throw error; })
+          .finally(() => segmentRequests.delete(index));
+        segmentRequests.set(index, request);
+        return request;
+      };
+
+      const preloadAhead = () => {
+        for (let index = currentSegmentIndex + 1; index <= currentSegmentIndex + PRELOAD_AHEAD && index < playlist.length; index += 1) {
+          ensureSegment(index).catch((error) => console.warn("TTS preload failed", index, error));
+        }
       };
 
       const setAudioSegment = (index, offset = 0, autoplay = false, resetRetry = true) => {
         if (!hasAudio || !playlist[index]) return;
         const loadToken = ++audioLoadToken;
         currentSegmentIndex = index;
+        pendingSegmentOffset = 0;
         if (resetRetry) audioRetryUsed = false;
         audio.pause();
-        audio.src = playlist[index].url;
+        audio.src = playlist[index].objectUrl || playlist[index].url;
         audio.playbackRate = 1;
         audio.onloadedmetadata = () => {
           if (loadToken !== audioLoadToken) return;
@@ -431,8 +466,8 @@
           if (offset > 0 && segmentDuration) audio.currentTime = Math.min(offset, Math.max(0, segmentDuration - 0.25));
           updateProgress();
           updateSegmentButtons();
-          preloadNextSegment();
-          if (autoplay) audio.play().catch(() => setPlayIcon("play"));
+          preloadAhead();
+          if (autoplay && wantToPlay) audio.play().catch(() => setPlayerState("error"));
         };
         audio.load();
       };
@@ -441,7 +476,17 @@
         if (!playlistReady) return;
         const bounded = Math.max(0, Math.min(time, Math.max(0, totalDuration - 0.25)));
         const index = findSegmentIndex(bounded);
-        setAudioSegment(index, bounded - segmentStarts[index], autoplay, resetRetry);
+        const offset = bounded - segmentStarts[index];
+        currentSegmentIndex = index;
+        pendingSegmentOffset = offset;
+        if (playlist[index].objectUrl) {
+          setAudioSegment(index, offset, autoplay, resetRetry);
+          return;
+        }
+        if (autoplay) setPlayerState("loading");
+        ensureSegment(index)
+          .then(() => setAudioSegment(index, offset, autoplay && wantToPlay, resetRetry))
+          .catch(() => setPlayerState("error"));
       };
 
       const loadPlaylist = (resumeAt = 0, autoplay = false, selectSegment = true) => {
@@ -464,7 +509,7 @@
             return response.json();
           })
           .then((manifest) => {
-            playlist = manifest.segments || [];
+            playlist = (manifest.segments || []).map((segment) => ({ ...segment, status: "idle", objectUrl: null }));
             segmentStarts = [];
             totalDuration = Number(manifest.total_duration || 0);
             let cursor = 0;
@@ -477,28 +522,30 @@
             if (!playlistReady) throw new Error("TTS playlist empty");
             voiceSessions.set(voiceSessionKey(), { playlist, segmentStarts, totalDuration });
             durationLabel.textContent = formatTime(totalDuration);
-            if (streamingFirstSegment) {
-              const streamPosition = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-              streamingFirstSegment = false;
-              setAudioSegment(0, streamPosition, !audio.paused);
-            } else if (selectSegment) seekTo(resumeAt, autoplay);
-            updateSegmentButtons();
+            // Warm only the current segment on chapter load; Play reuses this promise.
+            const initialIndex = findSegmentIndex(resumeAt);
+            currentSegmentIndex = initialIndex;
+            pendingSegmentOffset = Math.max(0, resumeAt - (segmentStarts[initialIndex] || 0));
+            return ensureSegment(initialIndex).then(() => {
+              if (selectSegment && autoplay && wantToPlay) setAudioSegment(initialIndex, resumeAt - (segmentStarts[initialIndex] || 0), true);
+            });
           })
           .catch((error) => {
             playlistReady = false;
             console.warn("Không thể tải audio TTS", error);
-            setPlayIcon("play");
+            setPlayerState("error");
           });
         return playlistLoading;
       };
 
-      const startFirstSegmentStream = () => {
-        streamingFirstSegment = true;
-        audio.src = buildStreamUrl();
-        audio.playbackRate = 1;
-        audio.load();
-        audio.play().catch(() => setPlayIcon("play"));
-        loadPlaylist(0, false, false);
+      const playCurrent = () => {
+        wantToPlay = true;
+        if (playlistReady && audio.src && playerState === "paused") return audio.play().catch(() => setPlayerState("error"));
+        setPlayerState("loading");
+        (playlistReady ? Promise.resolve() : loadPlaylist(0, false, false))
+          .then(() => ensureSegment(currentSegmentIndex))
+          .then(() => { if (wantToPlay) setAudioSegment(currentSegmentIndex, pendingSegmentOffset || audio.currentTime || 0, true); else setPlayerState("paused"); })
+          .catch((error) => { console.warn("Không thể tải audio TTS", error); setPlayerState("error"); });
       };
 
       const saveState = () => {
@@ -819,6 +866,7 @@
 
       const reloadAudio = (resumeAt = 0, autoplay = false) => {
         if (!hasAudio) return;
+        wantToPlay = autoplay;
         audio.pause();
         audio.removeAttribute("src");
         audio.load();
@@ -839,7 +887,7 @@
 
         audio.addEventListener("loadedmetadata", () => {
           updateProgress();
-          preloadNextSegment();
+          preloadAhead();
         });
 
         audio.addEventListener("timeupdate", () => {
@@ -849,7 +897,7 @@
         });
 
         audio.addEventListener("play", () => {
-          setPlayIcon("pause");
+          setPlayerState("playing");
           if (!priorityRequested) {
             priorityRequested = true;
             requestTranslationPriority(player.dataset.queueChapterId, 100);
@@ -857,19 +905,24 @@
           }
         });
         audio.addEventListener("pause", () => {
-          setPlayIcon("play");
+          if (playerState !== "loading") setPlayerState("paused");
           saveState();
         });
 
         audio.addEventListener("ended", () => {
           streamingFirstSegment = false;
           if (!playlistReady) {
-            loadPlaylist(0, true);
+            playCurrent();
             return;
           }
           if (currentSegmentIndex < playlist.length - 1) {
-            setAudioSegment(currentSegmentIndex + 1, 0, true);
+            setPlayerState("loading");
+            ensureSegment(currentSegmentIndex + 1)
+              .then(() => { if (wantToPlay) setAudioSegment(currentSegmentIndex + 1, 0, true); })
+              .catch(() => setPlayerState("error"));
           } else {
+            wantToPlay = false;
+            setPlayerState("ended");
             finishChapter();
           }
         });
@@ -886,22 +939,20 @@
             seekTo(resumeAt, true, false);
             return;
           }
-          setPlayIcon("play");
+          wantToPlay = false;
+          setPlayerState("error");
         });
 
         playButton.addEventListener("click", () => {
           showBar();
-          if (streamingFirstSegment) {
-            if (audio.paused) audio.play().catch(() => setPlayIcon("play"));
-            else audio.pause();
+          if (playerState === "loading") {
+            wantToPlay = false;
+            setPlayerState("paused");
             return;
           }
-          if (!playlistReady) {
-            startFirstSegmentStream();
-            return;
-          }
-          if (audio.paused) audio.play().catch(() => setPlayIcon("play"));
+          if (audio.paused) playCurrent();
           else {
+            wantToPlay = false;
             audio.pause();
             stopFallbackSpeech();
           }
@@ -952,7 +1003,7 @@
         const savedPosition = savedChapter === readerChapterKey ? Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0) : 0;
         const shouldAutoplay = storage.getItem("reader.autoplayNext") === window.location.pathname;
         storage.removeItem("reader.autoplayNext");
-        if (shouldAutoplay) startFirstSegmentStream();
+        if (shouldAutoplay) playCurrent();
         else loadPlaylist(savedPosition, false);
       }
 

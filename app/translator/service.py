@@ -29,6 +29,9 @@ class TranslatorService:
         translated = postprocess_v9(source, self._translate_text(protected), entries)
         return restore(translated, protected)
 
+    def translate_batch(self, texts: list[str]) -> list[str]:
+        return [self.translate(text) for text in texts]
+
     def _translate_text(self, protected: ProtectedText) -> str:
         try:
             response = httpx.post(

@@ -100,6 +100,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\dev.ps1
 Nếu auto reload gặp `PermissionError: [WinError 5] Access is denied` ở `multiprocessing.resource_sharer`, chạy không reload:
 
 ```powershell
+.\scripts\dev.ps1 -Reload
 .\scripts\dev.ps1 -NoReload
 ```
 
@@ -113,6 +114,18 @@ pip install -r requirements.txt
 pip install -r requirements-api.txt
 python src\api.py
 ```
+
+Terminal 1 – Web
+
+venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+Terminal 2 – Translator (HachimiMT)
+
+venv\Scripts\uvicorn infra.translator.service:app --host 127.0.0.1 --port 7861
+
+Terminal 3 – PC Worker (đọc/ghi Supabase)
+
+venv\Scripts\uvicorn sync.service:app --host 127.0.0.1 --port 7862
 
 Model service chạy tại `http://127.0.0.1:7861`; website chạy tại `http://127.0.0.1:8002` khi chạy theo lệnh Windows ở trên. Database nằm tại `data/app.db`, audio cache sẽ nằm tại `data/audio/`.
 

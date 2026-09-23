@@ -17,10 +17,11 @@ from app.config import settings
 
 DEFAULT_EDGE_VOICE = "vi-VN-NamMinhNeural"
 SUPPORTED_EDGE_VOICES = {"vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"}
-MIN_CHUNK_CHARS = 1000
-MAX_CHUNK_CHARS = 2000
+MIN_CHUNK_CHARS = 300
+MAX_CHUNK_CHARS = 600
 EDGE_TTS_TIMEOUT_SECONDS = 120
 logger = logging.getLogger(__name__)
+_inflight_synthesis: dict[Path, asyncio.Task["EdgeAudio"]] = {}
 
 
 class EdgeTTSUnavailableError(RuntimeError):
@@ -76,12 +77,32 @@ def edge_rate(rate: float) -> str:
     return f"{percent:+d}%"
 
 
+def estimate_duration_seconds(text: str, rate: float | int | str | None = 1.0) -> float:
+    """Stable chapter-timeline estimate; real MP3 duration replaces it later."""
+    normalized = " ".join((text or "").split())
+    selected_rate = normalize_rate(rate)
+    speech = len(normalized) / (15.0 * selected_rate)
+    pauses = (normalized.count(",") + normalized.count(":") + normalized.count(";")) * 0.12
+    pauses += sum(normalized.count(mark) for mark in (".", "!", "?", "…")) * 0.32
+    return round(max(1.0, speech + pauses), 2)
+
+
 def safe_part(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
 
 
 def rate_key(rate: float) -> str:
     return f"{rate:.2f}".replace(".", "_")
+
+
+def tts_synthesize_url() -> str:
+    """Accept either the TTS service base URL or its legacy `/tts` URL."""
+    base_url = (settings.tts_api_url or "").rstrip("/")
+    return base_url if base_url.endswith("/tts") else f"{base_url}/tts"
+
+
+def tts_stream_url() -> str:
+    return f"{tts_synthesize_url()}/stream"
 
 
 def audio_filename(*, text: str, voice: str, rate: float, chapter_id: int | None = None) -> str:
@@ -108,8 +129,12 @@ async def synthesize_remote_tts(text: str, *, voice: str, rate: float, path: Pat
     try:
         async with httpx.AsyncClient(timeout=EDGE_TTS_TIMEOUT_SECONDS, trust_env=False) as client:
             response = await client.post(
-                settings.tts_api_url,
-                json={"text": text, "voice": voice, "rate": rate},
+                tts_synthesize_url(),
+                json={
+                    "text": text,
+                    "voice": voice,
+                    "rate": rate,
+                },
             )
             response.raise_for_status()
             audio_url = response.json()["audio_url"]
@@ -137,7 +162,7 @@ async def stream_edge_tts(
             async with httpx.AsyncClient(timeout=EDGE_TTS_TIMEOUT_SECONDS, trust_env=False) as client:
                 async with client.stream(
                     "POST",
-                    f"{settings.tts_api_url.rstrip('/')}/stream",
+                    tts_stream_url(),
                     json={"text": text, "voice": selected_voice, "rate": selected_rate},
                 ) as response:
                     response.raise_for_status()
@@ -294,6 +319,20 @@ async def synthesize_edge_tts(
     )
     if path.exists() and path.stat().st_size > 0:
         return EdgeAudio(path=path, url=f"/api/tts/audio/{path.name}")
+
+    # A chapter warm-up and a Play click can arrive at the server together.
+    # Share the work instead of sending the same text to Edge twice.
+    task = _inflight_synthesis.get(path)
+    if task is None:
+        task = asyncio.create_task(_synthesize_edge_tts_uncached(text, selected_voice, selected_rate, path, chapter_id))
+        _inflight_synthesis[path] = task
+        task.add_done_callback(lambda _task: _inflight_synthesis.pop(path, None))
+    return await asyncio.shield(task)
+
+
+async def _synthesize_edge_tts_uncached(
+    text: str, selected_voice: str, selected_rate: float, path: Path, chapter_id: int | None
+) -> EdgeAudio:
 
     if settings.tts_api_url:
         await synthesize_remote_tts(text, voice=selected_voice, rate=selected_rate, path=path)

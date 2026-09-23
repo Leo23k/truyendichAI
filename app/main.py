@@ -42,6 +42,7 @@ from app.translator.service import TranslationUnavailableError, translator
 from app.tts.edge_tts_service import (
     DEFAULT_EDGE_VOICE,
     EdgeTTSUnavailableError,
+    estimate_duration_seconds,
     normalize_rate,
     normalize_voice,
     split_chapter_text,
@@ -289,7 +290,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "previous_url": f"/synced/{slug}/{entries[position - 1]['chapter_number']}" if position else "",
                     "following_url": f"/synced/{slug}/{entries[position + 1]['chapter_number']}" if position + 1 < len(entries) else "",
                     "audio_manifest_url": "",
-                    "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/stream",
+                    "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/tts/stream",
                     "queue_chapter_id": current.get("id"),
                 },
             )
@@ -330,7 +331,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "previous_url": f"/synced/{slug}/{previous['chapter_number']}" if previous else "",
             "following_url": f"/synced/{slug}/{following['chapter_number']}" if following else "",
             "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
-            "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/stream",
+            "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/tts/stream",
             "queue_chapter_id": current.get("id"),
             "translation_progress": progress,
         },
@@ -394,24 +395,18 @@ async def synced_audio_manifest(
     key = f"{chapter_number:03d}"
     try:
         chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
-        audio_path = chapter.get("audio") or chapter.get("audio_url")
-        if audio_path:
-            return {"segments": [{"index": 0, "url": cdn_url(f"novels/{slug}/{audio_path}"), "duration": 0}]}
         entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
         progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
         translated_content = partial_text or str(chapter.get("translated_content") or chapter.get("content") or "")
-        playlist = await synthesize_chapter_playlist(
-            translated_content,
-            chapter_id=int(entry["id"]),
-            voice=normalize_voice(voice),
-            rate=normalize_rate(rate),
-        )
+        chunks = split_chapter_text(translated_content)
+        selected_voice, selected_rate = normalize_voice(voice), normalize_rate(rate)
         return {
-            "total_duration": playlist.total_duration_seconds,
+            "voice": selected_voice,
+            "rate": selected_rate,
             "segments": [
-                {"index": segment.index, "url": segment.url, "duration": segment.duration_seconds}
-                for segment in playlist.segments
+                {"index": index, "url": f"/synced/{slug}/{chapter_number}/audio/segments/{index}?voice={selected_voice}&rate={selected_rate}", "duration": estimate_duration_seconds(chunk, selected_rate)}
+                for index, chunk in enumerate(chunks)
             ],
         }
     except CdnDataError:
@@ -420,7 +415,27 @@ async def synced_audio_manifest(
         raise HTTPException(status_code=503, detail="Không thể tạo playlist audio.") from exc
 
 
-@app.get("/synced/{slug}/{chapter_number}/audio/stream")
+@app.get("/synced/{slug}/{chapter_number}/audio/segments/{index}")
+async def synced_audio_segment(slug: str, chapter_number: int, index: int, voice: str = DEFAULT_EDGE_VOICE, rate: float = 1.0):
+    key = f"{chapter_number:03d}"
+    try:
+        chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
+        entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
+        progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
+        partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
+        chunks = split_chapter_text(partial_text or str(chapter.get("translated_content") or chapter.get("content") or ""))
+    except (CdnDataError, KeyError, StopIteration, TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Không tìm thấy đoạn audio.") from None
+    if index < 0 or index >= len(chunks):
+        raise HTTPException(status_code=404, detail="Không tìm thấy đoạn audio.")
+    try:
+        audio = await synthesize_edge_tts(chunks[index], voice=normalize_voice(voice), rate=normalize_rate(rate), chapter_id=int(entry["id"]))
+        return FileResponse(audio.path, media_type="audio/mpeg", filename=audio.path.name)
+    except EdgeTTSUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/synced/{slug}/{chapter_number}/audio/tts/stream")
 async def stream_synced_chapter_audio(
     slug: str,
     chapter_number: int,
@@ -832,34 +847,41 @@ async def chapter_audio_manifest(
         raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y chÆ°Æ¡ng.")
     if not chapter.translated_content:
         raise HTTPException(status_code=400, detail="HÃ£y dá»‹ch chÆ°Æ¡ng trÆ°á»›c khi sá»­ dá»¥ng chá»©c nÄƒng nghe.")
+    chunks = split_chapter_text(chapter.translated_content)
+    selected_voice, selected_rate = normalize_voice(voice), normalize_rate(rate)
+    # This is metadata only: synthesis is intentionally deferred to each
+    # segment request so opening a chapter warms only segment zero.
+    return {
+        "chapter_id": chapter.id,
+        "voice": selected_voice,
+        "rate": selected_rate,
+        "segments": [
+            {"index": index, "url": f"/chapters/{chapter.id}/audio/segments/{index}?voice={selected_voice}&rate={selected_rate}", "duration": estimate_duration_seconds(chunk, selected_rate)}
+            for index, chunk in enumerate(chunks)
+        ],
+    }
+
+
+@app.get("/chapters/{chapter_id}/audio/segments/{index}")
+async def chapter_audio_segment(
+    chapter_id: int,
+    index: int,
+    voice: str = DEFAULT_EDGE_VOICE,
+    rate: float = 1.0,
+    db: Session = Depends(get_db),
+):
+    chapter = db.get(Chapter, chapter_id)
+    chunks = split_chapter_text(chapter.translated_content if chapter else "")
+    if not chapter or index < 0 or index >= len(chunks):
+        raise HTTPException(status_code=404, detail="Không tìm thấy đoạn audio.")
     try:
-        playlist = await synthesize_chapter_playlist(
-            chapter.translated_content,
-            chapter_id=chapter.id,
-            voice=normalize_voice(voice),
-            rate=normalize_rate(rate),
-        )
-        return {
-            "chapter_id": playlist.chapter_id,
-            "voice": playlist.voice,
-            "rate": playlist.rate,
-            "cache_hit": playlist.cache_hit,
-            "total_duration": playlist.total_duration_seconds,
-            "segments": [
-                {
-                    "index": segment.index,
-                    "url": segment.url,
-                    "duration": segment.duration_seconds,
-                    "cache_hit": segment.cache_hit,
-                }
-                for segment in playlist.segments
-            ],
-        }
+        audio = await synthesize_edge_tts(chunks[index], voice=normalize_voice(voice), rate=normalize_rate(rate), chapter_id=chapter.id)
+        return FileResponse(audio.path, media_type="audio/mpeg", filename=audio.path.name)
     except EdgeTTSUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.get("/chapters/{chapter_id}/audio/stream")
+@app.get("/chapters/{chapter_id}/audio/tts/stream")
 async def stream_chapter_audio(
     chapter_id: int,
     voice: str = DEFAULT_EDGE_VOICE,

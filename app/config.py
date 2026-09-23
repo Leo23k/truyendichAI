@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import truststore
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     pc_worker_token: str | None = Field(default=None, validation_alias=AliasChoices("PC_WORKER_TOKEN"))
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("tts_api_url", mode="before")
+    @classmethod
+    def empty_tts_url_uses_builtin_provider(cls, value: str | None) -> str | None:
+        return value.strip() or None if isinstance(value, str) else value
 
     def ensure_directories(self) -> None:
         self.data_path.mkdir(parents=True, exist_ok=True)
