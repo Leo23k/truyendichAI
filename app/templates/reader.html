@@ -538,10 +538,35 @@
         return playlistLoading;
       };
 
+      const playFirstSegmentFromStream = () => {
+        // Calling play() synchronously from the click keeps the browser's
+        // user-gesture permission.  Fetching a generated blob first can lose
+        // that permission on slower networks and leaves the Play button stuck.
+        streamingFirstSegment = true;
+        audio.pause();
+        audio.src = buildStreamUrl();
+        audio.playbackRate = 1;
+        audio.load();
+        audio.play()
+          .then(() => setPlayerState("playing"))
+          .catch(() => {
+            streamingFirstSegment = false;
+            (playlistLoading || loadPlaylist(0, false, false))
+              .then(() => ensureSegment(currentSegmentIndex))
+              .then(() => { if (wantToPlay) setAudioSegment(currentSegmentIndex, pendingSegmentOffset || 0, true); })
+              .catch(() => setPlayerState("error"));
+          });
+      };
+
       const playCurrent = () => {
         wantToPlay = true;
         if (playlistReady && audio.src && playerState === "paused") return audio.play().catch(() => setPlayerState("error"));
         setPlayerState("loading");
+        if (!playlistReady || !playlist[currentSegmentIndex]?.objectUrl) {
+          playFirstSegmentFromStream();
+          (playlistLoading || loadPlaylist(0, false, false)).catch(() => setPlayerState("error"));
+          return;
+        }
         (playlistReady ? Promise.resolve() : loadPlaylist(0, false, false))
           .then(() => ensureSegment(currentSegmentIndex))
           .then(() => { if (wantToPlay) setAudioSegment(currentSegmentIndex, pendingSegmentOffset || audio.currentTime || 0, true); else setPlayerState("paused"); })
@@ -910,7 +935,29 @@
         });
 
         audio.addEventListener("ended", () => {
-          streamingFirstSegment = false;
+          if (streamingFirstSegment) {
+            streamingFirstSegment = false;
+            if (playlist[0] && Number.isFinite(audio.duration) && audio.duration > 0) {
+              playlist[0].duration = audio.duration;
+              refreshPlaylistDuration();
+            }
+            setPlayerState("loading");
+            (playlistLoading || loadPlaylist(0, false, false))
+              .then(() => {
+                if (playlist.length < 2) {
+                  wantToPlay = false;
+                  setPlayerState("ended");
+                  finishChapter();
+                  return;
+                }
+                currentSegmentIndex = 1;
+                return ensureSegment(1).then(() => {
+                  if (wantToPlay) setAudioSegment(1, 0, true);
+                });
+              })
+              .catch(() => setPlayerState("error"));
+            return;
+          }
           if (!playlistReady) {
             playCurrent();
             return;
