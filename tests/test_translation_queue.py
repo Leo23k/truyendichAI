@@ -13,6 +13,26 @@ class FakeRemote:
         self.inserted.append((table, payloads, conflict))
 
 
+def test_all_rows_reads_past_postgrest_default_page_size() -> None:
+    class PaginatedRemote:
+        all_rows = service.SupabaseSync.all_rows
+
+        def __init__(self) -> None:
+            self.offsets: list[int] = []
+
+        def rows(self, _table: str, params: dict[str, str]) -> list[dict]:
+            offset = int(params["offset"])
+            self.offsets.append(offset)
+            if offset == 0:
+                return [{"id": index} for index in range(1000)]
+            return [{"id": 1000}]
+
+    remote = PaginatedRemote()
+
+    assert len(remote.all_rows("chapters", {"select": "id", "order": "id.asc"})) == 1001
+    assert remote.offsets == [0, 1000]
+
+
 def test_enqueue_creates_chunks_only_for_new_untranslated_chapters() -> None:
     remote = FakeRemote()
     count = enqueue_untranslated_chapters(remote, [

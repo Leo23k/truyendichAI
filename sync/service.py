@@ -127,6 +127,18 @@ class SupabaseSync:
             raise SyncError(f"Supabase did not return rows for {table}.")
         return [row for row in payload if isinstance(row, dict)]
 
+    def all_rows(self, table: str, params: dict[str, str]) -> list[dict]:
+        """Read every matching row instead of PostgREST's first 1,000 rows."""
+        page_size = 1000
+        offset = 0
+        collected: list[dict] = []
+        while True:
+            page = self.rows(table, {**params, "limit": str(page_size), "offset": str(offset)})
+            collected.extend(page)
+            if len(page) < page_size:
+                return collected
+            offset += page_size
+
     def insert_many_ignore(self, table: str, payloads: list[dict], conflict: str) -> None:
         for start in range(0, len(payloads), 500):
             self.request(
@@ -606,12 +618,13 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
             novel = remote.insert("novels", {"slug": slugify(info.title, slug_id), "title": info.title, "author": info.author, "cover_url": info.cover_url, "source_url": info.source_url, "latest_chapter": 0})
 
         incoming = await crawler.get_chapters(url)
-        existing = remote.rows("chapters", {"select": "id,source_url,translated", "novel_id": f"eq.{novel['id']}"})
+        existing = remote.all_rows("chapters", {"select": "id,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "source_url.asc"})
         existing_urls = {row["source_url"] for row in existing}
         new_rows = [{"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": False, "audio_available": False} for item in incoming if item.url not in existing_urls]
         remote.insert_many_ignore("chapters", new_rows, "novel_id,source_url")
-        chapters = remote.rows("chapters", {"select": "id,chapter_number,title,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.asc"})
-        queued = {row["chapter_id"] for row in remote.rows("translation_queue", {"select": "chapter_id", "chapter_id": f"in.({','.join(str(row['id']) for row in chapters)})"})} if chapters else set()
+        chapters = remote.all_rows("chapters", {"select": "id,chapter_number,title,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.asc"})
+        chapter_ids = {row["id"] for row in chapters}
+        queued = {row["chapter_id"] for row in remote.all_rows("translation_queue", {"select": "chapter_id", "order": "chapter_id.asc"}) if row.get("chapter_id") in chapter_ids}
         pending = [row for row in chapters if not row["translated"] and row["id"] not in queued]
         total_raw = len(pending)
         update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
@@ -634,7 +647,8 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
                 update_status(status="crawling", raw_loaded=index, total_raw=total_raw)
         remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
         remote.insert_many_ignore("translation_queue", jobs, "chapter_id")
-        update_status(status="translating", book_id=novel["id"], chapters_added=len(new_rows), raw_loaded=total_raw, queued=len(jobs))
+        chapters_added = sum(1 for row in chapters if row.get("source_url") not in existing_urls)
+        update_status(status="translating", book_id=novel["id"], chapters_added=chapters_added, raw_loaded=total_raw, queued=len(jobs))
         while run_translation_worker_once(remote):
             pass
         queue_states = remote.rows(
@@ -644,7 +658,7 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
         incomplete = [row for row in queue_states if row.get("status") != "completed"]
         if incomplete or len(queue_states) != len(jobs):
             raise SyncError(f"Translation did not complete for {len(incomplete) or len(jobs) - len(queue_states)} newly crawled chapter(s).")
-        update_status(status="completed", result={"book_id": novel["id"], "raw_loaded": total_raw, "queued": len(jobs), "translated": len(jobs)})
+        update_status(status="completed", result={"book_id": novel["id"], "chapters_added": chapters_added, "raw_loaded": total_raw, "queued": len(jobs), "translated": len(jobs)})
     except Exception as exc:
         logger.exception("PC crawl worker failed")
         update_status(status="failed", error=str(exc))
