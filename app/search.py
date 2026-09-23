@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import unicodedata
 
@@ -74,12 +75,13 @@ async def search_books(query: str, db: Session) -> list[BookInfo]:
             seen.update(keys)
             results.append(book)
 
-    for book in local_book_matches(query, db):
-        keys = result_keys(book)
-        if seen.intersection(keys):
-            continue
-        seen.update(keys)
-        results.append(book)
+    if not os.getenv("VERCEL"):
+        for book in local_book_matches(query, db):
+            keys = result_keys(book)
+            if seen.intersection(keys):
+                continue
+            seen.update(keys)
+            results.append(book)
 
     logger.info("Search response query=%r results=%s", query, len(results))
     return results
