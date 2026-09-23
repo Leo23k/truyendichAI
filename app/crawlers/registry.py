@@ -1,8 +1,12 @@
 import ipaddress
+import logging
 from urllib.parse import urlparse
 
 from app.crawlers.base import BaseCrawler, BookInfo
-from app.crawlers.errors import InvalidSourceUrlError, UnsupportedSourceError
+from app.crawlers.errors import CrawlerError, InvalidSourceUrlError, UnsupportedSourceError
+
+
+logger = logging.getLogger(__name__)
 
 
 class CrawlerRegistry:
@@ -32,7 +36,8 @@ class CrawlerRegistry:
         for crawler in self._crawlers:
             try:
                 results.extend(await crawler.search(query))
-            except NotImplementedError:
+            except (CrawlerError, NotImplementedError) as exc:
+                logger.info("Search source unavailable source=%s query=%r error=%s", crawler.source_name, query, exc)
                 continue
         return results
 

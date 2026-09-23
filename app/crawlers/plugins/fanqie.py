@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from urllib.parse import urljoin, urlparse
@@ -7,7 +8,7 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.crawlers.base import BaseCrawler, BookInfo, ChapterInfo, clean_chapter_text, dedupe_chapters, extract_cover_url
-from app.crawlers.errors import SourceParseError, SourceRequestError
+from app.crawlers.errors import CrawlerError, SourceParseError, SourceRequestError
 
 logger = logging.getLogger(__name__)
 _CHAPTER_NUMBER = re.compile(r"\u7b2c\s*(\d+)\s*\u7ae0")
@@ -56,6 +57,50 @@ class FanqieCrawler(BaseCrawler):
             description_node.get_text("\n", strip=True) if description_node else None,
             extract_cover_url(soup, url),
         )
+
+    async def search(self, query: str) -> list[BookInfo]:
+        query = query.strip()
+        if not query:
+            return []
+        try:
+            async with httpx.AsyncClient(
+                timeout=settings.crawler_timeout,
+                trust_env=False,
+                headers={"User-Agent": "com.ss.android.article.news/7.0.3 (Linux; U; Android 12; zh_CN; Pixel 6)"},
+            ) as client:
+                response = await client.get(
+                    "https://novel.snssdk.com/api/novel/channel/homepage/search/search/v1/",
+                    params={"device_platform": "android", "parent_enterfrom": "novel_channel_search.tab.", "offset": "0", "aid": "1967", "q": query},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SourceRequestError("Không thể tìm kiếm Fanqie lúc này.") from exc
+        records = payload.get("data", {}).get("ret_data", []) if isinstance(payload, dict) else []
+        candidates = [record for record in records if isinstance(record, dict) and str(record.get("book_id", "")).isdigit()]
+
+        async def verify(record: dict) -> BookInfo | None:
+            book_id = str(record["book_id"])
+            source_url = f"https://fanqienovel.com/page/{book_id}"
+            try:
+                chapters = await self.get_chapters(source_url)
+            except (CrawlerError, httpx.HTTPError):
+                return None
+            if not chapters:
+                return None
+            return BookInfo(
+                source_url,
+                self.source_name,
+                book_id,
+                str(record.get("title") or "").strip(),
+                str(record.get("author") or "").strip() or None,
+                str(record.get("abstract") or "").strip() or None,
+                str(record.get("thumb_url") or "").strip() or None,
+                len(chapters),
+            )
+
+        verified = await asyncio.gather(*(verify(record) for record in candidates[:10]))
+        return [book for book in verified if book and book.title]
 
     async def get_chapters(self, url: str) -> list[ChapterInfo]:
         soup = BeautifulSoup(await self._get_html(url), "html.parser")

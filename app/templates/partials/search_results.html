@@ -11,6 +11,7 @@
     <div class="p-4">
       <h3 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ result.title }}</h3>
       <p class="mt-2 text-xs text-stone-500">Nguồn: {{ result.source_name }}</p>
+      <p class="mt-1 text-xs font-medium text-teal-700">Có thể crawl{% if result.chapter_count is not none %} · {{ result.chapter_count }} chương{% endif %}</p>
     </div>
   </a>
   {% endfor %}

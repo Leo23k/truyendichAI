@@ -24,6 +24,39 @@ async def test_fanqie_parses_server_rendered_book_and_reader(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_fanqie_search_returns_only_verified_crawlable_books(monkeypatch) -> None:
+    crawler = FanqieCrawler()
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"data": {"ret_data": [{"book_id": "999", "title": "Night", "author": "Author", "abstract": "Intro", "thumb_url": "https://cover.example/book.jpg"}]}}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return Response()
+
+    async def chapters(_url: str):
+        return [object(), object()]
+
+    monkeypatch.setattr("app.crawlers.plugins.fanqie.httpx.AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(crawler, "get_chapters", chapters)
+    results = await crawler.search("Night")
+
+    assert len(results) == 1
+    assert results[0].source_url == "https://fanqienovel.com/page/999"
+    assert results[0].chapter_count == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("crawler_type", "book_url", "chapter_url"),
     [

@@ -139,6 +139,7 @@ class BookInfo:
     author: str | None
     description: str | None
     cover_url: str | None
+    chapter_count: int | None = None
 
 
 @dataclass
