@@ -624,10 +624,55 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
         remote.insert_many_ignore("chapters", new_rows, "novel_id,source_url")
         chapters = remote.all_rows("chapters", {"select": "id,chapter_number,title,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.asc"})
         chapter_ids = {row["id"] for row in chapters}
-        queued = {row["chapter_id"] for row in remote.all_rows("translation_queue", {"select": "chapter_id", "order": "chapter_id.asc"}) if row.get("chapter_id") in chapter_ids}
-        pending = [row for row in chapters if not row["translated"] and row["id"] not in queued]
+        queue_rows = [
+            row
+            for row in remote.all_rows(
+                "translation_queue",
+                {"select": "id,chapter_id,status,retry_count", "order": "chapter_id.asc"},
+            )
+            if row.get("chapter_id") in chapter_ids
+        ]
+        queues_by_chapter = {row["chapter_id"]: row for row in queue_rows}
+        published_existing = 0
+        resumed_job_ids: set[int] = set()
+        for chapter in chapters:
+            queue = queues_by_chapter.get(chapter["id"])
+            if chapter["translated"] or not queue:
+                continue
+            if queue.get("status") == "completed":
+                publish_completed_translation(remote, int(chapter["id"]))
+                published_existing += 1
+            elif queue.get("status") == "failed":
+                remote.patch_rows(
+                    "translation_queue",
+                    {"id": f"eq.{queue['id']}", "status": "eq.failed"},
+                    {
+                        "status": "queued",
+                        "retry_count": int(queue.get("retry_count") or 0) + 1,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                resumed_job_ids.add(int(chapter["id"]))
+        active_queue_ids = {
+            row["chapter_id"]
+            for row in queue_rows
+            if row.get("status") in {"queued", "translating"}
+        }
+        completed_queue_ids = {
+            row["chapter_id"]
+            for row in queue_rows
+            if row.get("status") == "completed"
+        }
+        pending = [
+            row
+            for row in chapters
+            if not row["translated"]
+            and row["id"] not in active_queue_ids
+            and row["id"] not in completed_queue_ids
+            and row["id"] not in resumed_job_ids
+        ]
         total_raw = len(pending)
-        update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
+        update_status(status="crawling", raw_loaded=0, total_raw=total_raw, published_existing=published_existing, resumed=len(resumed_job_ids))
         jobs: list[dict] = []
         chunks: list[dict] = []
         for index, chapter in enumerate(pending, start=1):
@@ -648,17 +693,18 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
         remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
         remote.insert_many_ignore("translation_queue", jobs, "chapter_id")
         chapters_added = sum(1 for row in chapters if row.get("source_url") not in existing_urls)
-        update_status(status="translating", book_id=novel["id"], chapters_added=chapters_added, raw_loaded=total_raw, queued=len(jobs))
+        processed_job_ids = resumed_job_ids | {int(job["chapter_id"]) for job in jobs}
+        update_status(status="translating", book_id=novel["id"], chapters_added=chapters_added, raw_loaded=total_raw, queued=len(jobs), published_existing=published_existing, resumed=len(resumed_job_ids))
         while run_translation_worker_once(remote):
             pass
         queue_states = remote.rows(
             "translation_queue",
-            {"select": "chapter_id,status", "chapter_id": f"in.({','.join(str(job['chapter_id']) for job in jobs)})"},
-        ) if jobs else []
+            {"select": "chapter_id,status", "chapter_id": f"in.({','.join(str(chapter_id) for chapter_id in processed_job_ids)})"},
+        ) if processed_job_ids else []
         incomplete = [row for row in queue_states if row.get("status") != "completed"]
-        if incomplete or len(queue_states) != len(jobs):
-            raise SyncError(f"Translation did not complete for {len(incomplete) or len(jobs) - len(queue_states)} newly crawled chapter(s).")
-        update_status(status="completed", result={"book_id": novel["id"], "chapters_added": chapters_added, "raw_loaded": total_raw, "queued": len(jobs), "translated": len(jobs)})
+        if incomplete or len(queue_states) != len(processed_job_ids):
+            raise SyncError(f"Translation did not complete for {len(incomplete) or len(processed_job_ids) - len(queue_states)} newly crawled chapter(s).")
+        update_status(status="completed", result={"book_id": novel["id"], "chapters_added": chapters_added, "raw_loaded": total_raw, "queued": len(jobs), "resumed": len(resumed_job_ids), "published_existing": published_existing, "translated": len(processed_job_ids) + published_existing})
     except Exception as exc:
         logger.exception("PC crawl worker failed")
         update_status(status="failed", error=str(exc))
