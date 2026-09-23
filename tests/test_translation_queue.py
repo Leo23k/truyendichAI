@@ -51,10 +51,14 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
     remote = WorkerRemote()
     monkeypatch.setattr(service.translator, "translate", lambda text: f"Dịch {text}")
 
+    published: list[int] = []
+    monkeypatch.setattr(service, "publish_completed_translation", lambda _remote, chapter_id: published.append(chapter_id))
+
     assert service.run_translation_worker_once(remote) is True
     assert [patch[2]["translated_text"] for patch in remote.patches if patch[0] == "chapter_chunks"] == ["Dịch Một.", "Dịch Hai."]
     assert [patch[0] for patch in remote.patches].index("chapter_chunks") < [patch[0] for patch in remote.patches].index("translation_queue", 1)
     assert remote.patches[-1][2]["status"] == "completed"
+    assert published == [7]
 
 
 def test_remote_crawl_job_is_claimed_only_while_queued() -> None:

@@ -33,9 +33,6 @@ from app.translator.chunking import chunk_text
 from app.translator.service import TranslationUnavailableError, translator
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
-from app.database import SessionLocal
-from app.models import Chapter
-from app.services.book_service import BookService
 
 load_dotenv(ROOT / ".env")
 def default_database_path() -> Path:
@@ -299,6 +296,71 @@ def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
     return claimed[0] if claimed else None
 
 
+def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None:
+    """Publish a fully translated queue item and expose it to the reader."""
+    chapters = remote.rows(
+        "chapters",
+        {
+            "select": "id,novel_id,chapter_number,title,source_url",
+            "id": f"eq.{chapter_id}",
+            "limit": "1",
+        },
+    )
+    if not chapters:
+        raise SyncError(f"Chapter {chapter_id} was not found while publishing translation.")
+    chapter = chapters[0]
+    novels = remote.rows(
+        "novels",
+        {"select": "id,slug,latest_chapter", "id": f"eq.{chapter['novel_id']}", "limit": "1"},
+    )
+    if not novels:
+        raise SyncError(f"Novel for chapter {chapter_id} was not found while publishing translation.")
+    novel = novels[0]
+    chunks = remote.rows(
+        "chapter_chunks",
+        {
+            "select": "chunk_index,original_text,translated_text,status",
+            "chapter_id": f"eq.{chapter_id}",
+            "order": "chunk_index.asc",
+        },
+    )
+    if not chunks or any(row.get("status") != "completed" or not row.get("translated_text") for row in chunks):
+        raise SyncError(f"Chapter {chapter_id} has incomplete translated chunks.")
+    original_content = "\n\n".join(str(row["original_text"]) for row in chunks)
+    translated_content = "\n\n".join(str(row["translated_text"]) for row in chunks)
+    key = chapter_key(int(chapter["chapter_number"]))
+    json_path = f"{novel['slug']}/{key}.json"
+    payload = json.dumps(
+        {
+            "number": chapter["chapter_number"],
+            "title": chapter["title"],
+            "original_title": chapter["title"],
+            "original_content": original_content,
+            "translated_content": translated_content,
+            "content": translated_content,
+            "translated": True,
+            "audio": None,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    remote.upload_if_changed("chapters", json_path, payload, "application/json")
+    remote.patch_rows(
+        "chapters",
+        {"id": f"eq.{chapter_id}"},
+        {
+            "translated": True,
+            "content_path": f"chapters/{json_path}",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    if int(novel.get("latest_chapter") or 0) < int(chapter["chapter_number"]):
+        remote.patch_rows(
+            "novels",
+            {"id": f"eq.{novel['id']}"},
+            {"latest_chapter": chapter["chapter_number"], "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
+
+
 def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     remote = remote or SupabaseSync()
     job = claim_translation_job(remote)
@@ -367,6 +429,9 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
+
+            if status == "completed":
+                publish_completed_translation(remote, int(job["chapter_id"]))
 
             logger.info(
                 "Chapter %s | Completed %s/%s chunk(s)",
@@ -526,36 +591,63 @@ def worker_process_lock():
 
 
 async def _crawl_and_translate_url(url: str, update_status) -> None:
-    """Crawl locally, publish raw text first, then let the chunk worker translate."""
-    db = SessionLocal()
+    """Crawl directly into Supabase; SQLite is never used in this path."""
     try:
         update_status(status="crawling")
         crawler = registry.get_for_url(url)
-        book, added = await BookService(db, crawler).import_book(url)
-        if book.deleted_at:
-            book.deleted_at = None
-            book.delete_after = None
-            db.commit()
-        chapters = db.query(Chapter).filter(Chapter.book_id == book.id, Chapter.original_content.is_(None)).all()
-        total_raw = len(chapters)
+        info = await crawler.get_book_info(url)
+        remote = SupabaseSync()
+        novels = remote.rows("novels", {"select": "id,slug", "source_url": f"eq.{info.source_url}", "limit": "1"})
+        if novels:
+            novel = novels[0]
+            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"title": info.title, "author": info.author, "cover_url": info.cover_url, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()})
+        else:
+            slug_id = uuid.uuid5(uuid.NAMESPACE_URL, info.source_url).int % 100000000
+            novel = remote.insert("novels", {"slug": slugify(info.title, slug_id), "title": info.title, "author": info.author, "cover_url": info.cover_url, "source_url": info.source_url, "latest_chapter": 0})
+
+        incoming = await crawler.get_chapters(url)
+        existing = remote.rows("chapters", {"select": "id,source_url,translated", "novel_id": f"eq.{novel['id']}"})
+        existing_urls = {row["source_url"] for row in existing}
+        new_rows = [{"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": False, "audio_available": False} for item in incoming if item.url not in existing_urls]
+        remote.insert_many_ignore("chapters", new_rows, "novel_id,source_url")
+        chapters = remote.rows("chapters", {"select": "id,chapter_number,title,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.asc"})
+        queued = {row["chapter_id"] for row in remote.rows("translation_queue", {"select": "chapter_id", "chapter_id": f"in.({','.join(str(row['id']) for row in chapters)})"})} if chapters else set()
+        pending = [row for row in chapters if not row["translated"] and row["id"] not in queued]
+        total_raw = len(pending)
         update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
-        for index, chapter in enumerate(chapters, start=1):
-            chapter.original_content = clean_chapter_text(await crawler.get_chapter_content(chapter.url))
+        jobs: list[dict] = []
+        chunks: list[dict] = []
+        for index, chapter in enumerate(pending, start=1):
+            original = clean_chapter_text(await crawler.get_chapter_content(str(chapter["source_url"])))
+            if not original:
+                continue
+            key = chapter_key(int(chapter["chapter_number"]))
+            payload = json.dumps({"number": chapter["chapter_number"], "title": chapter["title"], "original_title": chapter["title"], "original_content": original, "translated": False}, ensure_ascii=False).encode("utf-8")
+            remote.upload_if_changed("chapters", f"{novel['slug']}/{key}.json", payload, "application/json")
+            remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {"content_path": f"chapters/{novel['slug']}/{key}.json"})
+            parts = chunk_text(original)
+            if not parts:
+                continue
+            chunks.extend({"chapter_id": chapter["id"], "chunk_index": item_index, "original_text": text, "status": "queued"} for item_index, text in enumerate(parts))
+            jobs.append({"chapter_id": chapter["id"], "status": "queued", "priority": 0, "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0})
             if index == total_raw or index % 10 == 0:
                 update_status(status="crawling", raw_loaded=index, total_raw=total_raw)
-        db.commit()
-        update_status(status="syncing", book_id=book.id, chapters_added=added, raw_loaded=len(chapters))
-        synced = sync_once()
-        update_status(status="translating", sync=synced)
-        while run_translation_worker_once():
+        remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
+        remote.insert_many_ignore("translation_queue", jobs, "chapter_id")
+        update_status(status="translating", book_id=novel["id"], chapters_added=len(new_rows), raw_loaded=total_raw, queued=len(jobs))
+        while run_translation_worker_once(remote):
             pass
-        update_status(status="completed", result={"book_id": book.id, "raw_loaded": len(chapters)})
+        queue_states = remote.rows(
+            "translation_queue",
+            {"select": "chapter_id,status", "chapter_id": f"in.({','.join(str(job['chapter_id']) for job in jobs)})"},
+        ) if jobs else []
+        incomplete = [row for row in queue_states if row.get("status") != "completed"]
+        if incomplete or len(queue_states) != len(jobs):
+            raise SyncError(f"Translation did not complete for {len(incomplete) or len(jobs) - len(queue_states)} newly crawled chapter(s).")
+        update_status(status="completed", result={"book_id": novel["id"], "raw_loaded": total_raw, "queued": len(jobs), "translated": len(jobs)})
     except Exception as exc:
-        db.rollback()
         logger.exception("PC crawl worker failed")
         update_status(status="failed", error=str(exc))
-    finally:
-        db.close()
 
 
 def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
@@ -592,7 +684,6 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
 
 def run_watch() -> None:
     interval = max(5, int(os.getenv("PC_WORKER_POLL_INTERVAL", "10")))
-    next_sync_at = time.monotonic() + max(30, int(os.getenv("SYNC_INTERVAL", "60")))
     with worker_process_lock() as acquired:
         if not acquired:
             logger.warning("Another PC worker is already running; exiting duplicate worker.")
@@ -605,10 +696,6 @@ def run_watch() -> None:
                 else:
                     while run_translation_worker_once(remote):
                         sync_status["last_error"] = None
-                if time.monotonic() >= next_sync_at:
-                    sync_status["last_sync"] = sync_once()
-                    sync_status["last_error"] = None
-                    next_sync_at = time.monotonic() + max(30, int(os.getenv("SYNC_INTERVAL", "60")))
             except SyncError as exc:
                 logger.exception("Scheduled Supabase sync failed")
                 sync_status["last_error"] = str(exc)
