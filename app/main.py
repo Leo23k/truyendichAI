@@ -397,7 +397,9 @@ async def synced_audio_manifest(
         entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
         progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
-        translated_content = partial_text or str(chapter.get("translated_content") or chapter.get("content") or "")
+        translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
+        if (progress or {}).get("status") != "completed" and partial_text.strip():
+            translated_content = partial_text
         chunks = split_chapter_text(translated_content)
         selected_voice, selected_rate = normalize_voice(voice), normalize_rate(rate)
         return {
@@ -422,7 +424,10 @@ async def synced_audio_segment(slug: str, chapter_number: int, index: int, voice
         entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
         progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
-        chunks = split_chapter_text(partial_text or str(chapter.get("translated_content") or chapter.get("content") or ""))
+        translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
+        if (progress or {}).get("status") != "completed" and partial_text.strip():
+            translated_content = partial_text
+        chunks = split_chapter_text(translated_content)
     except (CdnDataError, KeyError, StopIteration, TypeError, ValueError):
         raise HTTPException(status_code=404, detail="Không tìm thấy đoạn audio.") from None
     if index < 0 or index >= len(chunks):
@@ -451,7 +456,7 @@ async def stream_synced_chapter_audio(
         entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
         progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
-        if partial_text.strip():
+        if (progress or {}).get("status") != "completed" and partial_text.strip():
             translated_content = partial_text
     except (CdnDataError, KeyError, StopIteration, TypeError, ValueError):
         pass
