@@ -231,6 +231,30 @@ def load_deleted_synced_novels() -> list[dict]:
     )
 
 
+def load_translation_memory() -> list[dict]:
+    return _service_rows(
+        "translation_memory",
+        {"select": "id,source_text,replacement_text", "order": "source_text.asc"},
+    )
+
+
+def save_translation_memory(source_text: str, replacement_text: str) -> None:
+    try:
+        with httpx.Client(timeout=30, trust_env=False) as client:
+            response = client.post(
+                f"{SUPABASE_URL}/rest/v1/translation_memory?on_conflict=source_text",
+                json={"source_text": source_text, "replacement_text": replacement_text},
+                headers={**_service_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise CdnDataError("Could not save Supabase translation memory") from exc
+
+
+def delete_translation_memory(entry_id: int) -> None:
+    _service_delete("translation_memory", {"id": f"eq.{entry_id}"})
+
+
 def add_synced_chapters(slug: str, chapters: list[object]) -> int:
     novel = get_synced_novel_for_management(slug)
     existing_rows = _service_rows("chapters", {"select": "source_url", "novel_id": f"eq.{novel['id']}"})

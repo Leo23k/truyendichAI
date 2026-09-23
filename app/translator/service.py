@@ -5,6 +5,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.cdn import CdnDataError, load_translation_memory
 from app.config import settings
 from app.models import TranslationMemory
 from app.translator.glossary import GlossaryEntry, ProtectedText, protect, restore
@@ -50,15 +51,24 @@ class TranslatorService:
         return normalize_text(translated)
 
 
-def glossary_entries(db: Session | None, source: str) -> list[GlossaryEntry]:
-    if db is None:
-        return []
+def glossary_entries(_db: Session | None, source: str) -> list[GlossaryEntry]:
     entries: list[GlossaryEntry] = []
-    for row in db.scalars(select(TranslationMemory).order_by(TranslationMemory.source_text.desc())).all():
-        keys = [traditional_to_simplified(part.strip()) for part in row.source_text.split("|") if part.strip()]
+    if _db is not None:
+        rows = [
+            {"source_text": row.source_text, "replacement_text": row.replacement_text}
+            for row in _db.scalars(select(TranslationMemory).order_by(TranslationMemory.source_text.asc())).all()
+        ]
+    else:
+        try:
+            rows = load_translation_memory()
+        except CdnDataError:
+            logger.warning("Supabase translation memory unavailable; translating without glossary")
+            return entries
+    for row in reversed(rows):
+        keys = [traditional_to_simplified(part.strip()) for part in str(row["source_text"]).split("|") if part.strip()]
         if not keys:
             continue
-        entries.append(GlossaryEntry(keys[0], row.replacement_text, tuple(keys[1:])))
+        entries.append(GlossaryEntry(keys[0], str(row["replacement_text"]), tuple(keys[1:])))
     return entries
 
 

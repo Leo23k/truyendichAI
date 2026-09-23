@@ -22,12 +22,15 @@ from app.cdn import (
     add_synced_chapters,
     cdn_url,
     delete_synced_novel_permanently,
+    delete_translation_memory as delete_supabase_translation_memory,
     get_synced_novel_for_management,
     load_cdn_json,
     load_chapters_index,
     load_deleted_synced_novels,
     load_translation_progress,
+    load_translation_memory,
     publish_translated_chapter,
+    save_translation_memory,
     set_synced_novel_deletion,
 )
 from app.database import SessionLocal, create_tables, get_db
@@ -35,7 +38,7 @@ from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
 from app.crawlers.errors import CrawlerError
 from app.models import Book
-from app.models import Chapter, TranslationMemory
+from app.models import Chapter
 from app.search import search_books as run_search
 from app.services.book_service import BookService
 from app.translator.service import TranslationUnavailableError, translator
@@ -789,24 +792,29 @@ def translation_status(job_id: str) -> dict[str, object]:
 
 
 @app.get("/translation-memory")
-def translation_memory(request: Request, db: Session = Depends(get_db)):
-    entries = db.scalars(select(TranslationMemory).order_by(TranslationMemory.source_text)).all()
+def translation_memory(request: Request):
+    try:
+        entries = load_translation_memory()
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return templates.TemplateResponse(request=request, name="translation_memory.html", context={"entries": entries})
 
 
 @app.post("/translation-memory")
-def add_translation_memory(source_text: str = Form(...), replacement_text: str = Form(...), db: Session = Depends(get_db)):
-    db.add(TranslationMemory(source_text=source_text.strip(), replacement_text=replacement_text.strip()))
-    db.commit()
+def add_translation_memory(source_text: str = Form(...), replacement_text: str = Form(...)):
+    try:
+        save_translation_memory(source_text.strip(), replacement_text.strip())
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return RedirectResponse("/translation-memory", status_code=303)
 
 
 @app.post("/translation-memory/{entry_id}/delete")
-def delete_translation_memory(entry_id: int, db: Session = Depends(get_db)):
-    entry = db.get(TranslationMemory, entry_id)
-    if entry:
-        db.delete(entry)
-        db.commit()
+def delete_translation_memory(entry_id: int):
+    try:
+        delete_supabase_translation_memory(entry_id)
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return RedirectResponse("/translation-memory", status_code=303)
 
 @app.post("/api/tts")
