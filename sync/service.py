@@ -609,13 +609,15 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
         crawler = registry.get_for_url(url)
         info = await crawler.get_book_info(url)
         remote = SupabaseSync()
+        translated_title = translator.translate(info.title)
+        translated_author = translator.translate(info.author) if info.author else None
         novels = remote.rows("novels", {"select": "id,slug", "source_url": f"eq.{info.source_url}", "limit": "1"})
         if novels:
             novel = novels[0]
-            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"title": info.title, "author": info.author, "cover_url": info.cover_url, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()})
+            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"title": translated_title, "author": translated_author, "cover_url": info.cover_url, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()})
         else:
             slug_id = uuid.uuid5(uuid.NAMESPACE_URL, info.source_url).int % 100000000
-            novel = remote.insert("novels", {"slug": slugify(info.title, slug_id), "title": info.title, "author": info.author, "cover_url": info.cover_url, "source_url": info.source_url, "latest_chapter": 0})
+            novel = remote.insert("novels", {"slug": slugify(translated_title, slug_id), "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "source_url": info.source_url, "latest_chapter": 0})
 
         incoming = await crawler.get_chapters(url)
         existing = remote.all_rows("chapters", {"select": "id,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "source_url.asc"})
