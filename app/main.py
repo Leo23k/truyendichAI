@@ -248,22 +248,38 @@ def _crawl_job_cards() -> list[dict]:
     return cards
 
 
+def _worker_statuses() -> dict[str, dict[str, object]]:
+    """Vercel cannot see localhost on the PC; use queue activity as a safe signal."""
+    workers = worker_manager.statuses()
+    if not os.getenv("VERCEL"):
+        return workers
+    remote = SupabaseSync()
+    crawling = remote.rows("remote_crawl_jobs", {"select": "id", "status": "in.(crawling,syncing)", "limit": "1"})
+    translating_jobs = remote.rows("remote_crawl_jobs", {"select": "id", "status": "eq.translating", "limit": "1"})
+    translating = remote.rows("translation_queue", {"select": "id", "status": "eq.translating", "limit": "1"})
+    if crawling:
+        workers["crawler"] = {"name": "crawler", "state": "running", "pid": None, "managed": False, "error": None, "detail": "Đang xử lý job trên PC (theo Supabase)."}
+    if translating or translating_jobs:
+        workers["translator"] = {"name": "translator", "state": "running", "pid": None, "managed": False, "error": None, "detail": "Đang dịch trên PC (theo hàng đợi Supabase)."}
+    return workers
+
+
 @app.get("/jobs")
 def crawl_jobs(request: Request):
     try:
-        return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": worker_manager.statuses()})
+        return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": _worker_statuses()})
     except SyncError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/jobs/list")
 def crawl_jobs_list(request: Request):
-    return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": worker_manager.statuses(), "partial": True})
+    return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": _worker_statuses(), "partial": True})
 
 
 @app.get("/jobs/workers/status")
 def worker_status() -> dict[str, dict[str, object]]:
-    return worker_manager.statuses()
+    return _worker_statuses()
 
 
 @app.post("/jobs/workers/{target}/{action}")
@@ -271,7 +287,7 @@ def control_workers(target: str, action: str, request: Request):
     if target not in {"all", "crawler", "translator"} or action not in {"start", "stop", "restart"}:
         raise HTTPException(status_code=404, detail="Thao tác worker không hợp lệ.")
     ok, message = worker_manager.act(target, action)
-    response = templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": worker_manager.statuses(), "toast": message, "toast_error": not ok})
+    response = templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": _worker_statuses(), "toast": message, "toast_error": not ok})
     return response
 
 
@@ -302,7 +318,7 @@ def control_crawl_job(job_id: str, action: str, request: Request):
         remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"}, {"status": target, "error": None})
         remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "in.(paused,failed)"}, {"status": "queued"})
         message = "Đã tiếp tục tiến trình." if action == "resume" else "Đã khởi động lại tiến trình."
-    response = templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": worker_manager.statuses(), "partial": True, "toast": message})
+    response = templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": _worker_statuses(), "partial": True, "toast": message})
     response.headers["HX-Trigger"] = "jobsChanged"
     return response
 
