@@ -21,11 +21,18 @@ class WorkerProcessManager:
         self._processes: dict[str, subprocess.Popen | None] = {"crawler": None, "translator": None}
         self._last_errors: dict[str, str | None] = {"crawler": None, "translator": None}
 
+    @property
+    def can_control_locally(self) -> bool:
+        return not bool(os.getenv("VERCEL"))
+
     def _translator_port(self) -> int:
         parsed = urlparse(settings.model_service_url)
         return parsed.port or (443 if parsed.scheme == "https" else 80)
 
     def _external_running(self, name: str) -> bool:
+        # Vercel cannot inspect the PC's lock or start its local workers.
+        if not self.can_control_locally:
+            return False
         if name == "crawler":
             with worker_process_lock() as acquired:
                 return not acquired
@@ -44,6 +51,8 @@ class WorkerProcessManager:
             self._processes[name] = None
         if self._external_running(name):
             return {"name": name, "state": "running", "pid": None, "managed": False, "error": None}
+        if not self.can_control_locally:
+            return {"name": name, "state": "stopped", "pid": None, "managed": False, "error": "Worker chỉ điều khiển được từ web đang chạy trên PC."}
         error = self._last_errors[name]
         return {"name": name, "state": "error" if error else "stopped", "pid": None, "managed": False, "error": error}
 
@@ -56,6 +65,8 @@ class WorkerProcessManager:
         return [sys.executable, "-m", "uvicorn", "infra.translator.service:app", "--host", "127.0.0.1", "--port", str(self._translator_port())]
 
     def start(self, name: str) -> tuple[bool, str]:
+        if not self.can_control_locally:
+            return False, "Worker Control chỉ khả dụng khi FastAPI chạy trên PC, không phải Vercel."
         current = self.status(name)
         if current["state"] == "running":
             return True, f"{name.title()} đang chạy; không tạo process trùng."
