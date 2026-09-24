@@ -117,9 +117,9 @@
     <header class="mb-8 border-b border-stone-200 pb-5">
       <h2 itemprop="headline" class="text-xl font-semibold leading-snug text-stone-950 sm:text-2xl">{{ display_title }}</h2>
     </header>
-    <div itemprop="articleBody" class="reader-prose whitespace-pre-line">
-      {% for paragraph in display_content.replace('\r', '').split('\n') %}
-      {% if paragraph.strip() %}<p>{{ paragraph }}</p>{% endif %}
+    <div itemprop="articleBody" class="reader-prose">
+      {% for line in display_content.replace('\r', '').split('\n') %}
+      {% if line.strip() %}{{ line }}{% endif %}<br>
       {% endfor %}
     </div>
   </article>
