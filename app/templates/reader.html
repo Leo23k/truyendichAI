@@ -108,7 +108,7 @@
     </header>
     <div itemprop="articleBody" class="reader-prose whitespace-pre-line">
       {% for paragraph in display_content.replace('\r', '').split('\n') %}
-      {% if paragraph.strip() %}<p class="mb-5">{{ paragraph }}</p>{% endif %}
+      {% if paragraph.strip() %}<p class="mb-2">{{ paragraph }}</p>{% endif %}
       {% endfor %}
     </div>
   </article>
