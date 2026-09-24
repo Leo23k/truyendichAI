@@ -24,6 +24,7 @@
     <div class="mt-4 flex max-h-[32rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
       {% for chapter in chapters %}
       <a href="/synced/{{ novel.slug }}/{{ chapter.chapter_number }}" class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+        <span class="mr-2 shrink-0 text-stone-400">#{{ chapter.chapter_number }}</span>
         <span class="min-w-0 truncate">{{ chapter.title }}</span>
       </a>
       {% else %}<p class="px-4 py-5 text-stone-500">Chưa có chương.</p>{% endfor %}
