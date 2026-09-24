@@ -76,6 +76,35 @@
       };
       document.addEventListener("DOMContentLoaded", () => {
         window.lucide?.createIcons();
+        let jobsRefreshTimer;
+        const refreshJobs = async () => {
+          const current = document.querySelector("[data-jobs-refresh]");
+          if (!current) return;
+          try {
+            const response = await fetch(`/jobs/list?_=${Date.now()}`, {
+              cache: "no-store",
+              headers: { "HX-Request": "true" },
+            });
+            if (!response.ok) throw new Error(`Job refresh failed: ${response.status}`);
+            const documentSnapshot = new DOMParser().parseFromString(await response.text(), "text/html");
+            const updated = documentSnapshot.querySelector("[data-jobs-refresh]");
+            if (!updated) throw new Error("Job refresh response has no job list");
+            current.replaceWith(updated);
+            window.Alpine?.initTree(updated);
+            window.htmx?.process(updated);
+            window.lucide?.createIcons();
+          } catch (error) {
+            console.warn("Could not refresh crawl jobs", error);
+          } finally {
+            if (document.querySelector("[data-jobs-refresh]")) {
+              jobsRefreshTimer = window.setTimeout(refreshJobs, 3000);
+            }
+          }
+        };
+        if (document.querySelector("[data-jobs-refresh]")) {
+          jobsRefreshTimer = window.setTimeout(refreshJobs, 3000);
+          window.addEventListener("pagehide", () => clearTimeout(jobsRefreshTimer), { once: true });
+        }
       });
       document.addEventListener("htmx:afterSettle", () => window.lucide?.createIcons());
     })();
