@@ -908,6 +908,13 @@
             setPlayerState("loading");
             (playlistLoading || loadPlaylist(0, false, false))
               .then(() => {
+                // A failed manifest used to look like an empty one here and
+                // incorrectly advance to the next chapter after the stream.
+                if (!playlistReady || !playlist.length) {
+                  wantToPlay = false;
+                  setPlayerState("error");
+                  return;
+                }
                 if (playlist.length < 2) {
                   wantToPlay = false;
                   setPlayerState("ended");
