@@ -1074,6 +1074,11 @@
         lastScrollY = currentY;
       }, { passive: true });
 
+      document.addEventListener("click", (event) => {
+        if (event.target.closest("[data-reader-player]") || event.target.closest("[data-sheet-backdrop]")) return;
+        showBar();
+      });
+
       window.addEventListener("beforeunload", saveState);
       updateToc();
       startSleepInterval();
