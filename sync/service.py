@@ -236,7 +236,7 @@ def cover_bytes(url: str | None) -> bytes | None:
         return None
 
 
-def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict], crawl_job_id: str | None = None) -> int:
+def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict], crawl_job_id: str | None = None, priority: int = 0) -> int:
     candidates = [row for row in chapters if row.get("id") and row.get("original_content") and not row.get("translated_content")]
     if not candidates:
         return 0
@@ -251,7 +251,7 @@ def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict], cr
         if not parts:
             continue
         chunks.extend({"chapter_id": chapter["id"], "chunk_index": index, "original_text": part, "status": "queued"} for index, part in enumerate(parts))
-        jobs.append({"chapter_id": chapter["id"], "status": "queued", "priority": 0, "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0, "crawl_job_id": crawl_job_id})
+        jobs.append({"chapter_id": chapter["id"], "status": "queued", "priority": max(0, min(priority, 100)), "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0, "crawl_job_id": crawl_job_id})
     if not jobs:
         return 0
     remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
@@ -750,7 +750,7 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
                 "Đã crawl %s/%s: chương %s (%s ký tự, %s đoạn dịch).",
                 completed, total_raw, chapter["chapter_number"], len(original), len(parts),
             )
-            if enqueue_untranslated_chapters(remote, [{"id": chapter["id"], "original_content": original, "translated_content": None}], crawl_job_id):
+            if enqueue_untranslated_chapters(remote, [{"id": chapter["id"], "original_content": original, "translated_content": None}], crawl_job_id, 100 if chapter["source_url"] in new_source_urls else 0):
                 processed_job_ids.add(int(chapter["id"]))
             update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
         logger.info("Đã tạo hoặc khôi phục hàng đợi dịch cho %s chương.", len(processed_job_ids))
