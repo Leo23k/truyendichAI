@@ -650,6 +650,8 @@ def worker_process_lock():
 
 async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | None = None) -> None:
     """Crawl directly into Supabase; SQLite is never used in this path."""
+    translation_stop = asyncio.Event()
+    translation_task: asyncio.Task[None] | None = None
     try:
         update_status(status="crawling")
         crawler = registry.get_for_url(url)
@@ -702,6 +704,25 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
         update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
         processed_job_ids = set(restored_chapter_ids)
 
+        async def translate_while_crawling() -> None:
+            """Keep the single GPU translation worker busy while crawling continues."""
+            while not translation_stop.is_set():
+                try:
+                    translated = await asyncio.to_thread(run_translation_worker_once)
+                    if not translated:
+                        await asyncio.sleep(0.5)
+                except Exception:
+                    logger.exception("Worker dịch song song gặp lỗi tạm thời.")
+                    await asyncio.sleep(1)
+
+        def start_translation() -> None:
+            nonlocal translation_task
+            if translation_task is None:
+                translation_task = asyncio.create_task(translate_while_crawling())
+
+        if processed_job_ids:
+            start_translation()
+
         semaphore = asyncio.Semaphore(crawl_concurrency)
 
         async def crawl_chapter(chapter: dict) -> tuple[dict, str]:
@@ -752,9 +773,13 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
             )
             if enqueue_untranslated_chapters(remote, [{"id": chapter["id"], "original_content": original, "translated_content": None}], crawl_job_id, 100 if chapter["source_url"] in new_source_urls else 0):
                 processed_job_ids.add(int(chapter["id"]))
+                start_translation()
             update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
         logger.info("Đã tạo hoặc khôi phục hàng đợi dịch cho %s chương.", len(processed_job_ids))
         chapters_added = len(new_chapters)
+        translation_stop.set()
+        if translation_task:
+            await translation_task
         update_status(status="translating", book_id=novel["id"], chapters_added=chapters_added, raw_loaded=total_raw, queued=len(processed_job_ids))
         while run_translation_worker_once(remote):
             if crawl_job_id and not remote_job_is_running(remote, crawl_job_id):
@@ -770,6 +795,10 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
     except Exception as exc:
         logger.exception("Worker crawl/dịch trên PC thất bại.")
         update_status(status="queued", error=str(exc))
+    finally:
+        translation_stop.set()
+        if translation_task and not translation_task.done():
+            await translation_task
 
 
 def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
