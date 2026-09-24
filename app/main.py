@@ -287,7 +287,15 @@ def crawl_jobs(request: Request):
 
 @app.get("/jobs/list")
 def crawl_jobs_list(request: Request):
-    return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": _worker_statuses(), "partial": True})
+    response = templates.TemplateResponse(
+        request=request,
+        name="jobs.html",
+        context={"jobs": _crawl_job_cards(), "workers": _worker_statuses(), "partial": True},
+    )
+    # This endpoint is polled by HTMX.  Without an explicit no-store response,
+    # a CDN/browser may repeatedly serve the same job snapshot until a full reload.
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
 
 
 @app.get("/jobs/workers/status")
