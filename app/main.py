@@ -658,10 +658,28 @@ async def lookup_books(request: Request, query: str = Form(...), db: Session = D
     try:
         if query.startswith(("http://", "https://")):
             if os.getenv("VERCEL"):
-                job = enqueue_remote_crawl(query)
+                # Validate the source before creating a job so a blocked or
+                # unsupported site is reported to the reader immediately.
+                crawler = registry.get_for_url(query)
+                book_info = await crawler.get_book_info(query)
+                chapters = await crawler.get_chapters(query)
+                if not chapters:
+                    raise CrawlerError("Không tìm thấy chương nào từ website nguồn.")
+
+                job = enqueue_remote_crawl(book_info.source_url or query)
                 request.state.crawl_job_id = str(job["id"])
                 if request.headers.get("HX-Request"):
-                    return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "PC đang crawl và dịch truyện. Hãy quay lại thư viện sau ít phút.", "error": False})
+                    return templates.TemplateResponse(
+                        request=request,
+                        name="partials/message.html",
+                        context={
+                            "message": (
+                                f"Đã kiểm tra nguồn “{book_info.title}”: tìm thấy "
+                                f"{len(chapters)} chương. PC đang crawl và dịch truyện."
+                            ),
+                            "error": False,
+                        },
+                    )
                 return RedirectResponse("/", status_code=303)
             crawler = registry.get_for_url(query)
             book, _ = await BookService(db, crawler).import_book(query)
