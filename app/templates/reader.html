@@ -107,7 +107,7 @@
       <h2 itemprop="headline" class="text-xl font-semibold leading-snug text-stone-950 sm:text-2xl">{{ display_title }}</h2>
     </header>
     <div itemprop="articleBody" class="reader-prose whitespace-pre-line">
-      {% for paragraph in display_content.replace('\r', '').split('\n\n') %}
+      {% for paragraph in display_content.replace('\r', '').split('\n') %}
       {% if paragraph.strip() %}<p class="mb-5">{{ paragraph }}</p>{% endif %}
       {% endfor %}
     </div>
@@ -1065,8 +1065,9 @@
       }, { passive: true });
 
       document.addEventListener("pointerup", (event) => {
+        if (window.matchMedia("(min-width: 640px)").matches) return;
         if (event.target.closest("[data-reader-player]") || event.target.closest("[data-sheet-backdrop]")) return;
-        showBar();
+        hideBar();
       });
 
       window.addEventListener("beforeunload", saveState);
