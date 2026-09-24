@@ -102,7 +102,16 @@
     <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-teal-100"><div data-translation-bar class="h-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </section>
 
-  <article class="reader-content mx-auto max-w-3xl whitespace-pre-line px-5 py-10 leading-loose sm:px-6 sm:py-14" lang="vi" :style="`font-size: ${size}px`">{{ display_content }}</article>
+  <article class="reader-content mx-auto max-w-3xl px-5 py-10 leading-loose sm:px-6 sm:py-14" lang="vi" itemscope itemtype="https://schema.org/Article" :style="`font-size: ${size}px`">
+    <header class="mb-8 border-b border-stone-200 pb-5">
+      <h2 itemprop="headline" class="text-xl font-semibold leading-snug text-stone-950 sm:text-2xl">{{ display_title }}</h2>
+    </header>
+    <div itemprop="articleBody" class="reader-prose whitespace-pre-line">
+      {% for paragraph in display_content.replace('\r', '').split('\n\n') %}
+      {% if paragraph.strip() %}<p class="mb-5">{{ paragraph }}</p>{% endif %}
+      {% endfor %}
+    </div>
+  </article>
 
   <div
     data-reader-player
