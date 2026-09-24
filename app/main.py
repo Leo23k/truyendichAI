@@ -222,6 +222,76 @@ def library(request: Request):
     )
 
 
+def _source_name(source_url: str) -> str:
+    from urllib.parse import urlparse
+    return urlparse(source_url).netloc.removeprefix("www.").removeprefix("m.") or source_url
+
+
+def _crawl_job_cards() -> list[dict]:
+    remote = SupabaseSync()
+    jobs = remote.rows("remote_crawl_jobs", {"select": "id,source_url,status,error,result,started_at,created_at,updated_at", "status": "in.(queued,crawling,syncing,translating,paused,failed)", "order": "updated_at.desc"})
+    cards: list[dict] = []
+    for job in jobs:
+        result = job.get("result") if isinstance(job.get("result"), dict) else {}
+        book_id = result.get("book_id")
+        novel = remote.rows("novels", {"select": "id,slug,title", "id": f"eq.{book_id}", "limit": "1"}) if book_id else remote.rows("novels", {"select": "id,slug,title", "source_url": f"eq.{job['source_url']}", "limit": "1"})
+        novel = novel[0] if novel else {}
+        if novel and not book_id:
+            result["book_id"] = novel.get("id")
+        chapters = remote.rows("chapters", {"select": "id,chapter_number,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.desc"}) if novel else []
+        queues = remote.rows("translation_queue", {"select": "status,chapter_id", "crawl_job_id": f"eq.{job['id']}"})
+        states = {state: sum(1 for row in queues if row.get("status") == state) for state in ("queued", "translating", "completed", "failed", "paused")}
+        current = [row for row in chapters if row.get("id") in {queue.get("chapter_id") for queue in queues if queue.get("status") == "translating"}]
+        job.update({"result": result, "title": result.get("title") or novel.get("title") or _source_name(str(job["source_url"])), "source_name": _source_name(str(job["source_url"])), "novel": novel, "crawl_total": result.get("total_raw"), "crawl_done": result.get("raw_loaded", 0), "queue": states, "current_chapters": [row.get("chapter_number") for row in current[:3]]})
+        cards.append(job)
+    return cards
+
+
+@app.get("/jobs")
+def crawl_jobs(request: Request):
+    try:
+        return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards()})
+    except SyncError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/jobs/list")
+def crawl_jobs_list(request: Request):
+    return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "partial": True})
+
+
+@app.post("/jobs/{job_id}/{action}")
+def control_crawl_job(job_id: str, action: str, request: Request):
+    if action not in {"pause", "resume", "retry", "delete"}:
+        raise HTTPException(status_code=404, detail="Thao tác không hợp lệ.")
+    remote = SupabaseSync()
+    jobs = remote.rows("remote_crawl_jobs", {"select": "id,status,result,source_url", "id": f"eq.{job_id}", "limit": "1"})
+    if not jobs:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình.")
+    job = jobs[0]
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    if action == "delete":
+        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"}, {"status": "deleting"})
+        remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "in.(queued,translating,paused)"}, {"status": "paused"})
+        book_id = result.get("book_id")
+        if book_id:
+            remote.delete_rows("novels", {"id": f"eq.{book_id}"})
+        remote.delete_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"})
+        message = "Đã xóa tiến trình và dữ liệu truyện liên quan."
+    elif action == "pause":
+        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}", "status": "in.(queued,crawling,syncing,translating)"}, {"status": "paused"})
+        remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "eq.queued"}, {"status": "paused"})
+        message = "Đã tạm dừng tiến trình."
+    else:
+        target = "queued" if action in {"resume", "retry"} else "queued"
+        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"}, {"status": target, "error": None})
+        remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "in.(paused,failed)"}, {"status": "queued"})
+        message = "Đã tiếp tục tiến trình." if action == "resume" else "Đã khởi động lại tiến trình."
+    response = templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "partial": True, "toast": message})
+    response.headers["HX-Trigger"] = "jobsChanged"
+    return response
+
+
 @app.get("/synced/{slug}")
 def synced_book(slug: str, request: Request):
     try:

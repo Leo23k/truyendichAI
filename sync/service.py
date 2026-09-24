@@ -161,6 +161,9 @@ class SupabaseSync:
         rows = response.json()
         return rows if isinstance(rows, list) else []
 
+    def delete_rows(self, table: str, params: dict[str, str]) -> None:
+        self.request("DELETE", f"/rest/v1/{table}", params=params, headers={**self.headers, "Prefer": "return=minimal"})
+
     def insert(self, table: str, payload: dict) -> dict:
         response = self.request(
             "POST",
@@ -233,7 +236,7 @@ def cover_bytes(url: str | None) -> bytes | None:
         return None
 
 
-def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict]) -> int:
+def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict], crawl_job_id: str | None = None) -> int:
     candidates = [row for row in chapters if row.get("id") and row.get("original_content") and not row.get("translated_content")]
     if not candidates:
         return 0
@@ -248,7 +251,7 @@ def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict]) ->
         if not parts:
             continue
         chunks.extend({"chapter_id": chapter["id"], "chunk_index": index, "original_text": part, "status": "queued"} for index, part in enumerate(parts))
-        jobs.append({"chapter_id": chapter["id"], "status": "queued", "priority": 0, "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0})
+        jobs.append({"chapter_id": chapter["id"], "status": "queued", "priority": 0, "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0, "crawl_job_id": crawl_job_id})
     if not jobs:
         return 0
     remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
@@ -256,7 +259,7 @@ def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict]) ->
     return len(jobs)
 
 
-def restore_stored_chapters(remote: SupabaseSync, chapters: list[dict]) -> set[int]:
+def restore_stored_chapters(remote: SupabaseSync, chapters: list[dict], crawl_job_id: str | None = None) -> set[int]:
     """Recreate translation work after a crawl was interrupted post-upload."""
     restored: list[dict] = []
     for chapter in chapters:
@@ -271,7 +274,7 @@ def restore_stored_chapters(remote: SupabaseSync, chapters: list[dict]) -> set[i
         original = str(payload.get("original_content") or "").strip()
         if original:
             restored.append({"id": chapter["id"], "original_content": original, "translated_content": None})
-    enqueue_untranslated_chapters(remote, restored)
+    enqueue_untranslated_chapters(remote, restored, crawl_job_id)
     return {int(chapter["id"]) for chapter in restored}
 
 
@@ -335,6 +338,10 @@ def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
         {"status": "crawling", "error": None, "started_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
     )
     return claimed[0] if claimed else None
+
+
+def remote_job_is_running(remote: SupabaseSync, job_id: str) -> bool:
+    return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "in.(crawling,syncing,translating)", "limit": "1"}))
 
 
 def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None:
@@ -421,6 +428,10 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
         logger.info("Bắt đầu dịch chương ID %s (%s đoạn).", job["chapter_id"], total_chunks)
 
         while int(job["current_chunk"]) < total_chunks:
+            crawl_job_id = job.get("crawl_job_id")
+            if crawl_job_id and not remote_job_is_running(remote, str(crawl_job_id)):
+                remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {"status": "paused", "updated_at": datetime.now(timezone.utc).isoformat()})
+                return False
             current = int(job["current_chunk"])
 
             # Lấy tối đa 4 chunk liên tiếp
@@ -637,7 +648,7 @@ def worker_process_lock():
         handle.close()
 
 
-async def _crawl_and_translate_url(url: str, update_status) -> None:
+async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | None = None) -> None:
     """Crawl directly into Supabase; SQLite is never used in this path."""
     try:
         update_status(status="crawling")
@@ -655,6 +666,8 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
             slug_id = uuid.uuid5(uuid.NAMESPACE_URL, info.source_url).int % 100000000
             novel = remote.insert("novels", {"slug": slugify(translated_title, slug_id), "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "source_url": info.source_url, "latest_chapter": 0})
 
+        update_status(book_id=novel["id"], title=translated_title)
+
         incoming = await crawler.get_chapters(url)
         existing = remote.all_rows("chapters", {"select": "id,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "source_url.asc"})
         existing_urls = {row["source_url"] for row in existing}
@@ -670,7 +683,7 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
             if row.get("chapter_id") in chapter_ids
         }
         stored_without_queue = [row for row in chapters if not row["translated"] and row.get("content_path") and row["id"] not in queued]
-        restored_chapter_ids = restore_stored_chapters(remote, stored_without_queue)
+        restored_chapter_ids = restore_stored_chapters(remote, stored_without_queue, crawl_job_id)
         pending = [
             row
             for row in chapters
@@ -693,6 +706,8 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
 
         async def crawl_chapter(chapter: dict) -> tuple[dict, str]:
             async with semaphore:
+                if crawl_job_id and not remote_job_is_running(remote, crawl_job_id):
+                    raise SyncError("Job đã được tạm dừng hoặc xóa.")
                 for attempt in range(1, 4):
                     try:
                         content = await asyncio.wait_for(
@@ -715,6 +730,10 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
 
         tasks = [asyncio.create_task(crawl_chapter(chapter)) for chapter in pending]
         for completed, task in enumerate(asyncio.as_completed(tasks), start=1):
+            if crawl_job_id and not remote_job_is_running(remote, crawl_job_id):
+                for pending_task in tasks:
+                    pending_task.cancel()
+                return
             chapter, original = await task
             if not original:
                 logger.warning("Bỏ qua chương %s vì không lấy được nội dung.", chapter["chapter_number"])
@@ -731,14 +750,15 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
                 "Đã crawl %s/%s: chương %s (%s ký tự, %s đoạn dịch).",
                 completed, total_raw, chapter["chapter_number"], len(original), len(parts),
             )
-            if enqueue_untranslated_chapters(remote, [{"id": chapter["id"], "original_content": original, "translated_content": None}]):
+            if enqueue_untranslated_chapters(remote, [{"id": chapter["id"], "original_content": original, "translated_content": None}], crawl_job_id):
                 processed_job_ids.add(int(chapter["id"]))
-            update_status(status="crawling", raw_loaded=completed, total_raw=total_raw)
+            update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
         logger.info("Đã tạo hoặc khôi phục hàng đợi dịch cho %s chương.", len(processed_job_ids))
         chapters_added = len(new_chapters)
         update_status(status="translating", book_id=novel["id"], chapters_added=chapters_added, raw_loaded=total_raw, queued=len(processed_job_ids))
         while run_translation_worker_once(remote):
-            pass
+            if crawl_job_id and not remote_job_is_running(remote, crawl_job_id):
+                return
         queue_states = remote.rows(
             "translation_queue",
             {"select": "chapter_id,status", "chapter_id": f"in.({','.join(str(chapter_id) for chapter_id in processed_job_ids)})"},
@@ -777,7 +797,7 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
 
     try:
         logger.info("Bắt đầu job crawl: %s", job["source_url"])
-        asyncio.run(_crawl_and_translate_url(str(job["source_url"]), update_status))
+        asyncio.run(_crawl_and_translate_url(str(job["source_url"]), update_status, str(job["id"])))
     except Exception as exc:
         logger.exception("Job crawl từ xa thất bại trước khi khởi chạy.")
         update_status(status="failed", error=str(exc))
