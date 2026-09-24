@@ -695,10 +695,15 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
             async with semaphore:
                 for attempt in range(1, 4):
                     try:
-                        content = await crawler.get_chapter_content(str(chapter["source_url"]))
+                        content = await asyncio.wait_for(
+                            crawler.get_chapter_content(str(chapter["source_url"])),
+                            timeout=settings.crawler_timeout + 5,
+                        )
                         break
-                    except SourceRequestError:
+                    except (SourceRequestError, asyncio.TimeoutError) as exc:
                         if attempt == 3:
+                            if isinstance(exc, asyncio.TimeoutError):
+                                raise SourceRequestError("Không thể kết nối tới website nguồn.") from exc
                             raise
                         delay = attempt * 3
                         logger.warning(
@@ -728,8 +733,7 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
             )
             if enqueue_untranslated_chapters(remote, [{"id": chapter["id"], "original_content": original, "translated_content": None}]):
                 processed_job_ids.add(int(chapter["id"]))
-            if completed == total_raw or completed % 10 == 0:
-                update_status(status="crawling", raw_loaded=completed, total_raw=total_raw)
+            update_status(status="crawling", raw_loaded=completed, total_raw=total_raw)
         logger.info("Đã tạo hoặc khôi phục hàng đợi dịch cho %s chương.", len(processed_job_ids))
         chapters_added = len(new_chapters)
         update_status(status="translating", book_id=novel["id"], chapters_added=chapters_added, raw_loaded=total_raw, queued=len(processed_job_ids))
