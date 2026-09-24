@@ -1,5 +1,5 @@
 from sync import service
-from sync.service import enqueue_untranslated_chapters
+from sync.service import enqueue_untranslated_chapters, restore_stored_chapters
 
 
 class FakeRemote:
@@ -48,6 +48,24 @@ def test_enqueue_creates_chunks_only_for_new_untranslated_chapters() -> None:
     assert queue[0] == "translation_queue"
     assert queue[1][0]["status"] == "queued"
     assert queue[1][0]["total_chunks"] == len(chunks[1])
+
+
+def test_restore_stored_chapters_recreates_missing_translation_queue() -> None:
+    class RestoreRemote(FakeRemote):
+        def rows(self, _table: str, _params: dict[str, str]) -> list[dict]:
+            return []
+
+        def download_json(self, bucket: str, path: str) -> dict:
+            assert (bucket, path) == ("chapters", "novel/001.json")
+            return {"original_content": "Ná»™i dung Ä‘Ã£ crawl." * 250}
+
+    remote = RestoreRemote()
+    restored = restore_stored_chapters(remote, [
+        {"id": 11, "chapter_number": 1, "content_path": "chapters/novel/001.json"},
+    ])
+
+    assert restored == {11}
+    assert [table for table, *_ in remote.inserted] == ["chapter_chunks", "translation_queue"]
 
 
 def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
