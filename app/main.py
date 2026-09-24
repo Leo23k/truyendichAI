@@ -250,7 +250,7 @@ def _crawl_job_cards() -> list[dict]:
         chapters = remote.all_rows("chapters", {"select": "id,chapter_number,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.desc"}) if novel else []
         queues = remote.rows("translation_queue", {"select": "status,chapter_id", "crawl_job_id": f"eq.{job['id']}"})
         states = {state: sum(1 for row in queues if row.get("status") == state) for state in ("queued", "translating", "completed", "failed", "paused")}
-        legacy_job = str(job.get("created_at") or "") < "2026-09-24T12:30:00"
+        legacy_job = str(job.get("started_at") or job.get("created_at") or "") < "2026-09-24T12:30:00"
         if not queues and chapters and legacy_job:
             # Jobs created before crawl_job_id existed still own this novel by result.book_id.
             states["completed"] = sum(bool(row.get("translated")) for row in chapters)
