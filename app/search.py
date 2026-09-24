@@ -83,6 +83,12 @@ async def search_books(query: str, db: Session) -> list[BookInfo]:
             seen.update(keys)
             results.append(book)
 
+    variants = query_variants(query)
+    exact_titles = {compact_key(value) for value in variants}
+    containing_titles = [compact_key(value) for value in variants]
+    results.sort(
+        key=lambda book: search_result_rank(book, exact_titles, containing_titles)
+    )
     logger.info("Search response query=%r results=%s", query, len(results))
     return results
 
@@ -101,6 +107,17 @@ def result_keys(book: BookInfo) -> set[str]:
 
 def compact_key(value: str | None) -> str:
     return re.sub(r"\s+", "", normalize_search_key(value))
+
+
+def search_result_rank(
+    book: BookInfo, exact_titles: set[str], containing_titles: list[str]
+) -> tuple[int, int, str]:
+    title = compact_key(book.title)
+    if title in exact_titles:
+        return (0, len(title), title)
+    if any(query in title for query in containing_titles):
+        return (1, len(title), title)
+    return (2, len(title), title)
 
 
 def han_viet_search_key(value: str | None) -> str:

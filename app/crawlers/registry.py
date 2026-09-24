@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 import logging
 from urllib.parse import urlparse
@@ -32,14 +33,17 @@ class CrawlerRegistry:
         raise UnsupportedSourceError("Website này hiện chưa được hỗ trợ.")
 
     async def search(self, query: str) -> list[BookInfo]:
-        results: list[BookInfo] = []
-        for crawler in self._crawlers:
+        async def search_source(crawler: BaseCrawler) -> list[BookInfo]:
             try:
-                results.extend(await crawler.search(query))
+                return await crawler.search(query)
             except (CrawlerError, NotImplementedError) as exc:
                 logger.info("Search source unavailable source=%s query=%r error=%s", crawler.source_name, query, exc)
-                continue
-        return results
+                return []
+
+        source_results = await asyncio.gather(
+            *(search_source(crawler) for crawler in self._crawlers)
+        )
+        return [book for results in source_results for book in results]
 
 
 registry = CrawlerRegistry()
