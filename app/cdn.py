@@ -3,7 +3,7 @@
 import json
 import os
 from pathlib import Path, PurePosixPath
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from dotenv import load_dotenv
@@ -176,6 +176,13 @@ def _resolved_cover_url(cover_path: str | None, slug: str, fallback_covers: dict
     return fallback_covers.get(slug)
 
 
+def _source_name(source_url: str | None) -> str | None:
+    hostname = urlparse(source_url or "").hostname
+    if not hostname:
+        return None
+    return hostname.removeprefix("www.").removeprefix("m.")
+
+
 def load_novels() -> list[dict]:
     if _configured():
         try:
@@ -208,6 +215,7 @@ def load_novels() -> list[dict]:
                 novel["total_chapters"] = total_counts.get(novel["id"], 0)
                 novel["translated_chapters"] = translated_counts.get(novel["id"], 0)
                 novel["cover"] = _resolved_cover_url(novel.get("cover_url"), novel["slug"], fallback_covers)
+                novel["source_name"] = _source_name(novel.get("source_url"))
             return novels
         except CdnDataError:
             pass

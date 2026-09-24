@@ -370,13 +370,15 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
         raise SyncError(f"Chapter {chapter_id} has incomplete translated chunks.")
     original_content = "\n\n".join(str(row["original_text"]) for row in chunks)
     translated_content = "\n\n".join(str(row["translated_text"]) for row in chunks)
+    original_title = str(chapter["title"])
+    translated_title = translator.translate(original_title)
     key = chapter_key(int(chapter["chapter_number"]))
     json_path = f"{novel['slug']}/{key}.json"
     payload = json.dumps(
         {
             "number": chapter["chapter_number"],
-            "title": chapter["title"],
-            "original_title": chapter["title"],
+            "title": translated_title,
+            "original_title": original_title,
             "original_content": original_content,
             "translated_content": translated_content,
             "content": translated_content,
@@ -390,6 +392,7 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
         "chapters",
         {"id": f"eq.{chapter_id}"},
         {
+            "title": translated_title,
             "translated": True,
             "content_path": f"chapters/{json_path}",
             "updated_at": datetime.now(timezone.utc).isoformat(),
