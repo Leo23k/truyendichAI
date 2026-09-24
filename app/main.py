@@ -288,7 +288,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "back_url": f"/synced/{slug}",
                     "previous_url": f"/synced/{slug}/{entries[position - 1]['chapter_number']}" if position else "",
                     "following_url": f"/synced/{slug}/{entries[position + 1]['chapter_number']}" if position + 1 < len(entries) else "",
-                    "audio_manifest_url": "",
+                    "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
                     "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/tts/stream",
                     "queue_chapter_id": current.get("id"),
                 },
