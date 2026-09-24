@@ -14,7 +14,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 from urllib.parse import quote
@@ -329,12 +329,30 @@ def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
         "remote_crawl_jobs",
         {"select": "*", "status": "eq.queued", "order": "created_at.asc", "limit": "1"},
     )
+    claim_filter = {"status": "eq.queued"}
     if not rows:
-        return None
+        # A PC restart cannot resume a row left in `crawling` by the previous
+        # process. Reclaim it only after its progress heartbeat has gone stale.
+        stale_after = max(90, int(os.getenv("CRAWL_JOB_STALE_SECONDS", "180")))
+        stale_before = (datetime.now(timezone.utc) - timedelta(seconds=stale_after)).isoformat()
+        rows = remote.rows(
+            "remote_crawl_jobs",
+            {
+                "select": "*",
+                "status": "eq.crawling",
+                "updated_at": f"lt.{stale_before}",
+                "order": "updated_at.asc",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return None
+        claim_filter = {"status": "eq.crawling", "updated_at": f"lt.{stale_before}"}
+        logger.warning("Nhận lại job crawl bị kẹt quá %s giây: %s", stale_after, rows[0]["id"])
     job = rows[0]
     claimed = remote.patch_rows(
         "remote_crawl_jobs",
-        {"id": f"eq.{job['id']}", "status": "eq.queued"},
+        {"id": f"eq.{job['id']}", **claim_filter},
         {"status": "crawling", "error": None, "started_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()},
     )
     return claimed[0] if claimed else None

@@ -119,6 +119,29 @@ def test_remote_crawl_job_is_claimed_only_while_queued() -> None:
     assert remote.patches[0][2]["status"] == "crawling"
 
 
+def test_stale_crawl_job_is_reclaimed_after_worker_restart() -> None:
+    class CrawlRemote:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, str]] = []
+            self.patches: list[tuple[str, dict, dict]] = []
+
+        def rows(self, _table: str, params: dict[str, str]) -> list[dict]:
+            self.calls.append(params)
+            if params["status"] == "eq.queued":
+                return []
+            return [{"id": "stale-crawl", "status": "crawling"}]
+
+        def patch_rows(self, table: str, params: dict, payload: dict) -> list[dict]:
+            self.patches.append((table, params, payload))
+            return [{"id": "stale-crawl", "status": "crawling"}]
+
+    remote = CrawlRemote()
+
+    assert service.claim_remote_crawl_job(remote) == {"id": "stale-crawl", "status": "crawling"}
+    assert remote.calls[1]["status"] == "eq.crawling"
+    assert "updated_at" in remote.patches[0][1]
+
+
 def test_enqueue_remote_crawl_reuses_an_active_job(monkeypatch) -> None:
     class CrawlRemote:
         def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
