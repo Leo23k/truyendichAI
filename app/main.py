@@ -239,9 +239,13 @@ def _crawl_job_cards() -> list[dict]:
         novel = novel[0] if novel else {}
         if novel and not book_id:
             result["book_id"] = novel.get("id")
-        chapters = remote.rows("chapters", {"select": "id,chapter_number,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.desc"}) if novel else []
+        chapters = remote.all_rows("chapters", {"select": "id,chapter_number,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.desc"}) if novel else []
         queues = remote.rows("translation_queue", {"select": "status,chapter_id", "crawl_job_id": f"eq.{job['id']}"})
         states = {state: sum(1 for row in queues if row.get("status") == state) for state in ("queued", "translating", "completed", "failed", "paused")}
+        if not queues and chapters:
+            # Jobs created before crawl_job_id existed still own this novel by result.book_id.
+            states["completed"] = sum(bool(row.get("translated")) for row in chapters)
+            states["queued"] = len(chapters) - states["completed"]
         current = [row for row in chapters if row.get("id") in {queue.get("chapter_id") for queue in queues if queue.get("status") == "translating"}]
         job.update({"result": result, "title": result.get("title") or novel.get("title") or _source_name(str(job["source_url"])), "source_name": _source_name(str(job["source_url"])), "novel": novel, "crawl_total": result.get("total_raw"), "crawl_done": result.get("raw_loaded", 0), "queue": states, "current_chapters": [row.get("chapter_number") for row in current[:3]]})
         cards.append(job)
