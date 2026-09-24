@@ -12,6 +12,7 @@
   .reader-chapter-nav.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem));pointer-events:none}
   .reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:none}
   @media (min-width:640px){.reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:inline-flex}.reader-chapter-nav{display:none}}
+  @media (min-width:640px){.reader-header.is-hidden{opacity:1;transform:none;pointer-events:auto}}
   .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}
   .reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}
   .reader-sheet{transform:translateY(100%);transition:transform 210ms ease}
@@ -38,12 +39,8 @@
         <button type="button" class="icon-button hidden text-stone-600 sm:inline-flex" @click="theme = theme === 'dark' ? 'paper' : 'dark'" aria-label="Đổi nền đọc">
           <i data-lucide="palette" class="h-5 w-5"></i>
         </button>
-        <button type="button" data-toc-button class="icon-button hidden text-stone-600 sm:inline-flex" aria-label="Mục lục">
+        <button type="button" data-toc-button class="icon-button inline-flex text-stone-600" aria-label="Mục lục">
           <i data-lucide="list" class="h-5 w-5"></i>
-        </button>
-        <button type="button" data-translate-button class="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-stone-700 hover:bg-stone-100" aria-label="{% if chapter.translated_content %}{% if showing_translation %}Xem bản gốc{% else %}Xem bản dịch{% endif %}{% else %}Dịch chương{% endif %}">
-          <i data-lucide="languages" class="h-4 w-4"></i>
-          <span class="hidden sm:inline">{% if chapter.translated_content %}{% if showing_translation %}Xem bản gốc{% else %}Xem bản dịch{% endif %}{% else %}Dịch{% endif %}</span>
         </button>
         <div class="relative">
           <button type="button" class="icon-button hidden text-stone-600 sm:inline-flex" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Cỡ chữ">
@@ -246,6 +243,7 @@
           {% set item_title = item.translated_title or item.title %}
           {% endif %}
           <a href="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ item_number }}{% else %}/chapters/{{ item.id }}{% endif %}" data-toc-item data-number="{{ item_number }}" {% if item_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+            <span class="mr-2 shrink-0 text-sm text-stone-400">#{{ item_number }}</span>
             <span class="min-w-0 truncate text-sm {% if item_number == chapter.chapter_number %}font-semibold text-teal-700{% endif %}">{{ item_title }}</span>
           </a>
           {% endfor %}
@@ -1066,7 +1064,6 @@
       updateToc();
       startSleepInterval();
       showBar();
-      if (!hasTranslation) window.setTimeout(startTranslationFlow, 250);
     })();
   </script>
 </div>

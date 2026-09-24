@@ -301,12 +301,13 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
     original_content = payload.get("original_content") or payload.get("content")
     translated_content = payload.get("translated_content") or payload.get("content")
     showing_translation = request.query_params.get("mode", "translated") != "original" and bool(translated_content)
+    translated_title = current.get("title") or payload.get("title")
     chapter = SimpleNamespace(
         id=f"cdn-{slug}-{chapter_number}",
         book_id=slug,
         chapter_number=chapter_number,
         title=payload.get("original_title") or payload.get("title"),
-        translated_title=payload.get("title"),
+        translated_title=translated_title,
         source_url=current.get("source_url"),
         original_content=original_content,
         translated_content=translated_content,
@@ -320,7 +321,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "following": following,
             "mode": "translated" if showing_translation else "original",
             "showing_translation": showing_translation,
-            "display_title": payload.get("title") if showing_translation else chapter.title,
+            "display_title": translated_title if showing_translation else chapter.title,
             "display_content": translated_content if showing_translation else original_content,
             "translation_error": None,
             "original_url": current.get("source_url"),
