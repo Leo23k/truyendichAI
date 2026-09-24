@@ -12,7 +12,6 @@
   .reader-chapter-nav.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem));pointer-events:none}
   .reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:none}
   @media (min-width:640px){.reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:inline-flex}.reader-chapter-nav{display:none}}
-  @media (min-width:640px){.reader-header.is-hidden{opacity:1;transform:none;pointer-events:auto}}
   .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}
   .reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}
   .reader-sheet{transform:translateY(100%);transition:transform 210ms ease}
@@ -603,8 +602,7 @@
         hideTimer = setTimeout(() => {
           if (!sheetBackdrop.classList.contains("is-open")) {
             player.classList.add("is-hidden");
-            if (window.matchMedia("(min-width: 640px)").matches) readerHeader?.classList.remove("is-hidden");
-            else readerHeader?.classList.add("is-hidden");
+            readerHeader?.classList.add("is-hidden");
             chapterNav?.classList.add("is-hidden");
           }
         }, 2600);
@@ -613,8 +611,7 @@
       const hideBar = () => {
         if (!sheetBackdrop.classList.contains("is-open")) {
           player.classList.add("is-hidden");
-          if (window.matchMedia("(min-width: 640px)").matches) readerHeader?.classList.remove("is-hidden");
-          else readerHeader?.classList.add("is-hidden");
+          readerHeader?.classList.add("is-hidden");
           chapterNav?.classList.add("is-hidden");
         }
       };
@@ -1076,12 +1073,6 @@
         if (delta < -6) showBar();
         lastScrollY = currentY;
       }, { passive: true });
-
-      document.addEventListener("pointerup", (event) => {
-        if (window.matchMedia("(min-width: 640px)").matches) return;
-        if (event.target.closest("[data-reader-player]") || event.target.closest("[data-sheet-backdrop]")) return;
-        hideBar();
-      });
 
       window.addEventListener("beforeunload", saveState);
       updateToc();
