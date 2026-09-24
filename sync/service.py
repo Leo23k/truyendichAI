@@ -33,6 +33,7 @@ from app.translator.chunking import chunk_text
 from app.translator.service import TranslationUnavailableError, translator
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
+from app.crawlers.errors import SourceRequestError
 
 load_dotenv(ROOT / ".env")
 def default_database_path() -> Path:
@@ -680,15 +681,28 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
             "Đã đọc %s chương; có %s chương mới cần crawl và đưa vào hàng đợi dịch.",
             len(incoming), total_raw,
         )
-        logger.info("Crawl song song tối đa %s chương cùng lúc.", CRAWL_CONCURRENCY)
+        crawl_concurrency = 1 if crawler.source_name == "xsw" else CRAWL_CONCURRENCY
+        logger.info("Crawl song song tối đa %s chương cùng lúc.", crawl_concurrency)
         update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
         processed_job_ids = set(restored_chapter_ids)
 
-        semaphore = asyncio.Semaphore(CRAWL_CONCURRENCY)
+        semaphore = asyncio.Semaphore(crawl_concurrency)
 
         async def crawl_chapter(chapter: dict) -> tuple[dict, str]:
             async with semaphore:
-                content = await crawler.get_chapter_content(str(chapter["source_url"]))
+                for attempt in range(1, 4):
+                    try:
+                        content = await crawler.get_chapter_content(str(chapter["source_url"]))
+                        break
+                    except SourceRequestError:
+                        if attempt == 3:
+                            raise
+                        delay = attempt * 3
+                        logger.warning(
+                            "Nguồn %s tạm thời không phản hồi chương %s; thử lại sau %s giây.",
+                            crawler.source_name, chapter["chapter_number"], delay,
+                        )
+                        await asyncio.sleep(delay)
             return chapter, clean_chapter_text(content)
 
         tasks = [asyncio.create_task(crawl_chapter(chapter)) for chapter in pending]
