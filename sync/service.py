@@ -54,6 +54,7 @@ AUDIO_DIR = Path(os.getenv("SYNC_AUDIO_DIR", settings.audio_path))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")
 RETRIES = 3
+CRAWL_CONCURRENCY = max(1, min(6, int(os.getenv("CRAWL_CONCURRENCY", "4"))))
 logger = logging.getLogger(__name__)
 app = FastAPI(title="LeoTruyen Sync")
 PC_WORKER_TOKEN = os.getenv("PC_WORKER_TOKEN", "")
@@ -648,12 +649,23 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
             "Đã đọc %s chương; có %s chương mới cần crawl và đưa vào hàng đợi dịch.",
             len(incoming), total_raw,
         )
+        logger.info("Crawl song song tối đa %s chương cùng lúc.", CRAWL_CONCURRENCY)
         update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
         jobs: list[dict] = []
         chunks: list[dict] = []
-        for index, chapter in enumerate(pending, start=1):
-            original = clean_chapter_text(await crawler.get_chapter_content(str(chapter["source_url"])))
+
+        semaphore = asyncio.Semaphore(CRAWL_CONCURRENCY)
+
+        async def crawl_chapter(chapter: dict) -> tuple[dict, str]:
+            async with semaphore:
+                content = await crawler.get_chapter_content(str(chapter["source_url"]))
+            return chapter, clean_chapter_text(content)
+
+        tasks = [asyncio.create_task(crawl_chapter(chapter)) for chapter in pending]
+        for completed, task in enumerate(asyncio.as_completed(tasks), start=1):
+            chapter, original = await task
             if not original:
+                logger.warning("Bỏ qua chương %s vì không lấy được nội dung.", chapter["chapter_number"])
                 continue
             key = chapter_key(int(chapter["chapter_number"]))
             payload = json.dumps({"number": chapter["chapter_number"], "title": chapter["title"], "original_title": chapter["title"], "original_content": original, "translated": False}, ensure_ascii=False).encode("utf-8")
@@ -665,12 +677,12 @@ async def _crawl_and_translate_url(url: str, update_status) -> None:
                 continue
             logger.info(
                 "Đã crawl %s/%s: chương %s (%s ký tự, %s đoạn dịch).",
-                index, total_raw, chapter["chapter_number"], len(original), len(parts),
+                completed, total_raw, chapter["chapter_number"], len(original), len(parts),
             )
             chunks.extend({"chapter_id": chapter["id"], "chunk_index": item_index, "original_text": text, "status": "queued"} for item_index, text in enumerate(parts))
             jobs.append({"chapter_id": chapter["id"], "status": "queued", "priority": 0, "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0})
-            if index == total_raw or index % 10 == 0:
-                update_status(status="crawling", raw_loaded=index, total_raw=total_raw)
+            if completed == total_raw or completed % 10 == 0:
+                update_status(status="crawling", raw_loaded=completed, total_raw=total_raw)
         remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
         remote.insert_many_ignore("translation_queue", jobs, "chapter_id")
         logger.info("Đã tạo hàng đợi dịch cho %s chương, tổng %s đoạn.", len(jobs), len(chunks))
