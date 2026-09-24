@@ -197,7 +197,14 @@ class XswCrawler(BaseCrawler):
 
         if not chapters:
             raise SourceParseError("Không tìm thấy danh sách chương.")
-        return dedupe_chapters(chapters)
+        ordered = dedupe_chapters(chapters)
+        # XSW can split one displayed chapter into several entries (for example
+        # "Chapter 816 [part one]" and "Chapter 816 [part two]").  The reader
+        # URL needs a stable, unique position rather than a repeated display number.
+        return [
+            ChapterInfo(index, chapter.source_chapter_id, chapter.title, chapter.url)
+            for index, chapter in enumerate(ordered, start=1)
+        ]
 
     @staticmethod
     def _parse_chapter_links(soup: BeautifulSoup, page_url: str, chapter_pattern: re.Pattern[str]) -> list[ChapterInfo]:

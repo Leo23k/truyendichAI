@@ -3,6 +3,7 @@ import re
 import pytest
 
 from app.crawlers.plugins.xsw import XswCrawler, chapter_number
+from app.crawlers.base import ChapterInfo
 
 
 BOOK_HTML = """
@@ -135,3 +136,24 @@ async def test_xsw_follows_load_more_ajax_url(monkeypatch) -> None:
     chapters = await crawler.get_chapters("https://m.xsw.tw/888/")
 
     assert [chapter.chapter_number for chapter in chapters] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_xsw_assigns_unique_positions_to_split_chapters(monkeypatch) -> None:
+    crawler = XswCrawler()
+
+    async def html(_url: str) -> str:
+        return "<html><body></body></html>"
+
+    def parse_links(*_args):
+        return [
+            ChapterInfo(1, "400000001", "Part one", "https://m.xsw.tw/777/400000001.html"),
+            ChapterInfo(1, "400000002", "Part two", "https://m.xsw.tw/777/400000002.html"),
+        ]
+
+    monkeypatch.setattr(crawler, "_get_html", html)
+    monkeypatch.setattr(crawler, "_parse_chapter_links", parse_links)
+
+    chapters = await crawler.get_chapters("https://m.xsw.tw/777/")
+
+    assert [chapter.chapter_number for chapter in chapters] == [1, 2]
