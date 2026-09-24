@@ -592,7 +592,8 @@
         hideTimer = setTimeout(() => {
           if (!sheetBackdrop.classList.contains("is-open")) {
             player.classList.add("is-hidden");
-            readerHeader?.classList.add("is-hidden");
+            if (window.matchMedia("(min-width: 640px)").matches) readerHeader?.classList.remove("is-hidden");
+            else readerHeader?.classList.add("is-hidden");
             chapterNav?.classList.add("is-hidden");
           }
         }, 2600);
@@ -601,7 +602,8 @@
       const hideBar = () => {
         if (!sheetBackdrop.classList.contains("is-open")) {
           player.classList.add("is-hidden");
-          readerHeader?.classList.add("is-hidden");
+          if (window.matchMedia("(min-width: 640px)").matches) readerHeader?.classList.remove("is-hidden");
+          else readerHeader?.classList.add("is-hidden");
           chapterNav?.classList.add("is-hidden");
         }
       };
