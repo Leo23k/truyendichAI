@@ -46,9 +46,9 @@
     <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </div>
 
-  <section class="mt-6 grid gap-8 lg:grid-cols-[260px_1fr] lg:items-start">
-    <div class="mx-auto w-full max-w-64">
-      <div class="overflow-hidden rounded-lg border border-stone-200 bg-white shadow-lg">
+  <section class="mt-6 grid gap-7 rounded-xl border border-stone-200 bg-stone-50/70 p-5 lg:grid-cols-[190px_1fr] lg:items-start lg:p-7">
+    <div class="mx-auto w-full max-w-[190px]">
+      <div class="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
         {% if book.cover_url %}
         <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" class="aspect-[3/4] w-full object-cover">
         {% else %}
@@ -60,7 +60,7 @@
     <div class="min-w-0">
       <p class="text-sm font-medium text-teal-700">{{ book.source_name }}</p>
       <h1 class="mt-2 max-w-4xl text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">{{ book.translated_title or book.title }}</h1>
-      <p class="mt-3 text-stone-500">{{ book.title }} · {{ book.translated_author or book.author or 'Chưa rõ tác giả' }}</p>
+      <p class="mt-3 text-stone-500">{{ book.translated_author or book.author or 'Chưa rõ tác giả' }} · <span class="rounded-full bg-teal-50 px-2 py-1 text-xs font-medium text-teal-800">{{ book.source_name }}</span></p>
       <p class="mt-6 max-w-3xl whitespace-pre-line text-base leading-8 text-stone-700">{{ book.translated_description or book.description or 'Chưa có mô tả.' }}</p>
       {% if first_chapter %}
       <div class="mt-7 flex flex-wrap gap-3">
@@ -97,8 +97,8 @@
     </div>
     <div class="mt-4 flex max-h-[28rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
       {% for chapter in book.chapters %}
-      <a href="/chapters/{{ chapter.id }}" onclick="return startTranslationProgress(this)" class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
-        <span class="min-w-0 truncate">{{ chapter.translated_title or chapter.title }}</span>
+      <a href="/chapters/{{ chapter.id }}" onclick="return startTranslationProgress(this)" class="flex min-h-12 items-center gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+        <span class="w-10 shrink-0 text-sm text-stone-400">#{{ chapter.chapter_number }}</span><span class="min-w-0 truncate">{{ chapter.translated_title or chapter.title }}</span>
       </a>
       {% else %}
       <p class="px-4 py-5 text-stone-500">Chưa có chương.</p>

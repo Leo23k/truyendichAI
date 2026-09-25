@@ -160,7 +160,7 @@
       </span>
       {% endif %}
 
-      <button type="button" data-play-toggle class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-stone-950 text-white disabled:bg-stone-300" aria-label="Phát hoặc tạm dừng">
+      <button type="button" data-play-toggle class="inline-flex h-12 w-12 items-center justify-center rounded-full bg-teal-700 text-white shadow-sm hover:bg-teal-800 disabled:bg-stone-300" aria-label="Phát hoặc tạm dừng">
         <i data-play-icon="play" data-lucide="play" class="h-5 w-5"></i>
         <i data-play-icon="pause" data-lucide="pause" class="hidden h-5 w-5"></i>
         <i data-play-icon="loading" data-lucide="loader-circle" class="hidden h-5 w-5 animate-spin"></i>
@@ -171,7 +171,7 @@
       </button>
 
       <div class="min-w-0">
-        <input data-audio-progress class="reader-range h-2 w-full" type="range" min="0" max="1000" value="0" aria-label="Tiến trình audio" {% if not showing_translation or not chapter.translated_content %}disabled{% endif %}>
+        <input data-audio-progress class="reader-range h-3 w-full" type="range" min="0" max="1000" value="0" aria-label="Tiến trình audio" {% if not showing_translation or not chapter.translated_content %}disabled{% endif %}>
         <div class="mt-1 flex items-center justify-between gap-2 text-[11px] text-stone-500">
           <span data-current-time>0:00</span>
           <div class="flex min-w-0 items-center gap-2">

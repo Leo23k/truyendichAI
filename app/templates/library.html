@@ -58,7 +58,7 @@
     {% set first_chapter = book.chapters[0] if book.chapters else none %}
     <article class="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
       <a href="/books/{{ book.id }}" class="block">
-        <div class="relative aspect-[4/3] w-full">
+        <div class="relative aspect-[2/3] w-full">
         {% if book.cover_url %}
         <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" class="h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">
         {% endif %}
@@ -103,7 +103,7 @@
   <div class="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
     {% for novel in synced_novels %}
     <article class="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
-      <div class="relative aspect-[4/3] w-full">
+      <div class="relative aspect-[2/3] w-full">
         {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" class="h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">{% endif %}
         <div class="book-cover-fallback {% if novel.cover %}hidden{% endif %} absolute inset-0 flex items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
       </div>
