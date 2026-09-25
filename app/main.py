@@ -95,8 +95,17 @@ def auth_callback(request: Request, code: str):
     response.delete_cookie("sb-pkce"); return response
 
 @app.get("/logout")
-def logout():
-    response = RedirectResponse("/login", status_code=303); response.delete_cookie("sb-access-token"); return response
+def logout(request: Request):
+    token = request.cookies.get("sb-access-token")
+    if token and AUTH_URL and ANON:
+        try:
+            with httpx.Client(timeout=10, trust_env=False) as client:
+                client.post(f"{AUTH_URL}/auth/v1/logout", headers={"apikey": ANON, "Authorization": f"Bearer {token}"})
+        except httpx.HTTPError:
+            pass
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie("sb-access-token")
+    return response
 
 
 class TTSRequest(BaseModel):

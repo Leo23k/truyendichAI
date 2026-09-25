@@ -9,6 +9,7 @@
       <p class="text-sm font-medium text-teal-700">My Novel Reader</p>
       <div class="mt-1 flex flex-wrap items-center gap-3"><h1 class="text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1><a href="/?restore=1" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore{% if deleted_books or deleted_synced_novels %} ({{ deleted_books|length + deleted_synced_novels|length }}){% endif %}</a><a href="/jobs" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100"><i data-lucide="list-restart" class="h-4 w-4"></i>Tiến trình Crawl</a></div>
     </div>
+    <div class="flex w-full items-center justify-between gap-3 lg:max-w-2xl"><div class="flex min-w-0 items-center gap-2"><img src="{{ request.state.user.avatar_url or '' }}" alt="" class="h-9 w-9 rounded-full bg-stone-200" onerror="this.style.display='none'"><span class="truncate text-sm font-medium">{{ request.state.user.display_name }}</span>{% if request.state.user.role == 'admin' %}<span class="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800">Admin</span>{% endif %}</div><a href="/logout" class="rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50">Đăng xuất</a></div>
     <div data-crawl-progress class="w-full lg:max-w-2xl">
       <form
         action="/search"
