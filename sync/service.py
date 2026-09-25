@@ -842,6 +842,11 @@ def _run_translation_watch(stop_event: threading.Event, idle_delay: float) -> No
         stop_event.wait(idle_delay)
 
 
+def translation_worker_concurrency() -> int:
+    """Keep GPU translation parallelism bounded and configurable on the PC."""
+    return max(1, min(4, int(os.getenv("TRANSLATION_WORKER_CONCURRENCY", "4"))))
+
+
 def run_watch() -> None:
     interval = max(5, int(os.getenv("PC_WORKER_POLL_INTERVAL", "10")))
     with worker_process_lock() as acquired:
@@ -849,13 +854,17 @@ def run_watch() -> None:
             logger.warning("Another PC worker is already running; exiting duplicate worker.")
             return
         translator_stop = threading.Event()
-        translator_thread = threading.Thread(
-            target=_run_translation_watch,
-            args=(translator_stop, min(interval, 2)),
-            daemon=True,
-            name="leotruyen-translator",
-        )
-        translator_thread.start()
+        translator_threads = [
+            threading.Thread(
+                target=_run_translation_watch,
+                args=(translator_stop, min(interval, 2)),
+                daemon=True,
+                name=f"leotruyen-translator-{index + 1}",
+            )
+            for index in range(translation_worker_concurrency())
+        ]
+        for translator_thread in translator_threads:
+            translator_thread.start()
         try:
             while True:
                 try:
@@ -866,7 +875,8 @@ def run_watch() -> None:
                 time.sleep(interval)
         finally:
             translator_stop.set()
-            translator_thread.join(timeout=5)
+            for translator_thread in translator_threads:
+                translator_thread.join(timeout=5)
 
 
 @app.on_event("startup")

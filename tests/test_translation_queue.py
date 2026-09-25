@@ -13,6 +13,17 @@ class FakeRemote:
         self.inserted.append((table, payloads, conflict))
 
 
+def test_translation_worker_concurrency_defaults_to_four_and_is_bounded(monkeypatch) -> None:
+    monkeypatch.delenv("TRANSLATION_WORKER_CONCURRENCY", raising=False)
+    assert service.translation_worker_concurrency() == 4
+
+    monkeypatch.setenv("TRANSLATION_WORKER_CONCURRENCY", "12")
+    assert service.translation_worker_concurrency() == 4
+
+    monkeypatch.setenv("TRANSLATION_WORKER_CONCURRENCY", "0")
+    assert service.translation_worker_concurrency() == 1
+
+
 def test_all_rows_reads_past_postgrest_default_page_size() -> None:
     class PaginatedRemote:
         all_rows = service.SupabaseSync.all_rows
