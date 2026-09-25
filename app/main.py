@@ -40,7 +40,7 @@ from app.crawlers.bootstrap import registry
 from app.crawlers.errors import CrawlerError
 from app.models import Book
 from app.models import Chapter
-from app.search import search_books as run_search
+from app.search import normalize_search_key, search_books as run_search
 from app.services.book_service import BookService
 from app.translator.service import TranslationUnavailableError, translator
 from app.tts.edge_tts_service import (
@@ -744,11 +744,16 @@ def library_search(request: Request, query: str = ""):
         return HTMLResponse("")
     try:
         escaped = query.replace("%", r"\%").replace("_", r"\_")
-        rows = SupabaseSync().rows("novels", {"select": "slug,title,author,cover_url,latest_chapter", "or": f"title.ilike.*{escaped}*,author.ilike.*{escaped}*", "limit": "20"})
+        remote = SupabaseSync()
+        rows = remote.rows("novels", {"select": "slug,title,author,cover_url,latest_chapter", "or": f"(title.ilike.*{escaped}*,author.ilike.*{escaped}*)", "limit": "20"})
+        # PostgREST ilike is accent-sensitive. Fall back only when necessary so
+        # Vietnamese queries without diacritics still find library titles.
+        normalized = normalize_search_key(query)
+        if not rows:
+            rows = [row for row in remote.all_rows("novels", {"select": "slug,title,author,cover_url,latest_chapter"}) if normalized in normalize_search_key(str(row.get("title") or "")) or normalized in normalize_search_key(str(row.get("author") or ""))][:20]
     except SyncError as exc:
         raise HTTPException(503, detail=str(exc)) from exc
-    needle = query.casefold()
-    rows.sort(key=lambda row: (0 if str(row.get("title", "")).casefold() == needle else 1 if str(row.get("title", "")).casefold().startswith(needle) else 2, str(row.get("title", "")).casefold()))
+    rows.sort(key=lambda row: (0 if normalize_search_key(str(row.get("title") or "")) == normalized else 1 if normalize_search_key(str(row.get("title") or "")).startswith(normalized) else 2, str(row.get("title", "")).casefold()))
     return templates.TemplateResponse(request=request, name="partials/library_search_results.html", context={"results": rows, "query": query})
 
 
