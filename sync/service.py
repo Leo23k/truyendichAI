@@ -33,7 +33,7 @@ from app.translator.chunking import chunk_text
 from app.translator.service import TranslationUnavailableError, translator
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
-from app.crawlers.errors import SourceRequestError
+from app.crawlers.errors import SourceParseError, SourceRequestError
 
 load_dotenv(ROOT / ".env")
 def default_database_path() -> Path:
@@ -747,6 +747,12 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
                             crawler.source_name, chapter["chapter_number"], delay,
                         )
                         await asyncio.sleep(delay)
+                    except SourceParseError as exc:
+                        logger.warning(
+                            "Bỏ qua chương %s từ nguồn %s vì nội dung không hợp lệ: %s",
+                            chapter["chapter_number"], crawler.source_name, exc,
+                        )
+                        return chapter, ""
             return chapter, clean_chapter_text(content)
 
         tasks = [asyncio.create_task(crawl_chapter(chapter)) for chapter in pending]
