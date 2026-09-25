@@ -778,19 +778,19 @@ def library_search(request: Request, query: str = ""):
         fields = "slug,title,author,cover_url,latest_chapter"
         rows = remote.rows("novels", {"select": fields, "or": f"(title.ilike.*{escaped}*,author.ilike.*{escaped}*)", "limit": "20"})
         # PostgREST ilike is accent-sensitive. Supplement its fast match with
-        # normalized library rows so a Vietnamese query without accents works.
+        # normalized rows only when the database query found no match.
         normalized = normalize_search_key(query)
         tokens = normalized.split()
-        known = {str(row.get("slug") or "") for row in rows}
-        if len(rows) < 20:
+        def matches(row: dict) -> bool:
+            title = normalize_search_key(str(row.get("title") or ""))
+            author = normalize_search_key(str(row.get("author") or ""))
+            return normalized in title or normalized in author or all(token in title for token in tokens) or all(token in author for token in tokens)
+
+        rows = [row for row in rows if matches(row)]
+        if not rows:
             for row in remote.all_rows("novels", {"select": fields}):
-                if str(row.get("slug") or "") in known:
-                    continue
-                title = normalize_search_key(str(row.get("title") or ""))
-                author = normalize_search_key(str(row.get("author") or ""))
-                if normalized in title or normalized in author or any(token in title or token in author for token in tokens):
+                if matches(row):
                     rows.append(row)
-                    known.add(str(row.get("slug") or ""))
     except SyncError as exc:
         raise HTTPException(503, detail=str(exc)) from exc
     def rank(row: dict) -> tuple[int, int, str]:
@@ -810,14 +810,14 @@ def library_search(request: Request, query: str = ""):
         return (5, len(title), title)
 
     rows.sort(key=rank)
-    for row in rows[:1]:
+    for row in rows[:20]:
         title = str(row.get("title") or "")
         start = title.casefold().find(query.casefold())
         if start >= 0:
             row["title_highlight"] = Markup(f"{escape(title[:start])}<mark class=\"rounded bg-teal-100 px-0.5 text-inherit\">{escape(title[start:start + len(query)])}</mark>{escape(title[start + len(query):])}")
         else:
             row["title_highlight"] = escape(title)
-    return templates.TemplateResponse(request=request, name="partials/library_search_results.html", context={"results": rows[:1], "query": query})
+    return templates.TemplateResponse(request=request, name="partials/library_search_results.html", context={"results": rows[:20], "query": query})
 
 
 @app.get("/books/{book_id}")
