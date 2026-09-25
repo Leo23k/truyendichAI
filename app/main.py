@@ -810,14 +810,14 @@ def library_search(request: Request, query: str = ""):
         return (5, len(title), title)
 
     rows.sort(key=rank)
-    for row in rows[:20]:
+    for row in rows[:1]:
         title = str(row.get("title") or "")
         start = title.casefold().find(query.casefold())
         if start >= 0:
             row["title_highlight"] = Markup(f"{escape(title[:start])}<mark class=\"rounded bg-teal-100 px-0.5 text-inherit\">{escape(title[start:start + len(query)])}</mark>{escape(title[start + len(query):])}")
         else:
             row["title_highlight"] = escape(title)
-    return templates.TemplateResponse(request=request, name="partials/library_search_results.html", context={"results": rows[:20], "query": query})
+    return templates.TemplateResponse(request=request, name="partials/library_search_results.html", context={"results": rows[:1], "query": query})
 
 
 @app.get("/books/{book_id}")
