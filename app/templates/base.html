@@ -80,6 +80,10 @@
         const refreshJobs = async () => {
           const current = document.querySelector("[data-jobs-refresh]");
           if (!current) return;
+          if (document.querySelector('form[hx-post="/jobs/crawler/search"].htmx-request')) {
+            jobsRefreshTimer = window.setTimeout(refreshJobs, 1000);
+            return;
+          }
           try {
             const response = await fetch(`/jobs/list?_=${Date.now()}`, {
               cache: "no-store",
