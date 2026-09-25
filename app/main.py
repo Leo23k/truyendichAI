@@ -438,7 +438,7 @@ def control_workers(target: str, action: str, request: Request):
 async def jobs_crawler_search(request: Request, query: str = Form(...)):
     query = " ".join(query.split())
     if not query:
-        return HTMLResponse("")
+        return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Hãy nhập tên truyện hoặc URL nguồn để tìm.", "error": True}, status_code=400)
     try:
         if query.startswith(("http://", "https://")):
             crawler = registry.get_for_url(query)
@@ -448,6 +448,9 @@ async def jobs_crawler_search(request: Request, query: str = Form(...)):
         return templates.TemplateResponse(request=request, name="partials/search_results.html", context={"results": results[:20], "query": query})
     except CrawlerError as exc:
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400)
+    except Exception:
+        logger.exception("Crawler search failed query=%r", query)
+        return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Không thể tìm truyện lúc này. Vui lòng thử lại sau.", "error": True}, status_code=502)
 
 
 @app.post("/jobs/translations/{queue_id}/retry")
