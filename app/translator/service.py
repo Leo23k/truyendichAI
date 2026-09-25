@@ -13,6 +13,24 @@ from app.translator.preprocess import traditional_to_simplified
 
 logger = logging.getLogger(__name__)
 
+KIEM_TOI_GLOSSARY = (
+    GlossaryEntry("陈平安", "Trần Bình An"),
+    GlossaryEntry("宁姚", "Ninh Diêu"),
+    GlossaryEntry("宋集薪", "Tống Tập Tân"),
+    GlossaryEntry("齐静春", "Tề Tĩnh Xuân"),
+    GlossaryEntry("刘羡阳", "Lưu Tiện Dương"),
+    GlossaryEntry("顾粲", "Cố Xán"),
+    GlossaryEntry("阮秀", "Nguyễn Tú"),
+    GlossaryEntry("阮邛", "Nguyễn Cung"),
+    GlossaryEntry("李宝瓶", "Lý Bảo Bình"),
+    GlossaryEntry("李槐", "Lý Hòe"),
+    GlossaryEntry("崔瀺", "Thôi Sàm"),
+    GlossaryEntry("崔东山", "Thôi Đông Sơn"),
+    GlossaryEntry("郑居中", "Trịnh Cư Trung"),
+    GlossaryEntry("谢狗", "Tạ Cẩu"),
+    GlossaryEntry("小陌", "Tiểu Mạch"),
+)
+
 
 class TranslationUnavailableError(RuntimeError):
     pass
@@ -30,16 +48,21 @@ class TranslatorService:
         translated = postprocess_v9(source, self._translate_text(protected), entries)
         return restore(translated, protected)
 
-    def translate_batch(self, texts: list[str]) -> list[str]:
+    def translate_batch(self, texts: list[str], entries: list[GlossaryEntry] | None = None) -> list[str]:
         if not texts:
             return []
+        glossary = entries or []
+        protected_texts = [
+            protect(normalize_text(traditional_to_simplified(text)), glossary) if glossary else ProtectedText(normalize_text(traditional_to_simplified(text)), ())
+            for text in texts
+        ]
         try:
-            response = httpx.post(f"{settings.model_service_url.rstrip('/')}/v1/translate-batch", json={"texts": texts, "beam_size": settings.model_beam_size}, timeout=settings.model_service_timeout, trust_env=False)
+            response = httpx.post(f"{settings.model_service_url.rstrip('/')}/v1/translate-batch", json={"texts": [item.text for item in protected_texts], "beam_size": settings.model_beam_size}, timeout=settings.model_service_timeout, trust_env=False)
             response.raise_for_status()
             translated = response.json()["translated_texts"]
             if not isinstance(translated, list) or len(translated) != len(texts):
                 raise ValueError("Invalid batch translation response")
-            return [normalize_text(str(value)) for value in translated]
+            return [restore(normalize_text(str(value)), protected) for value, protected in zip(translated, protected_texts)]
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             raise TranslationUnavailableError("Không thể kết nối tới model service HachimiMT. Hãy kiểm tra service đang chạy.") from exc
 
@@ -80,6 +103,13 @@ def glossary_entries(_db: Session | None, source: str) -> list[GlossaryEntry]:
             continue
         entries.append(GlossaryEntry(keys[0], str(row["replacement_text"]), tuple(keys[1:])))
     return entries
+
+
+def glossary_for_source_url(source_url: str) -> list[GlossaryEntry]:
+    """Return glossary terms that are safe only for a specific novel source."""
+    if "xsw.tw/37/" in source_url:
+        return list(KIEM_TOI_GLOSSARY)
+    return []
 
 
 def all_glossary_entries(db: Session | None, source: str) -> list[GlossaryEntry]:

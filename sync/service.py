@@ -30,7 +30,7 @@ if str(ROOT) not in sys.path:
 
 from app.config import PROJECT_ROOT, settings
 from app.translator.chunking import chunk_text
-from app.translator.service import TranslationUnavailableError, translator
+from app.translator.service import TranslationUnavailableError, glossary_for_source_url, translator
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
 from app.crawlers.errors import SourceParseError, SourceRequestError
@@ -445,6 +445,12 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     BATCH_SIZE = 4
 
     try:
+        chapter_rows = remote.rows(
+            "chapters",
+            {"select": "source_url", "id": f"eq.{job['chapter_id']}", "limit": "1"},
+        )
+        source_url = str(chapter_rows[0].get("source_url") or "") if chapter_rows else ""
+        glossary = glossary_for_source_url(source_url)
         total_chunks = int(job["total_chunks"])
         logger.info("Bắt đầu dịch chương ID %s (%s đoạn).", job["chapter_id"], total_chunks)
 
@@ -483,7 +489,7 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
 
             # Gom nhiều chunk gửi GPU một lần
             texts = [str(r["original_text"]) for r in rows]
-            translated_texts = translator.translate_batch(texts)
+            translated_texts = translator.translate_batch(texts, glossary)
 
             # Lưu kết quả
             for row, translated in zip(rows, translated_texts):
