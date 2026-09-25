@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from markupsafe import Markup, escape
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
@@ -774,16 +775,49 @@ def library_search(request: Request, query: str = ""):
     try:
         escaped = query.replace("%", r"\%").replace("_", r"\_")
         remote = SupabaseSync()
-        rows = remote.rows("novels", {"select": "slug,title,author,cover_url,latest_chapter", "or": f"(title.ilike.*{escaped}*,author.ilike.*{escaped}*)", "limit": "20"})
-        # PostgREST ilike is accent-sensitive. Fall back only when necessary so
-        # Vietnamese queries without diacritics still find library titles.
+        fields = "slug,title,author,cover_url,latest_chapter"
+        rows = remote.rows("novels", {"select": fields, "or": f"(title.ilike.*{escaped}*,author.ilike.*{escaped}*)", "limit": "20"})
+        # PostgREST ilike is accent-sensitive. Supplement its fast match with
+        # normalized library rows so a Vietnamese query without accents works.
         normalized = normalize_search_key(query)
-        if not rows:
-            rows = [row for row in remote.all_rows("novels", {"select": "slug,title,author,cover_url,latest_chapter"}) if normalized in normalize_search_key(str(row.get("title") or "")) or normalized in normalize_search_key(str(row.get("author") or ""))][:20]
+        tokens = normalized.split()
+        known = {str(row.get("slug") or "") for row in rows}
+        if len(rows) < 20:
+            for row in remote.all_rows("novels", {"select": fields}):
+                if str(row.get("slug") or "") in known:
+                    continue
+                title = normalize_search_key(str(row.get("title") or ""))
+                author = normalize_search_key(str(row.get("author") or ""))
+                if normalized in title or normalized in author or any(token in title or token in author for token in tokens):
+                    rows.append(row)
+                    known.add(str(row.get("slug") or ""))
     except SyncError as exc:
         raise HTTPException(503, detail=str(exc)) from exc
-    rows.sort(key=lambda row: (0 if normalize_search_key(str(row.get("title") or "")) == normalized else 1 if normalize_search_key(str(row.get("title") or "")).startswith(normalized) else 2, str(row.get("title", "")).casefold()))
-    return templates.TemplateResponse(request=request, name="partials/library_search_results.html", context={"results": rows, "query": query})
+    def rank(row: dict) -> tuple[int, int, str]:
+        title = normalize_search_key(str(row.get("title") or ""))
+        author = normalize_search_key(str(row.get("author") or ""))
+        title_has_tokens = all(token in title for token in tokens)
+        if title == normalized:
+            return (0, len(title), title)
+        if title.startswith(normalized):
+            return (1, len(title), title)
+        if normalized in title and title_has_tokens:
+            return (2, len(title), title)
+        if title_has_tokens:
+            return (3, len(title), title)
+        if normalized in author or all(token in author for token in tokens):
+            return (4, len(author), title)
+        return (5, len(title), title)
+
+    rows.sort(key=rank)
+    for row in rows[:20]:
+        title = str(row.get("title") or "")
+        start = title.casefold().find(query.casefold())
+        if start >= 0:
+            row["title_highlight"] = Markup(f"{escape(title[:start])}<mark class=\"rounded bg-teal-100 px-0.5 text-inherit\">{escape(title[start:start + len(query)])}</mark>{escape(title[start + len(query):])}")
+        else:
+            row["title_highlight"] = escape(title)
+    return templates.TemplateResponse(request=request, name="partials/library_search_results.html", context={"results": rows[:20], "query": query})
 
 
 @app.get("/books/{book_id}")

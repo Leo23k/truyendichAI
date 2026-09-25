@@ -40,6 +40,7 @@ HAN_VIET_SEARCH = {
 
 def normalize_search_key(value: str | None) -> str:
     value = (value or "").strip().lower()
+    value = value.replace("đ", "d")
     value = unicodedata.normalize("NFD", value)
     value = "".join(char for char in value if unicodedata.category(char) != "Mn")
     return re.sub(r"\s+", " ", value).strip()

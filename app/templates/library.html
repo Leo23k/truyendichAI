@@ -7,10 +7,10 @@
   <div class="flex flex-col gap-5">
     <div>
       <p class="text-sm font-medium text-teal-700">My Novel Reader</p>
-      <div class="mt-1 flex flex-wrap items-center gap-3"><h1 class="text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1>{% if request.state.user.role == 'admin' %}<a href="/?restore=1" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore{% if deleted_books or deleted_synced_novels %} ({{ deleted_books|length + deleted_synced_novels|length }}){% endif %}</a><a href="/jobs" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100"><i data-lucide="list-restart" class="h-4 w-4"></i>Tiến trình Crawl</a>{% endif %}</div>
+      <div class="mt-1 flex flex-wrap items-center gap-3"><h1 class="text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1>{% if request.state.user.role == 'admin' %}<a href="/?restore=1" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore{% if deleted_books or deleted_synced_novels %} ({{ deleted_books|length + deleted_synced_novels|length }}){% endif %}</a><a href="/jobs" title="Tìm truyện để crawl" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="plus" class="h-4 w-4"></i>Thêm truyện</a>{% endif %}</div>
     </div>
     <div class="flex justify-end"><div class="flex items-center gap-3"><div class="flex min-w-0 items-center gap-2"><img src="{{ request.state.user.avatar_url or '' }}" alt="" class="h-9 w-9 rounded-full bg-stone-200" onerror="this.style.display='none'"><span class="max-w-40 truncate text-sm font-medium">{{ request.state.user.display_name }}</span>{% if request.state.user.role == 'admin' %}<span class="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800">Admin</span>{% endif %}</div><a href="/logout" class="rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50">Đăng xuất</a></div></div>
-    <div data-crawl-progress class="w-full lg:max-w-2xl">
+    <div x-data="{ query: '' }" class="w-full lg:max-w-2xl">
       <form
         action="/search"
         method="get"
@@ -18,31 +18,28 @@
         hx-target="#lookup-results"
         hx-swap="innerHTML"
         hx-indicator="#lookup-loading"
-        hx-disabled-elt="find button"
-        class="flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 p-2"
+        hx-trigger="input changed delay:300ms, submit"
+        class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white p-2 shadow-sm transition focus-within:border-teal-500 focus-within:ring-4 focus-within:ring-teal-50"
       >
         <span class="sr-only">Tìm trong thư viện</span>
-        <label for="source-query" class="sr-only">Tên truyện hoặc tác giả</label>
-        <i data-lucide="link" class="ml-2 h-5 w-5 shrink-0 text-stone-400"></i>
+        <label for="source-query" class="sr-only">Tìm truyện hoặc tác giả</label>
+        <i data-lucide="search" class="ml-2 h-5 w-5 shrink-0 text-stone-400"></i>
         <input
           id="source-query"
           name="query"
           type="text"
           required
-          placeholder="Tìm trong thư viện..."
-          class="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm outline-none"
+          x-ref="librarySearch"
+          x-model="query"
+          autocomplete="off"
+          placeholder="Tìm truyện hoặc tác giả..."
+          class="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm text-stone-900 outline-none placeholder:text-stone-400"
         >
-        <button type="submit" class="inline-flex h-10 shrink-0 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white hover:bg-stone-800">
-          <i data-lucide="search" class="h-4 w-4"></i>
-          <span>Tìm</span>
+        <button type="button" x-cloak x-show="query" @click="query = ''; $refs.librarySearch.focus(); document.querySelector('#lookup-results').innerHTML = ''" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700" aria-label="Xóa tìm kiếm">
+          <i data-lucide="x" class="h-4 w-4"></i>
         </button>
+        <span id="lookup-loading" class="htmx-indicator mr-2 shrink-0 text-teal-700" role="status" aria-label="Đang tìm"><i data-lucide="loader-circle" class="h-4 w-4 animate-spin"></i></span>
       </form>
-      <div id="lookup-status" class="mt-2 text-sm text-stone-500" role="status" aria-live="polite"></div>
-      <span id="lookup-loading" class="htmx-indicator mt-2 items-center text-sm text-stone-500" role="status">Đang xử lý...</span>
-      <div class="crawl-progress-panel mt-3" role="progressbar" aria-label="Tiến độ crawl" aria-valuemin="0" aria-valuemax="100">
-        <div class="mb-1 flex justify-between text-xs text-stone-500"><span>Đang cập nhật dữ liệu...</span><span data-progress-value>0%</span></div>
-        <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
-      </div>
     </div>
   </div>
 
@@ -135,50 +132,6 @@
       if (!url) return;
       button.href = url;
       button.hidden = false;
-    });
-    document.addEventListener("htmx:beforeRequest", (event) => {
-      if (event.detail.elt?.matches?.('form[hx-post="/books/lookup"]')) {
-        const query = event.detail.elt.querySelector('input[name="query"]')?.value || "";
-        console.debug("[search] request query=", query);
-      }
-    });
-    document.addEventListener("htmx:afterRequest", (event) => {
-      if (event.detail.elt?.matches?.('form[hx-post="/books/lookup"]')) {
-        console.debug("[search] response status=", event.detail.xhr.status, "length=", event.detail.xhr.responseText.length);
-      }
-    });
-    document.addEventListener("htmx:afterSwap", (event) => {
-      if (event.detail.target?.id === "lookup-results") {
-        console.debug("[search] rendered items=", event.detail.target.querySelectorAll("[data-search-item]").length);
-        const job = event.detail.target.querySelector("[data-crawl-job]");
-        if (!job) return;
-        const status = document.querySelector("#lookup-status");
-        const bar = document.querySelector("[data-progress-bar]");
-        const value = document.querySelector("[data-progress-value]");
-        const labels = { queued: "Dang cho PC nhan job...", crawling: "Dang tai noi dung goc...", syncing: "Dang luu noi dung goc len Supabase...", translating: "Dang dich tung doan...", completed: "Da crawl va dich xong.", failed: "Crawl that bai." };
-        const poll = async () => {
-          try {
-            const response = await fetch(`/api/crawl-jobs/${job.dataset.crawlJob}`, { cache: "no-store" });
-            if (!response.ok) throw new Error("Khong the doc tien do");
-            const current = await response.json();
-            const result = current.result || {};
-            let text = labels[current.status] || "Dang xu ly...";
-            let percent = current.status === "completed" ? 100 : current.status === "translating" ? 90 : current.status === "syncing" ? 80 : 5;
-            if (current.status === "crawling" && result.total_raw) {
-              percent = Math.min(70, Math.round((result.raw_loaded || 0) / result.total_raw * 70));
-              text += ` ${result.raw_loaded || 0}/${result.total_raw} chuong.`;
-            }
-            if (current.error) text = current.error;
-            status.textContent = text;
-            value.textContent = `${percent}%`;
-            bar.style.width = `${percent}%`;
-            if (!["completed", "failed"].includes(current.status)) window.setTimeout(poll, 3000);
-          } catch (error) {
-            status.textContent = error.message;
-          }
-        };
-        poll();
-      }
     });
   })();
 </script>

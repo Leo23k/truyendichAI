@@ -1,1 +1,20 @@
-{% if results %}<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{% for book in results %}<a href="/synced/{{ book.slug }}" class="rounded-lg border border-stone-200 bg-white p-4 hover:border-teal-400"><p class="font-semibold text-stone-900">{{ book.title }}</p><p class="mt-1 text-sm text-stone-500">{{ book.author or 'Chưa rõ tác giả' }}</p></a>{% endfor %}</div>{% else %}<p class="rounded-lg border border-dashed border-stone-300 bg-white p-5 text-sm text-stone-500">Không tìm thấy truyện trong thư viện.</p>{% endif %}
+{% if results %}
+<div class="grid gap-2 sm:grid-cols-2">
+  {% for book in results %}
+  <a data-search-item href="/synced/{{ book.slug }}" class="group flex min-w-0 gap-3 rounded-xl border border-stone-200 bg-white p-2.5 shadow-sm transition hover:border-teal-300 hover:bg-teal-50/30">
+    {% if book.cover_url %}
+    <img src="{{ book.cover_url }}" alt="Bìa {{ book.title }}" class="h-20 w-14 shrink-0 rounded-md object-cover" loading="lazy">
+    {% else %}
+    <div class="book-cover-fallback flex h-20 w-14 shrink-0 items-center justify-center rounded-md text-[10px] font-medium text-stone-500">Chưa có bìa</div>
+    {% endif %}
+    <div class="min-w-0 py-0.5">
+      <h3 class="line-clamp-2 font-semibold leading-5 text-stone-900 transition group-hover:text-teal-800">{{ book.title_highlight }}</h3>
+      <p class="mt-1 truncate text-sm text-stone-500">{{ book.author or 'Chưa rõ tác giả' }}</p>
+      <p class="mt-2 text-xs font-medium text-stone-500">{{ book.latest_chapter or 0 }} chương</p>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="rounded-xl border border-dashed border-stone-300 bg-white px-4 py-5 text-sm text-stone-500">Không tìm thấy truyện trong thư viện.</p>
+{% endif %}
