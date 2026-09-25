@@ -106,10 +106,11 @@ def glossary_entries(_db: Session | None, source: str) -> list[GlossaryEntry]:
 
 
 def glossary_for_source_url(source_url: str) -> list[GlossaryEntry]:
-    """Return glossary terms that are safe only for a specific novel source."""
+    """Combine the shared glossary with terms safe only for one novel source."""
+    entries = list(glossary_entries(None, source_url))
     if "xsw.tw/37/" in source_url:
-        return list(KIEM_TOI_GLOSSARY)
-    return []
+        entries.extend(KIEM_TOI_GLOSSARY)
+    return entries
 
 
 def all_glossary_entries(db: Session | None, source: str) -> list[GlossaryEntry]:
