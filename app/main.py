@@ -268,6 +268,55 @@ def _crawl_job_cards() -> list[dict]:
     return cards
 
 
+def _translation_queue_cards() -> list[dict]:
+    """Return unfinished translation work independently of its crawl job."""
+    remote = SupabaseSync()
+    queue = remote.all_rows(
+        "translation_queue",
+        {
+            "select": "id,chapter_id,status,current_chunk,total_chunks,updated_at",
+            "status": "in.(queued,translating,paused,failed)",
+            "order": "updated_at.desc",
+        },
+    )
+    if not queue:
+        return []
+    chapter_ids = ",".join(str(row["chapter_id"]) for row in queue)
+    chapters = remote.all_rows(
+        "chapters",
+        {"select": "id,novel_id,chapter_number,title", "id": f"in.({chapter_ids})"},
+    )
+    chapter_by_id = {row["id"]: row for row in chapters}
+    novel_ids = sorted({row["novel_id"] for row in chapters})
+    novels = remote.all_rows(
+        "novels",
+        {"select": "id,slug,title", "id": f"in.({','.join(str(novel_id) for novel_id in novel_ids)})"},
+    ) if novel_ids else []
+    novel_by_id = {row["id"]: row for row in novels}
+    cards: list[dict] = []
+    for item in queue:
+        chapter = chapter_by_id.get(item["chapter_id"], {})
+        novel = novel_by_id.get(chapter.get("novel_id"), {})
+        item.update({
+            "chapter_number": chapter.get("chapter_number"),
+            "chapter_title": chapter.get("title") or "Chương đang dịch",
+            "novel_title": novel.get("title") or "Truyện không xác định",
+            "novel_slug": novel.get("slug"),
+            "updated_display": _gmt7(item.get("updated_at")),
+        })
+        cards.append(item)
+    return cards
+
+
+def _jobs_page_context(**extra: object) -> dict[str, object]:
+    return {
+        "jobs": _crawl_job_cards(),
+        "translation_queue": _translation_queue_cards(),
+        "workers": _worker_statuses(),
+        **extra,
+    }
+
+
 def _worker_statuses() -> dict[str, dict[str, object]]:
     """Vercel cannot see localhost on the PC; use queue activity as a safe signal."""
     workers = worker_manager.statuses()
@@ -287,7 +336,7 @@ def _worker_statuses() -> dict[str, dict[str, object]]:
 @app.get("/jobs")
 def crawl_jobs(request: Request):
     try:
-        return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": _worker_statuses()})
+        return templates.TemplateResponse(request=request, name="jobs.html", context=_jobs_page_context())
     except SyncError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -297,7 +346,7 @@ def crawl_jobs_list(request: Request):
     response = templates.TemplateResponse(
         request=request,
         name="jobs.html",
-        context={"jobs": _crawl_job_cards(), "workers": _worker_statuses(), "partial": True},
+        context=_jobs_page_context(partial=True),
     )
     # This endpoint is polled by HTMX.  Without an explicit no-store response,
     # a CDN/browser may repeatedly serve the same job snapshot until a full reload.
@@ -315,7 +364,7 @@ def control_workers(target: str, action: str, request: Request):
     if target not in {"all", "crawler", "translator"} or action not in {"start", "stop", "restart"}:
         raise HTTPException(status_code=404, detail="Thao tác worker không hợp lệ.")
     ok, message = worker_manager.act(target, action)
-    response = templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": _worker_statuses(), "toast": message, "toast_error": not ok})
+    response = templates.TemplateResponse(request=request, name="jobs.html", context=_jobs_page_context(toast=message, toast_error=not ok))
     return response
 
 
@@ -346,7 +395,7 @@ def control_crawl_job(job_id: str, action: str, request: Request):
         remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"}, {"status": target, "error": None})
         remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "in.(paused,failed)"}, {"status": "queued"})
         message = "Đã tiếp tục tiến trình." if action == "resume" else "Đã khởi động lại tiến trình."
-    response = templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": _crawl_job_cards(), "workers": _worker_statuses(), "partial": True, "toast": message})
+    response = templates.TemplateResponse(request=request, name="jobs.html", context=_jobs_page_context(partial=True, toast=message))
     response.headers["HX-Trigger"] = "jobsChanged"
     return response
 
