@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlparse
 
@@ -110,6 +112,44 @@ def _service_delete(table: str, params: dict[str, str]) -> None:
         response.raise_for_status()
     except httpx.HTTPError as exc:
         raise CdnDataError(f"Could not delete Supabase {table}") from exc
+
+
+def load_replacement_rules(user_id: str, book_id: str) -> list[dict]:
+    return _service_rows("replacement_rules", {
+        "select": "id,source_text,replacement_text,created_at,updated_at",
+        "user_id": f"eq.{user_id}", "book_id": f"eq.{book_id}", "order": "created_at.asc",
+    })
+
+
+def save_replacement_rule(user_id: str, book_id: str, source_text: str, replacement_text: str, rule_id: int | None = None) -> dict:
+    payload = {"source_text": source_text, "replacement_text": replacement_text, "updated_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        with httpx.Client(timeout=30, trust_env=False) as client:
+            if rule_id is not None:
+                response = client.patch(f"{SUPABASE_URL}/rest/v1/replacement_rules", params={"id": f"eq.{rule_id}", "user_id": f"eq.{user_id}", "book_id": f"eq.{book_id}", "select": "id,source_text,replacement_text,created_at,updated_at"}, json=payload, headers={**_service_headers(), "Prefer": "return=representation"})
+            else:
+                response = client.post(f"{SUPABASE_URL}/rest/v1/replacement_rules?on_conflict=user_id,book_id,source_text", json={**payload, "user_id": user_id, "book_id": book_id}, headers={**_service_headers(), "Prefer": "resolution=merge-duplicates,return=representation"})
+        response.raise_for_status()
+        rows = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise CdnDataError("Could not save replacement rule") from exc
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise CdnDataError("Replacement rule was not found")
+    return rows[0]
+
+
+def delete_replacement_rule(user_id: str, book_id: str, rule_id: int) -> None:
+    _service_delete("replacement_rules", {"id": f"eq.{rule_id}", "user_id": f"eq.{user_id}", "book_id": f"eq.{book_id}"})
+
+
+def apply_replacement_rules(text: str | None, rules: list[dict]) -> str:
+    """Apply literal rules once, longest source first, without cascading replacements."""
+    value = text or ""
+    replacements = {str(rule.get("source_text")): str(rule.get("replacement_text") or "") for rule in rules if str(rule.get("source_text") or "")}
+    if not replacements:
+        return value
+    pattern = re.compile("|".join(re.escape(source) for source in sorted(replacements, key=len, reverse=True)))
+    return pattern.sub(lambda match: replacements[match.group(0)], value)
 
 
 def _rest_rows(table: str, params: dict[str, str]) -> list[dict]:

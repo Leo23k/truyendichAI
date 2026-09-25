@@ -18,21 +18,25 @@ from markupsafe import Markup, escape
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
-from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, user_from_token
+from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
+    apply_replacement_rules,
     cdn_url,
     delete_synced_novel_permanently,
+    delete_replacement_rule,
     delete_translation_memory as delete_supabase_translation_memory,
     get_synced_novel_for_management,
     load_cdn_json,
     load_chapters_index,
     load_deleted_synced_novels,
+    load_replacement_rules,
     load_translation_progress,
     load_translation_memory,
     publish_translated_chapter,
     save_translation_memory,
+    save_replacement_rule,
     set_synced_novel_deletion,
 )
 from app.database import SessionLocal, create_tables, get_db
@@ -135,12 +139,58 @@ class TTSRequest(BaseModel):
     rate: float = Field(default=1.0, ge=0.5, le=2.0)
 
 
+class ReplacementRuleRequest(BaseModel):
+    source_text: str = Field(min_length=1, max_length=300)
+    replacement_text: str = Field(default="", max_length=300)
+    rule_id: int | None = Field(default=None, ge=1)
+
+
+def _replacement_context(request: Request, book_id: str) -> tuple[list[dict], str]:
+    user = getattr(request.state, "user", None)
+    if not user:
+        return [], book_id
+    try:
+        return load_replacement_rules(user.id, book_id), book_id
+    except CdnDataError:
+        logger.exception("Could not load replacement rules")
+        return [], book_id
+
+
+def _replacement_text(request: Request, book_id: str, text: str | None) -> str:
+    rules, _ = _replacement_context(request, book_id)
+    return apply_replacement_rules(text, rules)
+
+
 class TranslateRequest(BaseModel):
     chapter_id: int | None = None
     source_url: str | None = None
     synced_slug: str | None = None
     synced_chapter_number: int | None = None
     synced_title: str | None = None
+
+
+@app.post("/api/books/{book_id}/replacement-rules")
+def upsert_reader_replacement_rule(book_id: str, payload: ReplacementRuleRequest, request: Request):
+    user = require_authenticated(request)
+    source_text = payload.source_text.strip()
+    replacement_text = payload.replacement_text.strip()
+    if not source_text:
+        raise HTTPException(status_code=422, detail="Nội dung cần thay thế không được để trống.")
+    try:
+        rule = save_replacement_rule(user.id, book_id, source_text, replacement_text, payload.rule_id)
+        return {"rule": rule, "rules": load_replacement_rules(user.id, book_id)}
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail="Không thể lưu quy tắc thay thế.") from exc
+
+
+@app.delete("/api/books/{book_id}/replacement-rules/{rule_id}")
+def remove_reader_replacement_rule(book_id: str, rule_id: int, request: Request):
+    user = require_authenticated(request)
+    try:
+        delete_replacement_rule(user.id, book_id, rule_id)
+        return {"rules": load_replacement_rules(user.id, book_id)}
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail="Không thể xóa quy tắc thay thế.") from exc
 
 
 @app.post("/api/translation-priority/{chapter_id}")
@@ -584,6 +634,9 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                 original_content=original_content,
                 translated_content="\n\n".join(translated_parts) if progressive else "",
             )
+            replacement_rules, replacement_book_id = _replacement_context(request, slug)
+            raw_display_content = chapter.translated_content if progressive else original_content
+            display_content = apply_replacement_rules(raw_display_content, replacement_rules)
             return templates.TemplateResponse(
                 request=request,
                 name="reader.html",
@@ -594,8 +647,11 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "mode": "translated",
                     "showing_translation": progressive,
                     "display_title": current.get("title"),
-                    "display_content": chapter.translated_content if progressive else original_content,
-                    "tts_chunks": split_chapter_text(chapter.translated_content) if progressive else [],
+                    "display_content": display_content,
+                    "raw_display_content": raw_display_content,
+                    "replacement_rules": replacement_rules,
+                    "replacement_book_id": replacement_book_id,
+                    "tts_chunks": split_chapter_text(display_content) if progressive else [],
                     "translation_error": None if progressive else "Chương này chưa được dịch. Hãy đồng bộ hoặc dịch trước.",
                     "translation_progress": progress,
                     "original_url": current.get("source_url"),
@@ -628,6 +684,9 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         original_content=original_content,
         translated_content=translated_content,
     )
+    replacement_rules, replacement_book_id = _replacement_context(request, slug)
+    raw_display_content = translated_content if showing_translation else original_content
+    display_content = apply_replacement_rules(raw_display_content, replacement_rules)
     return templates.TemplateResponse(
         request=request,
         name="reader.html",
@@ -638,8 +697,11 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "mode": "translated" if showing_translation else "original",
             "showing_translation": showing_translation,
             "display_title": translated_title if showing_translation else chapter.title,
-            "display_content": translated_content if showing_translation else original_content,
-            "tts_chunks": split_chapter_text(translated_content) if showing_translation else [],
+            "display_content": display_content,
+            "raw_display_content": raw_display_content,
+            "replacement_rules": replacement_rules,
+            "replacement_book_id": replacement_book_id,
+            "tts_chunks": split_chapter_text(display_content) if showing_translation else [],
             "translation_error": None,
             "original_url": current.get("source_url"),
             "synced_reader": True,
@@ -711,6 +773,7 @@ def delete_synced_book_permanently(slug: str):
 async def synced_audio_manifest(
     slug: str,
     chapter_number: int,
+    request: Request,
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
 ):
@@ -723,7 +786,7 @@ async def synced_audio_manifest(
         translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
         if partial_text.strip():
             translated_content = partial_text
-        chunks = split_chapter_text(translated_content)
+        chunks = split_chapter_text(_replacement_text(request, slug, translated_content))
         selected_voice, selected_rate = normalize_voice(voice), normalize_rate(rate)
         return {
             "voice": selected_voice,
@@ -741,7 +804,7 @@ async def synced_audio_manifest(
 
 @app.get("/truyen/{slug}/{chapter_number}/audio/segments/{index}")
 @app.get("/synced/{slug}/{chapter_number}/audio/segments/{index}", include_in_schema=False)
-async def synced_audio_segment(slug: str, chapter_number: int, index: int, voice: str = DEFAULT_EDGE_VOICE, rate: float = 1.0):
+async def synced_audio_segment(slug: str, chapter_number: int, index: int, request: Request, voice: str = DEFAULT_EDGE_VOICE, rate: float = 1.0):
     key = f"{chapter_number:03d}"
     try:
         chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
@@ -751,7 +814,7 @@ async def synced_audio_segment(slug: str, chapter_number: int, index: int, voice
         translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
         if partial_text.strip():
             translated_content = partial_text
-        chunks = split_chapter_text(translated_content)
+        chunks = split_chapter_text(_replacement_text(request, slug, translated_content))
     except (CdnDataError, KeyError, StopIteration, TypeError, ValueError):
         raise HTTPException(status_code=404, detail="Không tìm thấy đoạn audio.") from None
     if index < 0 or index >= len(chunks):
@@ -768,6 +831,7 @@ async def synced_audio_segment(slug: str, chapter_number: int, index: int, voice
 async def stream_synced_chapter_audio(
     slug: str,
     chapter_number: int,
+    request: Request,
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
 ) -> StreamingResponse:
@@ -785,7 +849,7 @@ async def stream_synced_chapter_audio(
             translated_content = partial_text
     except (CdnDataError, KeyError, StopIteration, TypeError, ValueError):
         pass
-    chunks = split_chapter_text(translated_content)
+    chunks = split_chapter_text(_replacement_text(request, slug, translated_content))
     if not chunks:
         raise HTTPException(status_code=400, detail="Hãy dịch chương trước khi nghe.")
     return StreamingResponse(
@@ -1080,6 +1144,9 @@ async def read_chapter(chapter_id: int, request: Request, db: Session = Depends(
     ).all()
     mode = request.query_params.get("mode", "translated")
     showing_translation = mode != "original" and bool(chapter.translated_content)
+    replacement_rules, replacement_book_id = _replacement_context(request, str(chapter.book_id))
+    raw_display_content = chapter.translated_content if showing_translation else chapter.original_content
+    display_content = apply_replacement_rules(raw_display_content, replacement_rules)
     return templates.TemplateResponse(
         request=request,
         name="reader.html",
@@ -1090,8 +1157,11 @@ async def read_chapter(chapter_id: int, request: Request, db: Session = Depends(
             "mode": "translated" if showing_translation else "original",
             "showing_translation": showing_translation,
             "display_title": chapter.translated_title if showing_translation and chapter.translated_title else chapter.title,
-            "display_content": chapter.translated_content if showing_translation else chapter.original_content,
-            "tts_chunks": split_chapter_text(chapter.translated_content) if showing_translation else [],
+            "display_content": display_content,
+            "raw_display_content": raw_display_content,
+            "replacement_rules": replacement_rules,
+            "replacement_book_id": replacement_book_id,
+            "tts_chunks": split_chapter_text(display_content) if showing_translation else [],
             "translation_error": translation_error,
             "chapter_list": chapter_list,
         },
@@ -1244,6 +1314,7 @@ def tts_audio_file(filename: str):
 @app.get("/chapters/{chapter_id}/audio/manifest")
 async def chapter_audio_manifest(
     chapter_id: int,
+    request: Request,
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
     db: Session = Depends(get_db),
@@ -1253,7 +1324,7 @@ async def chapter_audio_manifest(
         raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y chÆ°Æ¡ng.")
     if not chapter.translated_content:
         raise HTTPException(status_code=400, detail="HÃ£y dá»‹ch chÆ°Æ¡ng trÆ°á»›c khi sá»­ dá»¥ng chá»©c nÄƒng nghe.")
-    chunks = split_chapter_text(chapter.translated_content)
+    chunks = split_chapter_text(_replacement_text(request, str(chapter.book_id), chapter.translated_content))
     selected_voice, selected_rate = normalize_voice(voice), normalize_rate(rate)
     # This is metadata only: synthesis is intentionally deferred to each
     # segment request so opening a chapter warms only segment zero.
@@ -1272,12 +1343,13 @@ async def chapter_audio_manifest(
 async def chapter_audio_segment(
     chapter_id: int,
     index: int,
+    request: Request,
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
     db: Session = Depends(get_db),
 ):
     chapter = db.get(Chapter, chapter_id)
-    chunks = split_chapter_text(chapter.translated_content if chapter else "")
+    chunks = split_chapter_text(_replacement_text(request, str(chapter.book_id), chapter.translated_content) if chapter else "")
     if not chapter or index < 0 or index >= len(chunks):
         raise HTTPException(status_code=404, detail="Không tìm thấy đoạn audio.")
     try:
@@ -1290,6 +1362,7 @@ async def chapter_audio_segment(
 @app.get("/chapters/{chapter_id}/audio/tts/stream")
 async def stream_chapter_audio(
     chapter_id: int,
+    request: Request,
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
     db: Session = Depends(get_db),
@@ -1297,7 +1370,7 @@ async def stream_chapter_audio(
     chapter = db.get(Chapter, chapter_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy chương.")
-    chunks = split_chapter_text(chapter.translated_content or "")
+    chunks = split_chapter_text(_replacement_text(request, str(chapter.book_id), chapter.translated_content))
     if not chunks:
         raise HTTPException(status_code=400, detail="Hãy dịch chương trước khi nghe.")
     return StreamingResponse(

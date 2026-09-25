@@ -71,6 +71,7 @@
           <div x-cloak x-show="settingsPanel" @click.outside="settingsPanel = false" class="absolute right-0 mt-2 w-56 rounded-lg border border-stone-200 bg-white p-2 text-sm text-stone-900 shadow-xl">
             <label class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 hover:bg-stone-50"><input type="checkbox" data-follow-text checked> Theo dõi văn bản</label>
             <label class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 hover:bg-stone-50"><input type="checkbox" data-highlight-text checked> Highlight câu đang đọc</label>
+            <button type="button" data-replacement-settings class="block w-full rounded-md px-3 py-2 text-left hover:bg-stone-50">Thay thế từ/câu</button>
             {% if synced_reader %}
             {% if original_url %}<a href="{{ original_url }}" target="_blank" rel="noopener" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
             {% else %}
@@ -118,15 +119,33 @@
     <header class="mb-8 border-b border-stone-200 pb-5">
       <h2 itemprop="headline" class="text-xl font-semibold leading-snug sm:text-2xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#3d3a34]'">{{ display_title }}</h2>
     </header>
-    <div itemprop="articleBody" class="reader-prose">
+    <div itemprop="articleBody" data-reader-content class="reader-prose">
       {% for line in display_content.replace('\r', '').split('\n') %}{% if line.strip() %}<p class="mb-5">{{ line }}</p>{% endif %}{% endfor %}
     </div>
   </article>
+
+  <button type="button" data-selection-replacement hidden class="fixed z-50 rounded-full bg-teal-700 px-3 py-2 text-xs font-semibold text-white shadow-lg hover:bg-teal-800">Thay thế</button>
+  <section data-replacement-dialog hidden class="fixed inset-0 z-[60] flex items-end justify-center bg-stone-950/35 p-3 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="replacement-title">
+    <div class="w-full max-w-lg rounded-xl bg-white p-4 text-stone-900 shadow-2xl">
+      <div class="flex items-start justify-between gap-3"><div><h3 id="replacement-title" class="font-semibold">Thay thế trong truyện này</h3><p class="mt-1 text-xs text-stone-500">Chỉ áp dụng khi đọc và nghe truyện hiện tại.</p></div><button type="button" data-close-replacement class="rounded p-1 text-stone-500 hover:bg-stone-100" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div>
+      <p data-replacement-notice class="mt-3 hidden rounded-md px-3 py-2 text-sm" aria-live="polite"></p>
+      <form data-replacement-form class="mt-3 space-y-3">
+        <input type="hidden" name="rule_id">
+        <label class="block text-sm font-medium">Từ/câu gốc<textarea name="source_text" maxlength="300" required class="mt-1 min-h-20 w-full rounded-md border border-stone-300 px-3 py-2 text-sm"></textarea></label>
+        <label class="block text-sm font-medium">Thay bằng<textarea name="replacement_text" maxlength="300" class="mt-1 min-h-16 w-full rounded-md border border-stone-300 px-3 py-2 text-sm"></textarea></label>
+        <div class="flex justify-end gap-2"><button type="button" data-cancel-replacement class="rounded-md px-3 py-2 text-sm hover:bg-stone-100">Hủy</button><button class="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800">Lưu thay thế</button></div>
+      </form>
+      <div data-replacement-list class="mt-4 max-h-48 space-y-2 overflow-y-auto border-t border-stone-100 pt-3"></div>
+    </div>
+  </section>
+  <script id="reader-raw-content" type="application/json">{{ (raw_display_content or display_content)|tojson }}</script>
 
   <div
     data-reader-player
     data-chapter-id="{{ chapter.id }}"
     data-book-id="{{ chapter.book_id }}"
+    data-replacement-book-id="{{ replacement_book_id or chapter.book_id }}"
+    data-replacement-authenticated="{% if request.state.user %}true{% else %}false{% endif %}"
     data-source-url="{{ chapter.source_url or chapter.url or '' }}"
     data-synced-slug="{% if synced_reader %}{{ chapter.book_id }}{% endif %}"
     data-synced-chapter-number="{% if synced_reader %}{{ chapter.chapter_number }}{% endif %}"
@@ -284,6 +303,82 @@
       storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
       storage.setItem("reader.lastTitle", document.title);
       if (readerBookKey) storage.setItem(`reader.lastUrl.book.${readerBookKey}`, window.location.pathname + window.location.search);
+      const readerContent = document.querySelector("[data-reader-content]");
+      const replacementButton = document.querySelector("[data-selection-replacement]");
+      const replacementDialog = document.querySelector("[data-replacement-dialog]");
+      const replacementForm = document.querySelector("[data-replacement-form]");
+      const replacementList = document.querySelector("[data-replacement-list]");
+      const replacementNotice = document.querySelector("[data-replacement-notice]");
+      const replacementBookId = player.dataset.replacementBookId || readerBookKey;
+      const replacementAuthenticated = player.dataset.replacementAuthenticated === "true";
+      const rawContent = JSON.parse(document.querySelector("#reader-raw-content")?.textContent || '""');
+      let replacementRules = {{ (replacement_rules or [])|tojson }};
+      const escapeLiteral = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const applyReplacementRules = (value) => {
+        const map = new Map(replacementRules.filter((rule) => rule.source_text).map((rule) => [rule.source_text, rule.replacement_text || ""]));
+        const sources = [...map.keys()].sort((a, b) => b.length - a.length);
+        return sources.length ? value.replace(new RegExp(sources.map(escapeLiteral).join("|"), "g"), (match) => map.get(match)) : value;
+      };
+      const renderReaderContent = () => {
+        if (!readerContent) return;
+        const fragment = document.createDocumentFragment();
+        applyReplacementRules(rawContent).replace(/\r/g, "").split("\n").forEach((line) => {
+          if (!line.trim()) return;
+          const paragraph = document.createElement("p");
+          paragraph.className = "mb-5";
+          paragraph.textContent = line;
+          fragment.appendChild(paragraph);
+        });
+        readerContent.replaceChildren(fragment);
+      };
+      const showReplacementNotice = (message, error = false) => {
+        replacementNotice.textContent = message;
+        replacementNotice.className = `mt-3 rounded-md px-3 py-2 text-sm ${error ? "bg-red-50 text-red-700" : "bg-teal-50 text-teal-800"}`;
+      };
+      const renderReplacementList = () => {
+        replacementList.replaceChildren();
+        if (!replacementRules.length) { replacementList.textContent = "Chưa có thay thế nào cho truyện này."; replacementList.className = "mt-4 max-h-48 space-y-2 overflow-y-auto border-t border-stone-100 pt-3 text-sm text-stone-500"; return; }
+        replacementList.className = "mt-4 max-h-48 space-y-2 overflow-y-auto border-t border-stone-100 pt-3";
+        replacementRules.forEach((rule) => {
+          const item = document.createElement("div"); item.className = "flex items-start gap-2 rounded-md bg-stone-50 p-2 text-sm";
+          const text = document.createElement("button"); text.type = "button"; text.className = "min-w-0 flex-1 text-left"; text.textContent = `${rule.source_text} → ${rule.replacement_text || "(xóa)"}`;
+          text.addEventListener("click", () => { replacementForm.rule_id.value = rule.id; replacementForm.source_text.value = rule.source_text; replacementForm.replacement_text.value = rule.replacement_text || ""; replacementForm.source_text.focus(); });
+          const remove = document.createElement("button"); remove.type = "button"; remove.className = "shrink-0 text-red-600"; remove.textContent = "Xóa";
+          remove.addEventListener("click", async () => {
+            const response = await fetch(`/api/books/${encodeURIComponent(replacementBookId)}/replacement-rules/${rule.id}`, { method: "DELETE" });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) return showReplacementNotice(body.detail || "Không thể xóa thay thế.", true);
+            replacementRules = body.rules || []; renderReplacementList(); renderReaderContent(); showReplacementNotice("Đã xóa thay thế.");
+          });
+          item.append(text, remove); replacementList.appendChild(item);
+        });
+      };
+      const openReplacementDialog = (source = "") => {
+        if (!replacementAuthenticated) { replacementDialog.hidden = false; replacementForm.hidden = true; showReplacementNotice("Hãy đăng nhập để lưu thay thế riêng cho bạn.", true); return; }
+        replacementForm.hidden = false; replacementNotice.hidden = true; replacementForm.reset(); replacementForm.source_text.value = source; replacementDialog.hidden = false; renderReplacementList(); replacementForm.source_text.focus();
+      };
+      const closeReplacementDialog = () => { replacementDialog.hidden = true; replacementButton.hidden = true; };
+      document.querySelector("[data-replacement-settings]")?.addEventListener("click", () => openReplacementDialog());
+      document.querySelectorAll("[data-close-replacement], [data-cancel-replacement]").forEach((button) => button.addEventListener("click", closeReplacementDialog));
+      replacementDialog?.addEventListener("click", (event) => { if (event.target === replacementDialog) closeReplacementDialog(); });
+      replacementForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = new FormData(replacementForm);
+        const response = await fetch(`/api/books/${encodeURIComponent(replacementBookId)}/replacement-rules`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_text: form.get("source_text"), replacement_text: form.get("replacement_text"), rule_id: form.get("rule_id") ? Number(form.get("rule_id")) : null }) });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) return showReplacementNotice(body.detail || "Không thể lưu thay thế.", true);
+        replacementRules = body.rules || []; replacementForm.reset(); renderReplacementList(); renderReaderContent(); showReplacementNotice("Đã lưu và áp dụng cho chương đang mở.");
+      });
+      document.addEventListener("selectionchange", () => {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount !== 1 || !readerContent) return replacementButton.hidden = true;
+        const text = selection.toString().trim(); const range = selection.getRangeAt(0);
+        if (!text || text.length > 300 || !readerContent.contains(range.commonAncestorContainer)) return replacementButton.hidden = true;
+        const rect = range.getBoundingClientRect();
+        replacementButton.style.left = `${Math.min(window.innerWidth - 96, Math.max(8, rect.left + rect.width / 2 - 38))}px`;
+        replacementButton.style.top = `${Math.max(8, rect.top - 42)}px`; replacementButton.hidden = false;
+      });
+      replacementButton?.addEventListener("click", () => { const text = window.getSelection()?.toString().trim() || ""; openReplacementDialog(text); window.getSelection()?.removeAllRanges(); });
       const audio = player.querySelector("[data-reader-audio]");
       const hasAudio = player.dataset.hasAudio === "true" && audio;
       const playButton = player.querySelector("[data-play-toggle]");
