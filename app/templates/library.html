@@ -4,8 +4,8 @@
 {% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
 <section class="app-shell relative mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
-  <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-    <div>
+  <div class="flex flex-col gap-5">
+    <div class="pr-44 sm:pr-56">
       <p class="text-sm font-medium text-teal-700">My Novel Reader</p>
       <div class="mt-1 flex flex-wrap items-center gap-3"><h1 class="text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1><a href="/?restore=1" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore{% if deleted_books or deleted_synced_novels %} ({{ deleted_books|length + deleted_synced_novels|length }}){% endif %}</a><a href="/jobs" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100"><i data-lucide="list-restart" class="h-4 w-4"></i>Tiến trình Crawl</a></div>
     </div>
