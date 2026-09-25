@@ -119,6 +119,16 @@ def test_remote_crawl_job_is_claimed_only_while_queued() -> None:
     assert remote.patches[0][2]["status"] == "crawling"
 
 
+def test_completed_crawl_job_keeps_its_translation_worker_running() -> None:
+    class CrawlRemote:
+        def rows(self, table: str, params: dict[str, str]) -> list[dict]:
+            assert table == "remote_crawl_jobs"
+            assert params["status"] == "in.(crawling,syncing,translating,completed)"
+            return [{"id": "crawl-1"}]
+
+    assert service.remote_job_is_running(CrawlRemote(), "crawl-1") is True
+
+
 def test_stale_crawl_job_is_reclaimed_after_worker_restart() -> None:
     class CrawlRemote:
         def __init__(self) -> None:

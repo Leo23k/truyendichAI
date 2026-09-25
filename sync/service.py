@@ -359,7 +359,10 @@ def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
 
 
 def remote_job_is_running(remote: SupabaseSync, job_id: str) -> bool:
-    return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "in.(crawling,syncing,translating)", "limit": "1"}))
+    # Crawling and translating are independent workers.  A crawl job may be
+    # complete while its associated translation queue still has work to do.
+    # Only an explicitly paused/deleted/failed job must stop its translator.
+    return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "in.(crawling,syncing,translating,completed)", "limit": "1"}))
 
 
 def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None:
