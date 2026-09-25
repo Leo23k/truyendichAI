@@ -13,9 +13,9 @@ class FakeRemote:
         self.inserted.append((table, payloads, conflict))
 
 
-def test_translation_worker_concurrency_defaults_to_four_and_is_bounded(monkeypatch) -> None:
+def test_translation_worker_concurrency_defaults_to_two_and_is_bounded(monkeypatch) -> None:
     monkeypatch.delenv("TRANSLATION_WORKER_CONCURRENCY", raising=False)
-    assert service.translation_worker_concurrency() == 4
+    assert service.translation_worker_concurrency() == 2
 
     monkeypatch.setenv("TRANSLATION_WORKER_CONCURRENCY", "12")
     assert service.translation_worker_concurrency() == 4
@@ -98,7 +98,7 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
             return []
 
     remote = WorkerRemote()
-    monkeypatch.setattr(service.translator, "translate", lambda text: f"Dịch {text}")
+    monkeypatch.setattr(service.translator, "translate_batch", lambda texts: [f"Dịch {text}" for text in texts])
 
     published: list[int] = []
     monkeypatch.setattr(service, "publish_completed_translation", lambda _remote, chapter_id: published.append(chapter_id))

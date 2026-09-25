@@ -31,7 +31,17 @@ class TranslatorService:
         return restore(translated, protected)
 
     def translate_batch(self, texts: list[str]) -> list[str]:
-        return [self.translate(text) for text in texts]
+        if not texts:
+            return []
+        try:
+            response = httpx.post(f"{settings.model_service_url.rstrip('/')}/v1/translate-batch", json={"texts": texts, "beam_size": settings.model_beam_size}, timeout=settings.model_service_timeout, trust_env=False)
+            response.raise_for_status()
+            translated = response.json()["translated_texts"]
+            if not isinstance(translated, list) or len(translated) != len(texts):
+                raise ValueError("Invalid batch translation response")
+            return [normalize_text(str(value)) for value in translated]
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            raise TranslationUnavailableError("Không thể kết nối tới model service HachimiMT. Hãy kiểm tra service đang chạy.") from exc
 
     def _translate_text(self, protected: ProtectedText) -> str:
         try:

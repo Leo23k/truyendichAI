@@ -844,7 +844,7 @@ def _run_translation_watch(stop_event: threading.Event, idle_delay: float) -> No
 
 def translation_worker_concurrency() -> int:
     """Keep GPU translation parallelism bounded and configurable on the PC."""
-    return max(1, min(4, int(os.getenv("TRANSLATION_WORKER_CONCURRENCY", "4"))))
+    return max(1, min(4, int(os.getenv("TRANSLATION_WORKER_CONCURRENCY", "2"))))
 
 
 def run_watch() -> None:
