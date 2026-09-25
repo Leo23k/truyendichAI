@@ -8,6 +8,28 @@ def test_edge_tts_defaults_to_nam_minh() -> None:
     assert edge_tts_service.normalize_voice("unsupported") == "vi-VN-NamMinhNeural"
 
 
+def test_tts_chunker_preserves_natural_sentence_boundaries() -> None:
+    sentences = [f"Câu thứ {index}, có một mệnh đề ngắn để giữ nhịp đọc tự nhiên." for index in range(1, 22)]
+    text = "Ông Mr. An đo được 3.14 mét, rồi hỏi: \"Ta... vẫn ổn chứ?!\" " + " ".join(sentences)
+
+    chunks = edge_tts_service.split_chapter_text(text)
+
+    assert len(chunks) > 1
+    assert all(len(chunk) <= edge_tts_service.MAX_CHUNK_CHARS for chunk in chunks)
+    assert all(chunk[-1] in ".!?…。！？\"”'”" for chunk in chunks)
+    assert " ".join(chunks).replace("\n", " ").split() == text.split()
+    assert all("Mr." not in chunk or "Mr. An" in chunk for chunk in chunks)
+    assert all("3.14" not in chunk or "3.14 mét" in chunk for chunk in chunks)
+
+
+def test_tts_chunker_keeps_short_paragraph_and_dialogue_together() -> None:
+    text = "\"Ngươi là ai?\"\n\n\"Ta... là người canh giữ nơi này.\""
+
+    chunks = edge_tts_service.split_chapter_text(text)
+
+    assert chunks == [text]
+
+
 @pytest.mark.asyncio
 async def test_edge_tts_uses_remote_service_when_configured(monkeypatch, tmp_path) -> None:
     calls = []

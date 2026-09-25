@@ -17,8 +17,9 @@ from app.config import settings
 
 DEFAULT_EDGE_VOICE = "vi-VN-NamMinhNeural"
 SUPPORTED_EDGE_VOICES = {"vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"}
-MIN_CHUNK_CHARS = 300
-MAX_CHUNK_CHARS = 600
+MIN_CHUNK_CHARS = 100
+TARGET_CHUNK_CHARS = 360
+MAX_CHUNK_CHARS = 560
 EDGE_TTS_TIMEOUT_SECONDS = 120
 logger = logging.getLogger(__name__)
 _inflight_synthesis: dict[Path, asyncio.Task["EdgeAudio"]] = {}
@@ -184,48 +185,108 @@ async def stream_edge_tts(
         raise EdgeTTSUnavailableError("Khong the stream audio bang Microsoft Edge TTS.") from exc
 
 
-def split_long_paragraph(paragraph: str) -> list[str]:
+_TERMINAL_MARKS = ".!?…。！？"
+_STRONG_MARKS = ";:；："
+_CLOSING_MARKS = "\"'”’)]}】》」』"
+_ABBREVIATION_RE = re.compile(r"(?:\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc)|\bv\.v)\.$", re.IGNORECASE)
+
+
+def _is_sentence_period(text: str, index: int) -> bool:
+    previous = text[index - 1] if index else ""
+    following = text[index + 1] if index + 1 < len(text) else ""
+    if previous.isdigit() and following.isdigit():
+        return False
+    if previous.isalpha() and following.isalpha():
+        return False
+    return not _ABBREVIATION_RE.search(text[max(0, index - 16) : index + 1])
+
+
+def split_sentences(paragraph: str) -> list[str]:
+    """Split on natural punctuation without losing dialogue or punctuation."""
+    sentences: list[str] = []
+    start = 0
+    index = 0
+    length = len(paragraph)
+    while index < length:
+        mark = paragraph[index]
+        if mark not in _TERMINAL_MARKS and mark not in _STRONG_MARKS:
+            index += 1
+            continue
+        end = index + 1
+        if mark in _TERMINAL_MARKS:
+            while end < length and paragraph[end] in _TERMINAL_MARKS:
+                end += 1
+            if mark == "." and not _is_sentence_period(paragraph, end - 1):
+                index = end
+                continue
+        while end < length and paragraph[end] in _CLOSING_MARKS:
+            end += 1
+        if end == length or paragraph[end].isspace():
+            sentence = paragraph[start:end].strip()
+            if sentence:
+                sentences.append(sentence)
+            start = end
+        index = end
+    tail = paragraph[start:].strip()
+    if tail:
+        sentences.append(tail)
+    return sentences
+
+
+def split_long_sentence(sentence: str) -> list[str]:
+    """Use clauses, then whitespace, only when a complete sentence exceeds max."""
     pieces: list[str] = []
-    remaining = paragraph.strip()
+    remaining = sentence.strip()
     while len(remaining) > MAX_CHUNK_CHARS:
-        window = remaining[:MAX_CHUNK_CHARS]
-        split_at = max(window.rfind(mark) for mark in ("。", "！", "？", ".", "!", "?", "\n", " "))
-        if split_at < MIN_CHUNK_CHARS:
-            split_at = MAX_CHUNK_CHARS
-        pieces.append(remaining[: split_at + 1].strip())
-        remaining = remaining[split_at + 1 :].strip()
+        window = remaining[: MAX_CHUNK_CHARS + 1]
+        split_at = -1
+        for marks in (_STRONG_MARKS, ",，"):
+            candidate = max(window.rfind(mark) for mark in marks)
+            if candidate >= MIN_CHUNK_CHARS:
+                split_at = candidate + 1
+                break
+        if split_at < 0:
+            space = window.rfind(" ")
+            split_at = space if space >= MIN_CHUNK_CHARS else -1
+        if split_at < 0:
+            # An unbroken token is safer as one oversized piece than cutting
+            # a name, URL, or word in the middle.
+            return [*pieces, remaining]
+        pieces.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
     if remaining:
         pieces.append(remaining)
     return pieces
 
 
 def split_chapter_text(text: str) -> list[str]:
-    paragraphs = [part.strip() for part in re.split(r"\n\s*\n|\r\n\s*\r\n", text or "") if part.strip()]
-    if not paragraphs:
-        return []
-
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    paragraphs = [" ".join(part.split()) for part in re.split(r"\n\s*\n", normalized) if part.strip()]
     chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-
-    def flush() -> None:
-        nonlocal current, current_len
-        if current:
-            chunks.append("\n\n".join(current).strip())
-            current = []
-            current_len = 0
 
     for paragraph in paragraphs:
-        for piece in split_long_paragraph(paragraph):
-            piece_len = len(piece)
-            separator_len = 2 if current else 0
-            if current and current_len + separator_len + piece_len > MAX_CHUNK_CHARS:
-                flush()
-            current.append(piece)
-            current_len += separator_len + piece_len
-            if current_len >= MIN_CHUNK_CHARS:
-                flush()
-    flush()
+        current = ""
+        paragraph_chunks: list[str] = []
+        for sentence in split_sentences(paragraph):
+            for piece in split_long_sentence(sentence):
+                proposed = f"{current} {piece}".strip()
+                if current and len(proposed) > MAX_CHUNK_CHARS:
+                    paragraph_chunks.append(current)
+                    current = piece
+                else:
+                    current = proposed
+                if len(current) >= TARGET_CHUNK_CHARS:
+                    paragraph_chunks.append(current)
+                    current = ""
+        if current:
+            paragraph_chunks.append(current)
+        if len(paragraph_chunks) > 1 and len(paragraph_chunks[-1]) < MIN_CHUNK_CHARS and len(paragraph_chunks[-2]) < TARGET_CHUNK_CHARS and len(paragraph_chunks[-2]) + 1 + len(paragraph_chunks[-1]) <= MAX_CHUNK_CHARS:
+            paragraph_chunks[-2] = f"{paragraph_chunks[-2]} {paragraph_chunks[-1]}"
+            paragraph_chunks.pop()
+        if len(paragraph_chunks) == 1 and len(paragraph_chunks[0]) < MIN_CHUNK_CHARS and chunks and len(chunks[-1]) + 2 + len(paragraph_chunks[0]) <= MAX_CHUNK_CHARS:
+            chunks[-1] = f"{chunks[-1]}\n\n{paragraph_chunks[0]}"
+        else:
+            chunks.extend(paragraph_chunks)
     return chunks
 
 
