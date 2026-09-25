@@ -394,7 +394,7 @@
       }, { passive: true });
       document.querySelectorAll("[data-tts-index]").forEach((item) => item.addEventListener("click", () => {
         const index = Number(item.dataset.ttsIndex);
-        if (!hasAudio || !Number.isInteger(index)) return;
+        if (!hasAudio || !audio.paused || playerState === "loading" || !Number.isInteger(index)) return;
         const requestToken = ++segmentRequestToken;
         wantToPlay = true;
         (playlistReady ? Promise.resolve() : (playlistLoading || loadPlaylist(0, false, false)))
