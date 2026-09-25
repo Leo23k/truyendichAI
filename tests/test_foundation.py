@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.auth import CurrentUser
+from app import auth
 from app.main import app
 
 
@@ -41,3 +42,19 @@ def test_expired_access_token_is_refreshed(monkeypatch) -> None:
     assert response.status_code == 200
     assert "sb-access-token=fresh-access" in response.headers["set-cookie"]
     assert "sb-refresh-token=fresh-refresh" in response.headers["set-cookie"]
+
+
+def test_refresh_session_reuses_a_recent_token_exchange(monkeypatch) -> None:
+    auth._recent_refreshes.clear()
+    calls = []
+    class Response:
+        is_success = True
+        def json(self): return {"access_token": "new-access", "refresh_token": "new-refresh"}
+    class Client:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def post(self, *_args, **_kwargs): calls.append(1); return Response()
+    monkeypatch.setattr(auth.httpx, "Client", lambda **_kwargs: Client())
+    assert auth.refresh_session("same-refresh") == ("new-access", "new-refresh")
+    assert auth.refresh_session("same-refresh") == ("new-access", "new-refresh")
+    assert len(calls) == 1
