@@ -40,6 +40,29 @@ def user_from_token(token: str) -> CurrentUser | None:
             c.post(f"{URL}/rest/v1/profiles?on_conflict=id", headers={**_headers(SERVICE), "Prefer":"resolution=merge-duplicates,return=representation"}, json=payload)
     return CurrentUser(raw["id"], email, str(meta.get("full_name") or meta.get("name") or email), meta.get("avatar_url"), role)
 
+
+def refresh_session(refresh_token: str) -> tuple[str, str] | None:
+    """Exchange a valid Supabase refresh token for a new browser session."""
+    if not URL or not ANON or not refresh_token:
+        return None
+    try:
+        with httpx.Client(timeout=10, trust_env=False) as client:
+            response = client.post(
+                f"{URL}/auth/v1/token?grant_type=refresh_token",
+                headers={"apikey": ANON},
+                json={"refresh_token": refresh_token},
+            )
+        if not response.is_success:
+            return None
+        payload = response.json()
+        access_token = payload.get("access_token")
+        next_refresh_token = payload.get("refresh_token")
+        if not isinstance(access_token, str) or not isinstance(next_refresh_token, str):
+            return None
+        return access_token, next_refresh_token
+    except (httpx.HTTPError, ValueError):
+        return None
+
 def require_authenticated(request: Request) -> CurrentUser:
     user = getattr(request.state, "user", None)
     if not user: raise HTTPException(401, "Đăng nhập để tiếp tục.")

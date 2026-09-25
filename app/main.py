@@ -18,7 +18,7 @@ from markupsafe import Markup, escape
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
-from app.auth import ANON, URL as AUTH_URL, pkce, user_from_token
+from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, user_from_token
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
@@ -71,13 +71,24 @@ async def auth_guard(request: Request, call_next):
     path = request.url.path
     if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health"}:
         return await call_next(request)
-    request.state.user = user_from_token(request.cookies.get("sb-access-token", "")) if request.cookies.get("sb-access-token") else None
+    access_token = request.cookies.get("sb-access-token", "")
+    request.state.user = user_from_token(access_token) if access_token else None
+    refreshed_session: tuple[str, str] | None = None
+    if not request.state.user:
+        refreshed_session = refresh_session(request.cookies.get("sb-refresh-token", ""))
+        if refreshed_session:
+            request.state.user = user_from_token(refreshed_session[0])
     if not request.state.user:
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
     admin = path.startswith(("/jobs", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and path not in {"/api/tts"})
     if admin and request.state.user.role != "admin":
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
-    return await call_next(request)
+    response = await call_next(request)
+    if refreshed_session:
+        cookie_options = {"httponly": True, "secure": settings.app_url.startswith("https"), "samesite": "lax"}
+        response.set_cookie("sb-access-token", refreshed_session[0], **cookie_options)
+        response.set_cookie("sb-refresh-token", refreshed_session[1], **cookie_options)
+    return response
 
 @app.get("/login")
 def login():
@@ -92,7 +103,15 @@ def auth_callback(request: Request, code: str):
     with httpx.Client(timeout=15, trust_env=False) as c:
         result = c.post(f"{AUTH_URL}/auth/v1/token?grant_type=pkce", headers={"apikey": ANON}, json={"auth_code": code, "code_verifier": request.cookies.get("sb-pkce", "")})
     if not result.is_success: raise HTTPException(401, "Không thể hoàn tất đăng nhập Google.")
-    response = RedirectResponse("/", status_code=303); response.set_cookie("sb-access-token", result.json()["access_token"], httponly=True, secure=settings.app_url.startswith("https"), samesite="lax")
+    payload = result.json()
+    access_token = payload.get("access_token")
+    refresh_token = payload.get("refresh_token")
+    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
+        raise HTTPException(401, "Supabase Auth did not return a valid session.")
+    response = RedirectResponse("/", status_code=303)
+    cookie_options = {"httponly": True, "secure": settings.app_url.startswith("https"), "samesite": "lax"}
+    response.set_cookie("sb-access-token", access_token, **cookie_options)
+    response.set_cookie("sb-refresh-token", refresh_token, **cookie_options)
     response.delete_cookie("sb-pkce"); return response
 
 @app.get("/logout")
@@ -106,6 +125,7 @@ def logout(request: Request):
             pass
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie("sb-access-token")
+    response.delete_cookie("sb-refresh-token")
     return response
 
 
