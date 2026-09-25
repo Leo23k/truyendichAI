@@ -5,7 +5,8 @@
 {% block content %}
 <style>
   .reader-bottom-bar{transition:transform 190ms ease,opacity 190ms ease}
-  .reader-bottom-bar.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem))}.reader-tts-active{background:rgba(13,148,136,.14);font-weight:600;border-radius:.25rem;transition:background .2s}
+  .reader-bottom-bar.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem))}.reader-tts-active{background:rgba(20,184,166,.13);font-weight:600;border-radius:.3rem;transition:background 150ms ease,font-weight 150ms ease}
+  .reader-tts-chunk{display:block;margin-bottom:1.35em;white-space:pre-line;scroll-margin-block:28vh}
   .reader-header{transition:transform 190ms ease,opacity 190ms ease}
   .reader-header.is-hidden{opacity:0;transform:translateY(-110%);pointer-events:none}
   .reader-chapter-nav{transition:transform 190ms ease,opacity 190ms ease}
@@ -20,29 +21,29 @@
 </style>
 
 <div
-  x-data="{ theme: localStorage.getItem('reader-theme') || 'paper', size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v4') || 1.5), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', fontPanel: false, settingsPanel: false }"
-  x-init="$watch('theme', value => localStorage.setItem('reader-theme', value)); $watch('size', value => localStorage.setItem('reader-size', value)); $watch('lineHeight', value => localStorage.setItem('reader-line-height-v4', value)); $watch('font', value => localStorage.setItem('reader-font', value))"
-  :class="theme === 'dark' ? 'bg-[#1d211f] text-[#deddd2]' : theme === 'gray' ? 'bg-[#4b4d48] text-[#eeece2]' : 'bg-[#f4f0e5] text-[#3d3a34]'"
+  x-data="{ theme: (localStorage.getItem('reader-theme') || 'paper') === 'gray' ? 'sepia' : (localStorage.getItem('reader-theme') || 'paper'), size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', fontPanel: false, settingsPanel: false }"
+  x-init="$watch('theme', value => localStorage.setItem('reader-theme', value)); $watch('size', value => localStorage.setItem('reader-size', value)); $watch('lineHeight', value => localStorage.setItem('reader-line-height-v5', value)); $watch('font', value => localStorage.setItem('reader-font', value))"
+  :class="theme === 'dark' ? 'bg-[#1d211f] text-[#deddd2]' : theme === 'sepia' ? 'bg-[#ebe1ca] text-[#493d30]' : 'bg-[#faf8f3] text-[#302d28]'"
   class="min-h-screen pb-36"
 >
-  <header data-reader-header class="reader-header sticky top-0 z-30 border-b backdrop-blur" :style="theme === 'paper' ? 'background-color: rgba(244, 240, 229, .9); border-color: rgba(210, 202, 186, .8)' : theme === 'gray' ? 'background-color: rgba(75, 77, 72, .9); border-color: rgba(125, 127, 117, .7)' : 'background-color: rgba(29, 33, 31, .9); border-color: rgba(75, 82, 77, .8)'">
+  <header data-reader-header class="reader-header sticky top-0 z-30 border-b backdrop-blur" :style="theme === 'paper' ? 'background-color: rgba(250, 248, 243, .9); border-color: rgba(220, 214, 203, .8)' : theme === 'sepia' ? 'background-color: rgba(235, 225, 202, .9); border-color: rgba(190, 168, 136, .7)' : 'background-color: rgba(29, 33, 31, .9); border-color: rgba(75, 82, 77, .8)'">
     <div class="mx-auto grid max-w-5xl grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 sm:flex sm:justify-between sm:gap-4 sm:px-6 sm:py-3">
-      <a href="{{ back_url or '/books/' ~ chapter.book_id }}" class="icon-button" :class="theme === 'paper' ? 'text-stone-600' : 'text-stone-200'" aria-label="Quay lại chi tiết truyện">
+      <a href="{{ back_url or '/books/' ~ chapter.book_id }}" class="icon-button" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Quay lại chi tiết truyện">
         <i data-lucide="arrow-left" class="h-5 w-5"></i>
       </a>
       <div class="min-w-0 flex-1 text-center">
-        <h1 class="line-clamp-2 text-sm font-semibold leading-5 sm:truncate" :class="theme === 'paper' ? 'text-stone-900' : 'text-stone-100'">{{ display_title }}</h1>
-        <p class="mt-0.5 text-xs" :class="theme === 'paper' ? 'text-stone-500' : 'text-stone-300'">{% if showing_translation %}Bản dịch{% else %}Bản gốc{% endif %}</p>
+        <h1 class="line-clamp-2 text-sm font-semibold leading-5 sm:truncate" :class="theme === 'dark' ? 'text-stone-100' : 'text-stone-900'">{{ display_title }}</h1>
+        <p class="mt-0.5 text-xs" :class="theme === 'dark' ? 'text-stone-300' : 'text-stone-500'">{% if showing_translation %}Bản dịch{% else %}Bản gốc{% endif %}</p>
       </div>
       <div class="flex shrink-0 items-center gap-0 sm:gap-1">
-        <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'paper' ? 'text-stone-600' : 'text-stone-200'" @click="theme = theme === 'paper' ? 'gray' : theme === 'gray' ? 'dark' : 'paper'" aria-label="Đổi nền đọc">
+        <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'paper' || theme === 'sepia' ? 'text-stone-600' : 'text-stone-200'" @click="theme = theme === 'paper' ? 'sepia' : theme === 'sepia' ? 'dark' : 'paper'" aria-label="Đổi nền đọc">
           <i data-lucide="palette" class="h-5 w-5"></i>
         </button>
-        <button type="button" data-toc-button class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'paper' ? 'text-stone-600' : 'text-stone-200'" aria-label="Mục lục">
+        <button type="button" data-toc-button class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Mục lục">
           <i data-lucide="list" class="h-5 w-5"></i>
         </button>
         <div class="relative">
-          <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'paper' ? 'text-stone-600' : 'text-stone-200'" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Kiểu chữ và giãn dòng">
+          <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" @click="fontPanel = !fontPanel; settingsPanel = false" aria-label="Kiểu chữ và giãn dòng">
             <i data-lucide="type" class="h-5 w-5"></i>
           </button>
           <div x-cloak x-show="fontPanel" @click.outside="fontPanel = false" class="absolute right-0 mt-2 w-64 rounded-lg border border-stone-200 bg-white p-3 text-stone-900 shadow-xl">
@@ -52,7 +53,7 @@
               <button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.min(32, size + 1)">A+</button>
             </div>
             <label class="mt-4 block text-xs font-medium text-stone-600">Giãn dòng <span class="float-right" x-text="lineHeight.toFixed(2)"></span>
-              <input class="reader-range mt-2 w-full" type="range" min="0.75" max="2.2" step="0.05" x-model.number="lineHeight">
+              <input class="reader-range mt-2 w-full" type="range" min="1.5" max="2.1" step="0.05" x-model.number="lineHeight">
             </label>
             <label class="mt-4 block text-xs font-medium text-stone-600">Phông chữ
               <select class="mt-2 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-stone-900" x-model="font">
@@ -65,11 +66,12 @@
           </div>
         </div>
         <div class="relative">
-          <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'paper' ? 'text-stone-600' : 'text-stone-200'" @click="settingsPanel = !settingsPanel; fontPanel = false" aria-label="Cài đặt đọc">
+          <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" @click="settingsPanel = !settingsPanel; fontPanel = false" aria-label="Cài đặt đọc">
             <i data-lucide="settings" class="h-5 w-5"></i>
           </button>
           <div x-cloak x-show="settingsPanel" @click.outside="settingsPanel = false" class="absolute right-0 mt-2 w-56 rounded-lg border border-stone-200 bg-white p-2 text-sm text-stone-900 shadow-xl">
             <label class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 hover:bg-stone-50"><input type="checkbox" data-follow-text checked> Theo dõi văn bản</label>
+            <label class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 hover:bg-stone-50"><input type="checkbox" data-highlight-text checked> Highlight câu đang đọc</label>
             {% if synced_reader %}
             {% if original_url %}<a href="{{ original_url }}" target="_blank" rel="noopener" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
             {% else %}
@@ -113,14 +115,16 @@
     <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-teal-100"><div data-translation-bar class="h-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </section>
 
-  <article class="reader-content mx-auto max-w-3xl px-5 py-10 sm:px-6 sm:py-14" lang="vi" itemscope itemtype="https://schema.org/Article" :style="`font-size: ${size}px; line-height: ${lineHeight}; font-family: ${font}`">
+  <article class="reader-content mx-auto max-w-4xl px-5 py-10 sm:px-8 sm:py-14" lang="vi" itemscope itemtype="https://schema.org/Article" :style="`font-size: ${size}px; line-height: ${lineHeight}; font-family: ${font}`">
     <header class="mb-8 border-b border-stone-200 pb-5">
-      <h2 itemprop="headline" class="text-xl font-semibold leading-snug sm:text-2xl" :class="theme === 'paper' ? 'text-[#3d3a34]' : 'text-[#f0eee3]'">{{ display_title }}</h2>
+      <h2 itemprop="headline" class="text-xl font-semibold leading-snug sm:text-2xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#3d3a34]'">{{ display_title }}</h2>
     </header>
     <div itemprop="articleBody" class="reader-prose">
-      {% for line in display_content.replace('\r', '').split('\n') %}
-      {% if line.strip() %}<span data-tts-index="{{ loop.index0 }}" class="cursor-pointer">{{ line }}</span>{% endif %}<br>
-      {% endfor %}
+      {% if showing_translation and tts_chunks %}
+      {% for chunk in tts_chunks %}<span data-tts-index="{{ loop.index0 }}" class="reader-tts-chunk cursor-pointer">{{ chunk }}</span>{% endfor %}
+      {% else %}
+      {% for line in display_content.replace('\r', '').split('\n') %}{% if line.strip() %}<p class="mb-5">{{ line }}</p>{% endif %}{% endfor %}
+      {% endif %}
     </div>
   </article>
 
@@ -352,6 +356,8 @@
       let playlistLoading = null;
       let nextAudio = null;
       let audioLoadToken = 0;
+      let segmentRequestToken = 0;
+      let playlistLoadToken = 0;
       let streamingFirstSegment = false;
       let priorityRequested = false;
       const voiceSessions = new Map();
@@ -360,18 +366,41 @@
       let playerState = "idle";
       let wantToPlay = false;
       const followText = document.querySelector("[data-follow-text]");
+      const highlightText = document.querySelector("[data-highlight-text]");
       let followPausedUntil = 0;
+      let suppressFollowPauseUntil = 0;
+      let currentPlayingChunkIndex = null;
+      if (followText) followText.checked = storage.getItem("reader.followText") !== "false";
+      if (highlightText) highlightText.checked = storage.getItem("reader.highlightText") !== "false";
       const highlightSegment = (index) => {
         document.querySelectorAll("[data-tts-index].reader-tts-active").forEach((item) => item.classList.remove("reader-tts-active"));
         const target = document.querySelector(`[data-tts-index="${index}"]`);
-        if (!target || !followText?.checked) return;
+        if (!target || !highlightText?.checked) return;
         target.classList.add("reader-tts-active");
-        if (Date.now() >= followPausedUntil) target.scrollIntoView({ behavior: "smooth", block: "center" });
+        const rect = target.getBoundingClientRect();
+        const outsideViewport = rect.top < window.innerHeight * 0.18 || rect.bottom > window.innerHeight * 0.82;
+        if (followText?.checked && Date.now() >= followPausedUntil && outsideViewport) {
+          suppressFollowPauseUntil = Date.now() + 750;
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       };
-      window.addEventListener("scroll", () => { followPausedUntil = Date.now() + 7000; }, { passive: true });
+      followText?.addEventListener("change", () => storage.setItem("reader.followText", String(followText.checked)));
+      highlightText?.addEventListener("change", () => {
+        storage.setItem("reader.highlightText", String(highlightText.checked));
+        highlightSegment(currentPlayingChunkIndex);
+      });
+      window.addEventListener("scroll", () => {
+        if (Date.now() >= suppressFollowPauseUntil) followPausedUntil = Date.now() + 8000;
+      }, { passive: true });
       document.querySelectorAll("[data-tts-index]").forEach((item) => item.addEventListener("click", () => {
         const index = Number(item.dataset.ttsIndex);
-        if (playlistReady && Number.isInteger(index) && playlist[index]) setAudioSegment(index, 0, true);
+        if (!hasAudio || !Number.isInteger(index)) return;
+        const requestToken = ++segmentRequestToken;
+        wantToPlay = true;
+        (playlistReady ? Promise.resolve() : (playlistLoading || loadPlaylist(0, false, false)))
+          .then(() => ensureSegment(index))
+          .then(() => { if (requestToken === segmentRequestToken && wantToPlay && playlist[index]) setAudioSegment(index, 0, true); })
+          .catch(() => setPlayerState("error"));
       }));
 
       const setPlayerState = (state) => {
@@ -472,12 +501,13 @@
 
       const setAudioSegment = (index, offset = 0, autoplay = false, resetRetry = true) => {
         if (!hasAudio || !playlist[index]) return;
+        segmentRequestToken += 1;
         const loadToken = ++audioLoadToken;
         currentSegmentIndex = index;
-        highlightSegment(index);
         pendingSegmentOffset = 0;
         if (resetRetry) audioRetryUsed = false;
         audio.pause();
+        audio.dataset.ttsIndex = String(index);
         audio.src = playlist[index].objectUrl || playlist[index].url;
         audio.playbackRate = 1;
         audio.onloadedmetadata = () => {
@@ -501,20 +531,22 @@
         const bounded = Math.max(0, Math.min(time, Math.max(0, totalDuration - 0.25)));
         const index = findSegmentIndex(bounded);
         const offset = bounded - segmentStarts[index];
+        const requestToken = ++segmentRequestToken;
         currentSegmentIndex = index;
         pendingSegmentOffset = offset;
         if (playlist[index].objectUrl) {
-          setAudioSegment(index, offset, autoplay, resetRetry);
+          if (requestToken === segmentRequestToken) setAudioSegment(index, offset, autoplay, resetRetry);
           return;
         }
         if (autoplay) setPlayerState("loading");
         ensureSegment(index)
-          .then(() => setAudioSegment(index, offset, autoplay && wantToPlay, resetRetry))
+          .then(() => { if (requestToken === segmentRequestToken) setAudioSegment(index, offset, autoplay && wantToPlay, resetRetry); })
           .catch(() => setPlayerState("error"));
       };
 
       const loadPlaylist = (resumeAt = 0, autoplay = false, selectSegment = true) => {
         if (!hasAudio) return Promise.resolve();
+        const loadToken = ++playlistLoadToken;
         stopFallbackSpeech();
         playlistReady = false;
         const cachedSession = voiceSessions.get(voiceSessionKey());
@@ -533,6 +565,7 @@
             return response.json();
           })
           .then((manifest) => {
+            if (loadToken !== playlistLoadToken) return;
             playlist = (manifest.segments || []).map((segment) => ({ ...segment, status: "idle", objectUrl: null }));
             segmentStarts = [];
             totalDuration = Number(manifest.total_duration || 0);
@@ -555,6 +588,7 @@
             });
           })
           .catch((error) => {
+            if (loadToken !== playlistLoadToken) return;
             playlistReady = false;
             console.warn("Không thể tải audio TTS", error);
             setPlayerState("error");
@@ -568,6 +602,7 @@
         // that permission on slower networks and leaves the Play button stuck.
         streamingFirstSegment = true;
         audio.pause();
+        audio.dataset.ttsIndex = "0";
         audio.src = buildStreamUrl();
         audio.playbackRate = 1;
         audio.load();
@@ -583,6 +618,7 @@
       };
 
       const playCurrent = () => {
+        const requestToken = ++segmentRequestToken;
         wantToPlay = true;
         if (playlistReady && audio.src && playerState === "paused") return audio.play().catch(() => setPlayerState("error"));
         setPlayerState("loading");
@@ -593,7 +629,7 @@
         }
         (playlistReady ? Promise.resolve() : loadPlaylist(0, false, false))
           .then(() => ensureSegment(currentSegmentIndex))
-          .then(() => { if (wantToPlay) setAudioSegment(currentSegmentIndex, pendingSegmentOffset || audio.currentTime || 0, true); else setPlayerState("paused"); })
+          .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(currentSegmentIndex, pendingSegmentOffset || audio.currentTime || 0, true); else if (!wantToPlay) setPlayerState("paused"); })
           .catch((error) => { console.warn("Không thể tải audio TTS", error); setPlayerState("error"); });
       };
 
@@ -888,6 +924,8 @@
 
       const reloadAudio = (resumeAt = 0, autoplay = false) => {
         if (!hasAudio) return;
+        segmentRequestToken += 1;
+        audioLoadToken += 1;
         wantToPlay = autoplay;
         audio.pause();
         audio.removeAttribute("src");
@@ -926,6 +964,12 @@
             requestTranslationPriority(player.dataset.nextQueueChapterId, 80);
           }
         });
+        audio.addEventListener("playing", () => {
+          const index = Number(audio.dataset.ttsIndex);
+          if (!Number.isInteger(index)) return;
+          currentPlayingChunkIndex = index;
+          highlightSegment(currentPlayingChunkIndex);
+        });
         audio.addEventListener("pause", () => {
           if (playerState !== "loading") setPlayerState("paused");
           saveState();
@@ -955,8 +999,9 @@
                   return;
                 }
                 currentSegmentIndex = 1;
+                const requestToken = ++segmentRequestToken;
                 return ensureSegment(1).then(() => {
-                  if (wantToPlay) setAudioSegment(1, 0, true);
+                  if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(1, 0, true);
                 });
               })
               .catch(() => setPlayerState("error"));
@@ -968,8 +1013,9 @@
           }
           if (currentSegmentIndex < playlist.length - 1) {
             setPlayerState("loading");
+            const requestToken = ++segmentRequestToken;
             ensureSegment(currentSegmentIndex + 1)
-              .then(() => { if (wantToPlay) setAudioSegment(currentSegmentIndex + 1, 0, true); })
+              .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(currentSegmentIndex + 1, 0, true); })
               .catch(() => setPlayerState("error"));
           } else {
             wantToPlay = false;
