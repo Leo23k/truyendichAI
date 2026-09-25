@@ -3,13 +3,13 @@
 {% block header %}{% endblock %}
 {% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
-<section class="app-shell relative mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
+<section class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
   <div class="flex flex-col gap-5">
-    <div class="pr-44 sm:pr-56">
+    <div>
       <p class="text-sm font-medium text-teal-700">My Novel Reader</p>
-      <div class="mt-1 flex flex-wrap items-center gap-3"><h1 class="text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1><a href="/?restore=1" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore{% if deleted_books or deleted_synced_novels %} ({{ deleted_books|length + deleted_synced_novels|length }}){% endif %}</a><a href="/jobs" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100"><i data-lucide="list-restart" class="h-4 w-4"></i>Tiến trình Crawl</a></div>
+      <div class="mt-1 flex flex-wrap items-center gap-3"><h1 class="text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1>{% if request.state.user.role == 'admin' %}<a href="/?restore=1" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore{% if deleted_books or deleted_synced_novels %} ({{ deleted_books|length + deleted_synced_novels|length }}){% endif %}</a><a href="/jobs" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100"><i data-lucide="list-restart" class="h-4 w-4"></i>Tiến trình Crawl</a>{% endif %}</div>
     </div>
-    <div class="absolute right-5 top-5 flex items-center gap-3 sm:right-7 sm:top-7 lg:right-8 lg:top-8"><div class="flex min-w-0 items-center gap-2"><img src="{{ request.state.user.avatar_url or '' }}" alt="" class="h-9 w-9 rounded-full bg-stone-200" onerror="this.style.display='none'"><span class="hidden max-w-40 truncate text-sm font-medium sm:inline">{{ request.state.user.display_name }}</span>{% if request.state.user.role == 'admin' %}<span class="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800">Admin</span>{% endif %}</div><a href="/logout" class="rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50">Đăng xuất</a></div>
+    <div class="flex justify-end"><div class="flex items-center gap-3"><div class="flex min-w-0 items-center gap-2"><img src="{{ request.state.user.avatar_url or '' }}" alt="" class="h-9 w-9 rounded-full bg-stone-200" onerror="this.style.display='none'"><span class="max-w-40 truncate text-sm font-medium">{{ request.state.user.display_name }}</span>{% if request.state.user.role == 'admin' %}<span class="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800">Admin</span>{% endif %}</div><a href="/logout" class="rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50">Đăng xuất</a></div></div>
     <div data-crawl-progress class="w-full lg:max-w-2xl">
       <form
         action="/search"
@@ -48,7 +48,7 @@
 
   <div id="lookup-results" class="mt-6" aria-live="polite"></div>
 
-  {% if request.query_params.get('restore') %}
+  {% if request.state.user.role == 'admin' and request.query_params.get('restore') %}
   <section class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4"><h2 class="font-semibold text-amber-950">Truyện đang chờ khôi phục</h2>{% for book in deleted_books %}<div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-white p-3"><span class="font-medium text-stone-900">{{ book.translated_title or book.title }}</span><div class="flex gap-2"><form action="/books/{{ book.id }}/restore" method="post"><button class="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white">Khôi phục</button></form><form action="/books/{{ book.id }}/delete-permanently" method="post" onsubmit="return confirm('Xóa vĩnh viễn truyện này?');"><button class="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700">Xóa vĩnh viễn</button></form></div></div>{% endfor %}{% for book in deleted_synced_novels %}<div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-white p-3"><span class="font-medium text-stone-900">{{ book.title }}</span><div class="flex gap-2"><form action="/synced/{{ book.slug }}/restore" method="post"><button class="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white">Khôi phục</button></form><form action="/synced/{{ book.slug }}/delete-permanently" method="post" onsubmit="return confirm('Xóa vĩnh viễn truyện này?');"><button class="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700">Xóa vĩnh viễn</button></form></div></div>{% endfor %}{% if not deleted_books and not deleted_synced_novels %}<p class="mt-2 text-sm text-amber-800">Không có truyện nào chờ khôi phục.</p>{% endif %}</section>
   {% endif %}
 
@@ -83,7 +83,7 @@
               <i data-lucide="book-open" class="h-4 w-4"></i>
               <span>Đọc</span>
             </a>
-            <form action="/books/{{ book.id }}/update" method="post">
+            {% if request.state.user.role == 'admin' %}<form action="/books/{{ book.id }}/update" method="post">
               <button type="submit" title="Cập nhật chương mới" class="icon-button h-9 w-9 text-stone-600 hover:bg-stone-100" aria-label="Cập nhật chương mới">
                 <i data-lucide="refresh-cw" class="h-4 w-4"></i>
               </button>
@@ -92,7 +92,7 @@
               <button type="submit" title="Xóa truyện" class="icon-button h-9 w-9 text-red-600 hover:bg-red-50" aria-label="Xóa truyện">
                 <i data-lucide="trash-2" class="h-4 w-4"></i>
               </button>
-            </form>
+            </form>{% endif %}
           </div>
         </div>
       </div>
@@ -115,8 +115,8 @@
           <div class="flex flex-wrap items-center justify-end gap-2">
             <a data-book-continue-reading="{{ novel.slug }}" hidden href="#" class="inline-flex h-9 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 text-sm font-medium text-teal-800 hover:bg-teal-100"><i data-lucide="bookmark-check" class="h-4 w-4"></i><span>Đọc tiếp</span></a>
             <a href="/synced/{{ novel.slug }}" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="book-open" class="h-4 w-4"></i><span>Đọc</span></a>
-            <form action="/synced/{{ novel.slug }}/update" method="post"><button type="submit" title="Cập nhật chương mới" class="icon-button h-9 w-9 text-stone-600 hover:bg-stone-100" aria-label="Cập nhật chương mới"><i data-lucide="refresh-cw" class="h-4 w-4"></i></button></form>
-            <form action="/synced/{{ novel.slug }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');"><button type="submit" title="Xóa truyện" class="icon-button h-9 w-9 text-red-600 hover:bg-red-50" aria-label="Xóa truyện"><i data-lucide="trash-2" class="h-4 w-4"></i></button></form>
+            {% if request.state.user.role == 'admin' %}<form action="/synced/{{ novel.slug }}/update" method="post"><button type="submit" title="Cập nhật chương mới" class="icon-button h-9 w-9 text-stone-600 hover:bg-stone-100" aria-label="Cập nhật chương mới"><i data-lucide="refresh-cw" class="h-4 w-4"></i></button></form>
+            <form action="/synced/{{ novel.slug }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');"><button type="submit" title="Xóa truyện" class="icon-button h-9 w-9 text-red-600 hover:bg-red-50" aria-label="Xóa truyện"><i data-lucide="trash-2" class="h-4 w-4"></i></button></form>{% endif %}
           </div>
         </div>
       </div>
