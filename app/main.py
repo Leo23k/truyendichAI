@@ -238,7 +238,10 @@ def _gmt7(value: object) -> str:
 
 def _crawl_job_cards() -> list[dict]:
     remote = SupabaseSync()
-    jobs = remote.rows("remote_crawl_jobs", {"select": "id,source_url,status,error,result,started_at,created_at,updated_at", "status": "in.(queued,crawling,syncing,translating,paused,failed)", "order": "updated_at.desc"})
+    # The crawler and translator are separate workers. A crawl job can therefore
+    # reach `completed` while rows it owns are still waiting in translation_queue.
+    # Keep those cards visible until their translation work has also finished.
+    jobs = remote.rows("remote_crawl_jobs", {"select": "id,source_url,status,error,result,started_at,created_at,updated_at", "status": "in.(queued,crawling,syncing,translating,paused,completed,failed)", "order": "updated_at.desc"})
     cards: list[dict] = []
     for job in jobs:
         result = job.get("result") if isinstance(job.get("result"), dict) else {}
@@ -250,13 +253,17 @@ def _crawl_job_cards() -> list[dict]:
         chapters = remote.all_rows("chapters", {"select": "id,chapter_number,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.desc"}) if novel else []
         queues = remote.rows("translation_queue", {"select": "status,chapter_id", "crawl_job_id": f"eq.{job['id']}"})
         states = {state: sum(1 for row in queues if row.get("status") == state) for state in ("queued", "translating", "completed", "failed", "paused")}
+        has_pending_translation = bool(states["queued"] or states["translating"])
+        if job.get("status") == "completed" and not has_pending_translation:
+            continue
         legacy_job = str(job.get("started_at") or job.get("created_at") or "") < "2026-09-24T12:30:00"
         if not queues and chapters and legacy_job:
             # Jobs created before crawl_job_id existed still own this novel by result.book_id.
             states["completed"] = sum(bool(row.get("translated")) for row in chapters)
             states["queued"] = len(chapters) - states["completed"]
         current = [row for row in chapters if row.get("id") in {queue.get("chapter_id") for queue in queues if queue.get("status") == "translating"}]
-        job.update({"result": result, "title": result.get("title") or novel.get("title") or _source_name(str(job["source_url"])), "source_name": _source_name(str(job["source_url"])), "novel": novel, "crawl_total": result.get("total_raw"), "crawl_done": result.get("raw_loaded", 0), "queue": states, "current_chapters": [row.get("chapter_number") for row in current[:3]], "updated_display": _gmt7(job.get("updated_at"))})
+        display_status = "translating" if job.get("status") == "completed" and has_pending_translation else job.get("status")
+        job.update({"result": result, "title": result.get("title") or novel.get("title") or _source_name(str(job["source_url"])), "source_name": _source_name(str(job["source_url"])), "novel": novel, "crawl_total": result.get("total_raw"), "crawl_done": result.get("raw_loaded", 0), "queue": states, "current_chapters": [row.get("chapter_number") for row in current[:3]], "display_status": display_status, "updated_display": _gmt7(job.get("updated_at"))})
         cards.append(job)
     return cards
 
@@ -331,7 +338,7 @@ def control_crawl_job(job_id: str, action: str, request: Request):
         remote.delete_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"})
         message = "Đã xóa tiến trình và dữ liệu truyện liên quan."
     elif action == "pause":
-        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}", "status": "in.(queued,crawling,syncing,translating)"}, {"status": "paused"})
+        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}", "status": "in.(queued,crawling,syncing,translating,completed)"}, {"status": "paused"})
         remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "eq.queued"}, {"status": "paused"})
         message = "Đã tạm dừng tiến trình."
     else:
