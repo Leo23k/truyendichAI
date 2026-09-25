@@ -1,15 +1,24 @@
 {% extends "base.html" %}
-{% block title %}Thư viện | My Novel Reader{% endblock %}
+{% block title %}Thư viện{% endblock %}
 {% block header %}{% endblock %}
 {% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
 <section class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
-  <div class="flex flex-col gap-5">
-    <div>
-      <p class="text-sm font-medium text-teal-700">My Novel Reader</p>
-      <div class="mt-1 flex flex-wrap items-center gap-3"><h1 class="text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1>{% if request.state.user.role == 'admin' %}<a href="/?restore=1" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore{% if deleted_books or deleted_synced_novels %} ({{ deleted_books|length + deleted_synced_novels|length }}){% endif %}</a><a href="/jobs" title="Tìm truyện để crawl" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="plus" class="h-4 w-4"></i>Thêm truyện</a>{% endif %}</div>
+  <div class="relative flex flex-col gap-4">
+    <div class="pr-12 sm:pr-64">
+      <div class="flex flex-wrap items-center gap-3"><h1 class="text-3xl font-semibold tracking-tight text-stone-950">Thư viện</h1>{% if request.state.user.role == 'admin' %}<a href="/?restore=1" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore{% if deleted_books or deleted_synced_novels %} ({{ deleted_books|length + deleted_synced_novels|length }}){% endif %}</a><a href="/jobs" title="Tìm truyện để crawl" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="plus" class="h-4 w-4"></i>Thêm truyện</a>{% endif %}</div>
     </div>
-    <div class="flex justify-end"><div class="flex items-center gap-3"><div class="flex min-w-0 items-center gap-2"><img src="{{ request.state.user.avatar_url or '' }}" alt="" class="h-9 w-9 rounded-full bg-stone-200" onerror="this.style.display='none'"><span class="max-w-40 truncate text-sm font-medium">{{ request.state.user.display_name }}</span>{% if request.state.user.role == 'admin' %}<span class="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800">Admin</span>{% endif %}</div><a href="/logout" class="rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50">Đăng xuất</a></div></div>
+    <div x-data="{ open: false }" @click.outside="open = false" class="absolute right-0 top-0 z-20">
+      <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex min-h-11 items-center gap-2 rounded-xl px-1.5 text-left hover:bg-stone-50" aria-label="Mở menu tài khoản">
+        <span class="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-teal-700 text-sm font-semibold text-white"><span>{{ request.state.user.display_name[:1]|upper }}</span>{% if request.state.user.avatar_url %}<img src="{{ request.state.user.avatar_url }}" alt="" class="absolute inset-0 h-full w-full object-cover" onerror="this.remove()">{% endif %}</span>
+        <span class="hidden max-w-40 truncate text-sm font-medium text-stone-800 sm:block">{{ request.state.user.display_name }}</span>
+        <i data-lucide="chevron-down" class="hidden h-4 w-4 text-stone-500 sm:block"></i>
+      </button>
+      <div x-cloak x-show="open" x-transition.origin.top.right class="absolute right-0 mt-2 w-64 max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-xl border border-stone-200 bg-white shadow-xl">
+        <div class="border-b border-stone-100 px-4 py-3"><p class="truncate text-sm font-semibold text-stone-900">{{ request.state.user.display_name }}</p>{% if request.state.user.email %}<p class="mt-0.5 truncate text-xs text-stone-500">{{ request.state.user.email }}</p>{% endif %}</div>
+        <a href="/logout" class="flex min-h-11 items-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
+      </div>
+    </div>
     <div x-data="{ query: '' }" class="w-full max-w-sm">
       <form
         action="/search"
