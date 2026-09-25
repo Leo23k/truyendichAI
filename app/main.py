@@ -368,6 +368,36 @@ def control_workers(target: str, action: str, request: Request):
     return response
 
 
+@app.post("/jobs/translations/{queue_id}/retry")
+def retry_failed_translation(queue_id: str, request: Request):
+    remote = SupabaseSync()
+    rows = remote.rows(
+        "translation_queue",
+        {"select": "id,chapter_id", "id": f"eq.{queue_id}", "status": "eq.failed", "limit": "1"},
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Không tìm thấy chương dịch bị lỗi.")
+    queue = rows[0]
+    now = datetime.now(timezone.utc).isoformat()
+    remote.patch_rows(
+        "chapter_chunks",
+        {"chapter_id": f"eq.{queue['chapter_id']}"},
+        {"status": "queued", "translated_text": None},
+    )
+    remote.patch_rows(
+        "translation_queue",
+        {"id": f"eq.{queue_id}", "status": "eq.failed"},
+        {"status": "queued", "current_chunk": 0, "updated_at": now},
+    )
+    response = templates.TemplateResponse(
+        request=request,
+        name="jobs.html",
+        context=_jobs_page_context(partial=True, toast="Đã đưa chương lỗi vào hàng đợi dịch lại."),
+    )
+    response.headers["HX-Trigger"] = "jobsChanged"
+    return response
+
+
 @app.post("/jobs/{job_id}/{action}")
 def control_crawl_job(job_id: str, action: str, request: Request):
     if action not in {"pause", "resume", "retry", "delete"}:
