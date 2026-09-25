@@ -5,7 +5,7 @@
 {% block content %}
 <style>
   .reader-bottom-bar{transition:transform 190ms ease,opacity 190ms ease}
-  .reader-bottom-bar.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem))}
+  .reader-bottom-bar.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem))}.reader-tts-active{background:rgba(13,148,136,.14);font-weight:600;border-radius:.25rem;transition:background .2s}
   .reader-header{transition:transform 190ms ease,opacity 190ms ease}
   .reader-header.is-hidden{opacity:0;transform:translateY(-110%);pointer-events:none}
   .reader-chapter-nav{transition:transform 190ms ease,opacity 190ms ease}
@@ -69,6 +69,7 @@
             <i data-lucide="settings" class="h-5 w-5"></i>
           </button>
           <div x-cloak x-show="settingsPanel" @click.outside="settingsPanel = false" class="absolute right-0 mt-2 w-56 rounded-lg border border-stone-200 bg-white p-2 text-sm text-stone-900 shadow-xl">
+            <label class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 hover:bg-stone-50"><input type="checkbox" data-follow-text checked> Theo dõi văn bản</label>
             {% if synced_reader %}
             {% if original_url %}<a href="{{ original_url }}" target="_blank" rel="noopener" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
             {% else %}
@@ -118,7 +119,7 @@
     </header>
     <div itemprop="articleBody" class="reader-prose">
       {% for line in display_content.replace('\r', '').split('\n') %}
-      {% if line.strip() %}{{ line }}{% endif %}<br>
+      {% if line.strip() %}<span data-tts-index="{{ loop.index0 }}" class="cursor-pointer">{{ line }}</span>{% endif %}<br>
       {% endfor %}
     </div>
   </article>
@@ -358,6 +359,20 @@
       const PRELOAD_AHEAD = 3;
       let playerState = "idle";
       let wantToPlay = false;
+      const followText = document.querySelector("[data-follow-text]");
+      let followPausedUntil = 0;
+      const highlightSegment = (index) => {
+        document.querySelectorAll("[data-tts-index].reader-tts-active").forEach((item) => item.classList.remove("reader-tts-active"));
+        const target = document.querySelector(`[data-tts-index="${index}"]`);
+        if (!target || !followText?.checked) return;
+        target.classList.add("reader-tts-active");
+        if (Date.now() >= followPausedUntil) target.scrollIntoView({ behavior: "smooth", block: "center" });
+      };
+      window.addEventListener("scroll", () => { followPausedUntil = Date.now() + 7000; }, { passive: true });
+      document.querySelectorAll("[data-tts-index]").forEach((item) => item.addEventListener("click", () => {
+        const index = Number(item.dataset.ttsIndex);
+        if (playlistReady && Number.isInteger(index) && playlist[index]) setAudioSegment(index, 0, true);
+      }));
 
       const setPlayerState = (state) => {
         playerState = state;
@@ -459,6 +474,7 @@
         if (!hasAudio || !playlist[index]) return;
         const loadToken = ++audioLoadToken;
         currentSegmentIndex = index;
+        highlightSegment(index);
         pendingSegmentOffset = 0;
         if (resetRetry) audioRetryUsed = false;
         audio.pause();
