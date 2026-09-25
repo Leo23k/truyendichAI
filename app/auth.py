@@ -2,9 +2,12 @@
 from __future__ import annotations
 import base64, hashlib, os, secrets
 from dataclasses import dataclass
+from pathlib import Path
 import httpx
+from dotenv import load_dotenv
 from fastapi import HTTPException, Request
 
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 ANON = os.getenv("SUPABASE_ANON_KEY", "")
 SERVICE = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")
