@@ -121,7 +121,7 @@
     </header>
     <div itemprop="articleBody" class="reader-prose">
       {% if showing_translation and tts_chunks %}
-      {% for chunk in tts_chunks %}<span data-tts-index="{{ loop.index0 }}" class="reader-tts-chunk cursor-pointer">{{ chunk }}</span>{% endfor %}
+      {% for chunk in tts_chunks %}<span data-tts-index="{{ loop.index0 }}" class="reader-tts-chunk">{{ chunk }}</span>{% endfor %}
       {% else %}
       {% for line in display_content.replace('\r', '').split('\n') %}{% if line.strip() %}<p class="mb-5">{{ line }}</p>{% endif %}{% endfor %}
       {% endif %}
@@ -392,17 +392,6 @@
       window.addEventListener("scroll", () => {
         if (Date.now() >= suppressFollowPauseUntil) followPausedUntil = Date.now() + 8000;
       }, { passive: true });
-      document.querySelectorAll("[data-tts-index]").forEach((item) => item.addEventListener("click", () => {
-        const index = Number(item.dataset.ttsIndex);
-        if (!hasAudio || !audio.paused || playerState === "loading" || !Number.isInteger(index)) return;
-        const requestToken = ++segmentRequestToken;
-        wantToPlay = true;
-        (playlistReady ? Promise.resolve() : (playlistLoading || loadPlaylist(0, false, false)))
-          .then(() => ensureSegment(index))
-          .then(() => { if (requestToken === segmentRequestToken && wantToPlay && playlist[index]) setAudioSegment(index, 0, true); })
-          .catch(() => setPlayerState("error"));
-      }));
-
       const setPlayerState = (state) => {
         playerState = state;
         setPlayIcon(state === "loading" ? "loading" : state === "playing" ? "pause" : "play");
