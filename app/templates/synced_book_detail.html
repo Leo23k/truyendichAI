@@ -17,11 +17,11 @@
   <section class="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
     <div class="flex items-center justify-between gap-3">
       <h2 class="text-xl font-semibold text-stone-950">Mục lục</h2>
-      <select x-model="order" class="h-10 rounded-md border border-stone-200 bg-white px-3 text-sm outline-none focus:border-teal-600">
+      <select x-model="order" @change="$refs.chapterList.scrollTop = 0" class="h-10 rounded-md border border-stone-200 bg-white px-3 text-sm outline-none focus:border-teal-600">
         <option value="asc">Cũ nhất trước</option><option value="desc">Mới nhất trước</option>
       </select>
     </div>
-    <div class="mt-4 flex max-h-[32rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
+    <div x-ref="chapterList" class="mt-4 flex max-h-[32rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
       {% for chapter in chapters %}
       <a href="/synced/{{ novel.slug }}/{{ chapter.chapter_number }}" class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
         <span class="mr-2 shrink-0 text-stone-400">#{{ chapter.chapter_number }}</span>

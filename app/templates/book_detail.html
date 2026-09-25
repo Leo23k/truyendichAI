@@ -85,7 +85,7 @@
       </div>
       <label class="flex items-center gap-2 text-sm text-stone-600">
         <span>Sắp xếp</span>
-        <select x-model="order" class="h-10 rounded-md border border-stone-200 bg-white px-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100">
+        <select x-model="order" @change="$refs.chapterList.scrollTop = 0" class="h-10 rounded-md border border-stone-200 bg-white px-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100">
           <option value="asc">Cũ nhất trước</option>
           <option value="desc">Mới nhất trước</option>
         </select>
@@ -95,7 +95,7 @@
       <div class="mb-1 flex justify-between text-xs text-stone-500"><span>Đang dịch chương...</span><span data-progress-value>0%</span></div>
       <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
     </div>
-    <div class="mt-4 flex max-h-[28rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
+    <div x-ref="chapterList" class="mt-4 flex max-h-[28rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
       {% for chapter in book.chapters %}
       <a href="/chapters/{{ chapter.id }}" onclick="return startTranslationProgress(this)" class="flex min-h-12 items-center gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
         <span class="w-10 shrink-0 text-sm text-stone-400">#{{ chapter.chapter_number }}</span><span class="min-w-0 truncate">{{ chapter.translated_title or chapter.title }}</span>
