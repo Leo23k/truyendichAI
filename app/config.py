@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
+    app_url: str = Field(default="http://127.0.0.1:8000", validation_alias=AliasChoices("APP_URL"))
     app_env: str = "development"
     database_url: str = "sqlite:///./data/app.db"
     database_path: str | None = Field(default=None, validation_alias=AliasChoices("DATABASE_PATH"))

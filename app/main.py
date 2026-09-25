@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
+from app.auth import ANON, URL as AUTH_URL, pkce, user_from_token
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
@@ -63,6 +64,39 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+@app.middleware("http")
+async def auth_guard(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health"}:
+        return await call_next(request)
+    request.state.user = user_from_token(request.cookies.get("sb-access-token", "")) if request.cookies.get("sb-access-token") else None
+    if not request.state.user:
+        return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
+    admin = path.startswith(("/jobs", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and path not in {"/api/tts"})
+    if admin and request.state.user.role != "admin":
+        return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
+    return await call_next(request)
+
+@app.get("/login")
+def login():
+    if not AUTH_URL or not ANON: raise HTTPException(503, "Supabase Auth chưa được cấu hình.")
+    verifier, challenge = pkce(); callback = f"{settings.app_url.rstrip('/')}/auth/callback"
+    response = RedirectResponse(f"{AUTH_URL}/auth/v1/authorize?provider=google&redirect_to={callback}&code_challenge={challenge}&code_challenge_method=s256")
+    response.set_cookie("sb-pkce", verifier, httponly=True, secure=settings.app_url.startswith("https"), samesite="lax", max_age=600)
+    return response
+
+@app.get("/auth/callback")
+def auth_callback(request: Request, code: str):
+    with httpx.Client(timeout=15, trust_env=False) as c:
+        result = c.post(f"{AUTH_URL}/auth/v1/token?grant_type=pkce", headers={"apikey": ANON}, json={"auth_code": code, "code_verifier": request.cookies.get("sb-pkce", "")})
+    if not result.is_success: raise HTTPException(401, "Không thể hoàn tất đăng nhập Google.")
+    response = RedirectResponse("/", status_code=303); response.set_cookie("sb-access-token", result.json()["access_token"], httponly=True, secure=settings.app_url.startswith("https"), samesite="lax")
+    response.delete_cookie("sb-pkce"); return response
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse("/login", status_code=303); response.delete_cookie("sb-access-token"); return response
 
 
 class TTSRequest(BaseModel):
@@ -701,6 +735,21 @@ async def search_books(request: Request, query: str, db: Session = Depends(get_d
     except Exception:
         logger.exception("Book search failed for %s", query)
         raise HTTPException(status_code=500, detail="Không thể tìm kiếm truyện lúc này.") from None
+
+
+@app.get("/search")
+def library_search(request: Request, query: str = ""):
+    query = " ".join(query.split())
+    if not query:
+        return HTMLResponse("")
+    try:
+        escaped = query.replace("%", r"\%").replace("_", r"\_")
+        rows = SupabaseSync().rows("novels", {"select": "slug,title,author,cover_url,latest_chapter", "or": f"title.ilike.*{escaped}*,author.ilike.*{escaped}*", "limit": "20"})
+    except SyncError as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
+    needle = query.casefold()
+    rows.sort(key=lambda row: (0 if str(row.get("title", "")).casefold() == needle else 1 if str(row.get("title", "")).casefold().startswith(needle) else 2, str(row.get("title", "")).casefold()))
+    return templates.TemplateResponse(request=request, name="partials/library_search_results.html", context={"results": rows, "query": query})
 
 
 @app.get("/books/{book_id}")

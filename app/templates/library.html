@@ -11,30 +11,29 @@
     </div>
     <div data-crawl-progress class="w-full lg:max-w-2xl">
       <form
-        action="/books/lookup"
-        method="post"
-        hx-post="/books/lookup"
+        action="/search"
+        method="get"
+        hx-get="/search"
         hx-target="#lookup-results"
         hx-swap="innerHTML"
         hx-indicator="#lookup-loading"
         hx-disabled-elt="find button"
-        onsubmit="return startCrawlProgress(this)"
         class="flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 p-2"
       >
-        <span class="sr-only">Nhập truyện</span>
-        <label for="source-query" class="sr-only">URL hoặc tên truyện</label>
+        <span class="sr-only">Tìm trong thư viện</span>
+        <label for="source-query" class="sr-only">Tên truyện hoặc tác giả</label>
         <i data-lucide="link" class="ml-2 h-5 w-5 shrink-0 text-stone-400"></i>
         <input
           id="source-query"
           name="query"
           type="text"
           required
-          placeholder="Dán URL hoặc nhập tên truyện"
+          placeholder="Tìm trong thư viện..."
           class="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm outline-none"
         >
         <button type="submit" class="inline-flex h-10 shrink-0 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white hover:bg-stone-800">
-          <i data-lucide="plus" class="h-4 w-4"></i>
-          <span>Thêm</span>
+          <i data-lucide="search" class="h-4 w-4"></i>
+          <span>Tìm</span>
         </button>
       </form>
       <div id="lookup-status" class="mt-2 text-sm text-stone-500" role="status" aria-live="polite"></div>
