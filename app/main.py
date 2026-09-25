@@ -441,15 +441,33 @@ async def jobs_crawler_search(request: Request, query: str = Form(...)):
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Hãy nhập tên truyện hoặc URL nguồn để tìm.", "error": True}, status_code=400)
     try:
         if query.startswith(("http://", "https://")):
-            crawler = registry.get_for_url(query)
-            results = [await asyncio.wait_for(crawler.get_book_info(query), timeout=min(settings.crawler_timeout, 12))]
-        else:
-            results = await asyncio.wait_for(registry.search(query), timeout=min(settings.crawler_timeout, 12))
+            # A URL submitted from the worker page must be persisted first.
+            # Fetching the source here makes Vercel wait on a third-party site
+            # and leaves the reader with only a spinner when that request stalls.
+            # The PC worker owns the outbound crawl and reports its own outcome.
+            registry.get_for_url(query)
+            job = enqueue_remote_crawl(query)
+            request.state.crawl_job_id = str(job["id"])
+            response = templates.TemplateResponse(
+                request=request,
+                name="partials/message.html",
+                context={
+                    "message": "Đã thêm truyện vào hàng đợi crawl. PC worker sẽ bắt đầu xử lý và trạng thái sẽ hiện bên dưới.",
+                    "error": False,
+                },
+            )
+            response.headers["HX-Trigger"] = "jobsChanged"
+            return response
+
+        results = await asyncio.wait_for(registry.search(query), timeout=min(settings.crawler_timeout, 12))
         return templates.TemplateResponse(request=request, name="partials/search_results.html", context={"results": results[:20], "query": query})
     except asyncio.TimeoutError:
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Tìm nguồn quá lâu (12 giây). Website nguồn có thể đang chặn hoặc chậm; hãy thử lại sau.", "error": True}, status_code=504)
     except CrawlerError as exc:
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400)
+    except SyncError as exc:
+        logger.exception("Could not enqueue crawler job query=%r", query)
+        return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": f"Không thể tạo job crawl: {exc}", "error": True}, status_code=503)
     except Exception:
         logger.exception("Crawler search failed query=%r", query)
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Không thể tìm truyện lúc này. Vui lòng thử lại sau.", "error": True}, status_code=502)
