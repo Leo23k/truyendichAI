@@ -442,10 +442,12 @@ async def jobs_crawler_search(request: Request, query: str = Form(...)):
     try:
         if query.startswith(("http://", "https://")):
             crawler = registry.get_for_url(query)
-            results = [await crawler.get_book_info(query)]
+            results = [await asyncio.wait_for(crawler.get_book_info(query), timeout=min(settings.crawler_timeout, 12))]
         else:
-            results = await registry.search(query)
+            results = await asyncio.wait_for(registry.search(query), timeout=min(settings.crawler_timeout, 12))
         return templates.TemplateResponse(request=request, name="partials/search_results.html", context={"results": results[:20], "query": query})
+    except asyncio.TimeoutError:
+        return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Tìm nguồn quá lâu (12 giây). Website nguồn có thể đang chặn hoặc chậm; hãy thử lại sau.", "error": True}, status_code=504)
     except CrawlerError as exc:
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400)
     except Exception:
