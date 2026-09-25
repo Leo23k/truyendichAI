@@ -683,8 +683,8 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
         info = await crawler.get_book_info(url)
         remote = SupabaseSync()
         logger.info("Bắt đầu crawl truyện: %s", info.title)
-        translated_title = translator.translate(info.title)
-        translated_author = translator.translate(info.author) if info.author else None
+        translated_title = translator.translate_metadata(info.title)
+        translated_author = translator.translate_metadata(info.author) if info.author else None
         novels = remote.rows("novels", {"select": "id,slug", "source_url": f"eq.{info.source_url}", "limit": "1"})
         if novels:
             novel = novels[0]

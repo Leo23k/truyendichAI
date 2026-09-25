@@ -67,9 +67,9 @@ class BookService:
     def _translate_metadata(self, book: Book) -> None:
         try:
             if not book.translated_title:
-                book.translated_title = translator.translate(book.title, self.db)
+                book.translated_title = translator.translate_metadata(book.title, self.db)
             if book.author and not book.translated_author:
-                book.translated_author = translator.translate(book.author, self.db)
+                book.translated_author = translator.translate_metadata(book.author, self.db)
             if book.description and not book.translated_description:
                 book.translated_description = translator.translate(book.description, self.db)
         except TranslationUnavailableError:

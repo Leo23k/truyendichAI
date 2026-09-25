@@ -31,6 +31,25 @@ KIEM_TOI_GLOSSARY = (
     GlossaryEntry("小陌", "Tiểu Mạch"),
 )
 
+# Metadata is short and prominently displayed.  Keep common genre/title terms
+# in their established Hán-Việt form instead of allowing a conversational
+# Vietnamese paraphrase from the MT model.
+METADATA_HANVIET_GLOSSARY = (
+    GlossaryEntry("开局", "Khai Cục"), GlossaryEntry("长生", "Trường Sinh"),
+    GlossaryEntry("修仙", "Tu Tiên"), GlossaryEntry("重生", "Trọng Sinh"),
+    GlossaryEntry("穿越", "Xuyên Việt"), GlossaryEntry("无敌", "Vô Địch"),
+    GlossaryEntry("仙侠", "Tiên Hiệp"), GlossaryEntry("玄幻", "Huyền Huyễn"),
+    GlossaryEntry("武侠", "Võ Hiệp"), GlossaryEntry("江湖", "Giang Hồ"),
+    GlossaryEntry("大道", "Đại Đạo"), GlossaryEntry("剑道", "Kiếm Đạo"),
+    GlossaryEntry("诸天", "Chư Thiên"), GlossaryEntry("神魔", "Thần Ma"),
+    GlossaryEntry("大帝", "Đại Đế"), GlossaryEntry("轮回", "Luân Hồi"),
+    GlossaryEntry("天命", "Thiên Mệnh"), GlossaryEntry("世家", "Thế Gia"),
+    GlossaryEntry("王朝", "Vương Triều"), GlossaryEntry("皇朝", "Hoàng Triều"),
+    GlossaryEntry("仙帝", "Tiên Đế"), GlossaryEntry("魔帝", "Ma Đế"),
+    GlossaryEntry("师兄", "Sư Huynh"), GlossaryEntry("师姐", "Sư Tỷ"),
+    GlossaryEntry("师尊", "Sư Tôn"), GlossaryEntry("宗门", "Tông Môn"),
+)
+
 
 class TranslationUnavailableError(RuntimeError):
     pass
@@ -46,6 +65,18 @@ class TranslatorService:
         entries = glossary_entries(db, source)
         protected = protect(source, entries) if entries else ProtectedText(source, ())
         translated = postprocess_v9(source, self._translate_text(protected), entries)
+        return restore(translated, protected)
+
+    def translate_metadata(self, text: str, db: Session | None = None) -> str:
+        """Translate book titles and author names with a formal Hán-Việt bias."""
+        if not text or not text.strip():
+            return text
+        source = normalize_text(traditional_to_simplified(text))
+        entries = [*glossary_entries(db, source), *METADATA_HANVIET_GLOSSARY]
+        protected = protect(source, entries)
+        # A wider beam is inexpensive for short metadata and favors literal,
+        # title-like wording over a fluent paraphrase.
+        translated = postprocess_v9(source, self._translate_text(protected, beam_size=4), entries)
         return restore(translated, protected)
 
     def translate_batch(self, texts: list[str], entries: list[GlossaryEntry] | None = None) -> list[str]:
@@ -66,11 +97,11 @@ class TranslatorService:
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             raise TranslationUnavailableError("Không thể kết nối tới model service HachimiMT. Hãy kiểm tra service đang chạy.") from exc
 
-    def _translate_text(self, protected: ProtectedText) -> str:
+    def _translate_text(self, protected: ProtectedText, beam_size: int | None = None) -> str:
         try:
             response = httpx.post(
                 f"{settings.model_service_url.rstrip('/')}/v1/translate",
-                json={"text": protected.text, "beam_size": settings.model_beam_size},
+                json={"text": protected.text, "beam_size": beam_size or settings.model_beam_size},
                 timeout=settings.model_service_timeout,
                 trust_env=False,
             )
