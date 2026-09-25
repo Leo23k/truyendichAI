@@ -356,6 +356,8 @@ def _jobs_page_context(**extra: object) -> dict[str, object]:
         "jobs": _crawl_job_cards(),
         "translation_queue": _translation_queue_cards(),
         "workers": _worker_statuses(),
+        "worker_controls_available": worker_manager.can_control_locally,
+        "crawler_sources": [crawler.source_name for crawler in registry._crawlers],
         **extra,
     }
 
@@ -409,6 +411,22 @@ def control_workers(target: str, action: str, request: Request):
     ok, message = worker_manager.act(target, action)
     response = templates.TemplateResponse(request=request, name="jobs.html", context=_jobs_page_context(toast=message, toast_error=not ok))
     return response
+
+
+@app.post("/jobs/crawler/search")
+async def jobs_crawler_search(request: Request, query: str = Form(...)):
+    query = " ".join(query.split())
+    if not query:
+        return HTMLResponse("")
+    try:
+        if query.startswith(("http://", "https://")):
+            crawler = registry.get_for_url(query)
+            results = [await crawler.get_book_info(query)]
+        else:
+            results = await registry.search(query)
+        return templates.TemplateResponse(request=request, name="partials/search_results.html", context={"results": results[:20], "query": query})
+    except CrawlerError as exc:
+        return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400)
 
 
 @app.post("/jobs/translations/{queue_id}/retry")
