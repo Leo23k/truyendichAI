@@ -133,8 +133,8 @@
     data-synced-title="{{ chapter.title or display_title }}"
     data-has-translation="{% if chapter.translated_content %}true{% else %}false{% endif %}"
     data-showing-translation="{% if showing_translation %}true{% else %}false{% endif %}"
-    data-original-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=original{% else %}/chapters/{{ chapter.id }}?mode=original{% endif %}"
-    data-translated-view-url="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=translated{% else %}/chapters/{{ chapter.id }}?mode=translated{% endif %}"
+    data-original-view-url="{% if synced_reader %}/truyen/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=original{% else %}/chapters/{{ chapter.id }}?mode=original{% endif %}"
+    data-translated-view-url="{% if synced_reader %}/truyen/{{ chapter.book_id }}/{{ chapter.chapter_number }}?mode=translated{% else %}/chapters/{{ chapter.id }}?mode=translated{% endif %}"
     data-audio-url="{{ audio_stream_url or '/chapters/' ~ chapter.id ~ '/audio/tts/stream' }}"
     data-queue-chapter-id="{{ queue_chapter_id or chapter.id }}"
     data-next-queue-chapter-id="{{ following.id if following else '' }}"
@@ -261,7 +261,7 @@
           {% set item_number = item.chapter_number %}
           {% set item_title = item.translated_title or item.title %}
           {% endif %}
-          <a href="{% if synced_reader %}/synced/{{ chapter.book_id }}/{{ item_number }}{% else %}/chapters/{{ item.id }}{% endif %}" data-toc-item data-number="{{ item_number }}" {% if item_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+          <a href="{% if synced_reader %}/truyen/{{ chapter.book_id }}/{{ item_number }}{% else %}/chapters/{{ item.id }}{% endif %}" data-toc-item data-number="{{ item_number }}" {% if item_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
             <span class="mr-2 shrink-0 text-sm text-stone-400">#{{ item_number }}</span>
             <span class="min-w-0 truncate text-sm {% if item_number == chapter.chapter_number %}font-semibold text-teal-700{% endif %}">{{ item_title }}</span>
           </a>

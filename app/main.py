@@ -535,7 +535,8 @@ def control_crawl_job(job_id: str, action: str, request: Request):
     return response
 
 
-@app.get("/synced/{slug}")
+@app.get("/truyen/{slug}")
+@app.get("/synced/{slug}", include_in_schema=False)
 def synced_book(slug: str, request: Request):
     try:
         metadata = load_cdn_json("metadata.json")
@@ -552,7 +553,8 @@ def synced_book(slug: str, request: Request):
     )
 
 
-@app.get("/synced/{slug}/{chapter_number}")
+@app.get("/truyen/{slug}/{chapter_number}")
+@app.get("/synced/{slug}/{chapter_number}", include_in_schema=False)
 def read_synced_chapter(slug: str, chapter_number: int, request: Request):
     key = f"{chapter_number:03d}"
     try:
@@ -599,11 +601,11 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "original_url": current.get("source_url"),
                     "synced_reader": True,
                     "chapter_list": entries,
-                    "back_url": f"/synced/{slug}",
-                    "previous_url": f"/synced/{slug}/{entries[position - 1]['chapter_number']}" if position else "",
-                    "following_url": f"/synced/{slug}/{entries[position + 1]['chapter_number']}" if position + 1 < len(entries) else "",
-                    "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
-                    "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/tts/stream",
+                    "back_url": f"/truyen/{slug}",
+                    "previous_url": f"/truyen/{slug}/{entries[position - 1]['chapter_number']}" if position else "",
+                    "following_url": f"/truyen/{slug}/{entries[position + 1]['chapter_number']}" if position + 1 < len(entries) else "",
+                    "audio_manifest_url": f"/truyen/{slug}/{chapter_number}/audio/manifest",
+                    "audio_stream_url": f"/truyen/{slug}/{chapter_number}/audio/tts/stream",
                     "queue_chapter_id": current.get("id"),
                 },
             )
@@ -642,18 +644,19 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "original_url": current.get("source_url"),
             "synced_reader": True,
             "chapter_list": entries,
-            "back_url": f"/synced/{slug}",
-            "previous_url": f"/synced/{slug}/{previous['chapter_number']}" if previous else "",
-            "following_url": f"/synced/{slug}/{following['chapter_number']}" if following else "",
-            "audio_manifest_url": f"/synced/{slug}/{chapter_number}/audio/manifest",
-            "audio_stream_url": f"/synced/{slug}/{chapter_number}/audio/tts/stream",
+            "back_url": f"/truyen/{slug}",
+            "previous_url": f"/truyen/{slug}/{previous['chapter_number']}" if previous else "",
+            "following_url": f"/truyen/{slug}/{following['chapter_number']}" if following else "",
+            "audio_manifest_url": f"/truyen/{slug}/{chapter_number}/audio/manifest",
+            "audio_stream_url": f"/truyen/{slug}/{chapter_number}/audio/tts/stream",
             "queue_chapter_id": current.get("id"),
             "translation_progress": progress,
         },
     )
 
 
-@app.post("/synced/{slug}/update")
+@app.post("/truyen/{slug}/update")
+@app.post("/synced/{slug}/update", include_in_schema=False)
 async def update_synced_book(slug: str):
     try:
         novel = get_synced_novel_for_management(slug)
@@ -661,14 +664,15 @@ async def update_synced_book(slug: str):
         if not source_url:
             raise CdnDataError("Truyện chưa có URL nguồn để cập nhật. Hãy đồng bộ lại từ máy local.")
         enqueue_remote_crawl(str(source_url))
-        return RedirectResponse(f"/synced/{slug}", status_code=303)
+        return RedirectResponse(f"/truyen/{slug}", status_code=303)
     except CrawlerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/synced/{slug}/delete")
+@app.post("/truyen/{slug}/delete")
+@app.post("/synced/{slug}/delete", include_in_schema=False)
 def delete_synced_book(slug: str):
     try:
         now = datetime.utcnow()
@@ -682,16 +686,18 @@ def delete_synced_book(slug: str):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/synced/{slug}/restore")
+@app.post("/truyen/{slug}/restore")
+@app.post("/synced/{slug}/restore", include_in_schema=False)
 def restore_synced_book(slug: str):
     try:
         set_synced_novel_deletion(slug, deleted_at=None, delete_after=None)
-        return RedirectResponse(f"/synced/{slug}", status_code=303)
+        return RedirectResponse(f"/truyen/{slug}", status_code=303)
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/synced/{slug}/delete-permanently")
+@app.post("/truyen/{slug}/delete-permanently")
+@app.post("/synced/{slug}/delete-permanently", include_in_schema=False)
 def delete_synced_book_permanently(slug: str):
     try:
         delete_synced_novel_permanently(slug)
@@ -700,7 +706,8 @@ def delete_synced_book_permanently(slug: str):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.get("/synced/{slug}/{chapter_number}/audio/manifest")
+@app.get("/truyen/{slug}/{chapter_number}/audio/manifest")
+@app.get("/synced/{slug}/{chapter_number}/audio/manifest", include_in_schema=False)
 async def synced_audio_manifest(
     slug: str,
     chapter_number: int,
@@ -722,7 +729,7 @@ async def synced_audio_manifest(
             "voice": selected_voice,
             "rate": selected_rate,
             "segments": [
-                {"index": index, "url": f"/synced/{slug}/{chapter_number}/audio/segments/{index}?voice={selected_voice}&rate={selected_rate}", "duration": estimate_duration_seconds(chunk, selected_rate)}
+                {"index": index, "url": f"/truyen/{slug}/{chapter_number}/audio/segments/{index}?voice={selected_voice}&rate={selected_rate}", "duration": estimate_duration_seconds(chunk, selected_rate)}
                 for index, chunk in enumerate(chunks)
             ],
         }
@@ -732,7 +739,8 @@ async def synced_audio_manifest(
         raise HTTPException(status_code=503, detail="Không thể tạo playlist audio.") from exc
 
 
-@app.get("/synced/{slug}/{chapter_number}/audio/segments/{index}")
+@app.get("/truyen/{slug}/{chapter_number}/audio/segments/{index}")
+@app.get("/synced/{slug}/{chapter_number}/audio/segments/{index}", include_in_schema=False)
 async def synced_audio_segment(slug: str, chapter_number: int, index: int, voice: str = DEFAULT_EDGE_VOICE, rate: float = 1.0):
     key = f"{chapter_number:03d}"
     try:
@@ -755,7 +763,8 @@ async def synced_audio_segment(slug: str, chapter_number: int, index: int, voice
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.get("/synced/{slug}/{chapter_number}/audio/tts/stream")
+@app.get("/truyen/{slug}/{chapter_number}/audio/tts/stream")
+@app.get("/synced/{slug}/{chapter_number}/audio/tts/stream", include_in_schema=False)
 async def stream_synced_chapter_audio(
     slug: str,
     chapter_number: int,
