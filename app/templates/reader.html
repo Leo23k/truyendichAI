@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ display_title }} | My Novel Reader{% endblock %}
+{% block title %}{{ display_title }}{% endblock %}
 {% block header %}{% endblock %}
 {% block main_class %}min-h-screen bg-stone-100{% endblock %}
 {% block content %}
@@ -282,7 +282,7 @@
       const readerBookKey = player.dataset.bookId || "";
       const storage = window.localStorage;
       storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
-      storage.setItem("reader.lastTitle", document.title.replace(" | My Novel Reader", ""));
+      storage.setItem("reader.lastTitle", document.title);
       if (readerBookKey) storage.setItem(`reader.lastUrl.book.${readerBookKey}`, window.location.pathname + window.location.search);
       const audio = player.querySelector("[data-reader-audio]");
       const hasAudio = player.dataset.hasAudio === "true" && audio;
