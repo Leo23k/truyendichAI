@@ -5,7 +5,7 @@
 {% block content %}
 {% set first_chapter = book.chapters[0] if book.chapters else none %}
 {% set is_deleted = book.deleted_at %}
-<section class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
+<section data-offline-book data-book-id="{{ book.id }}" data-book-title="{{ book.translated_title or book.title }}" class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
   <div class="flex items-center justify-between">
     <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện">
       <i data-lucide="arrow-left" class="h-5 w-5"></i>
@@ -72,7 +72,13 @@
           <i data-lucide="book-open" class="h-4 w-4"></i>
           <span>Đọc từ đầu</span>
         </a>
+        <button type="button" data-offline-download class="inline-flex h-11 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-4 text-sm font-medium text-teal-800 hover:bg-teal-100">
+          <i data-lucide="download" class="h-4 w-4"></i><span>Tải để đọc offline</span>
+        </button>
+        <button type="button" data-offline-update hidden class="inline-flex h-11 items-center gap-2 rounded-md border border-stone-200 bg-white px-4 text-sm font-medium hover:bg-stone-50"><i data-lucide="refresh-cw" class="h-4 w-4"></i><span>Cập nhật</span></button>
+        <button type="button" data-offline-delete hidden class="inline-flex h-11 items-center gap-2 rounded-md border border-red-200 bg-white px-4 text-sm font-medium text-red-700 hover:bg-red-50"><i data-lucide="trash-2" class="h-4 w-4"></i><span>Xóa bản offline</span></button>
       </div>
+      <p data-offline-status class="mt-3 text-sm text-stone-500" aria-live="polite"></p>
       {% endif %}
     </div>
   </section>
@@ -97,7 +103,7 @@
     </div>
     <div x-ref="chapterList" class="mt-4 flex max-h-[28rem] flex-col overflow-auto rounded-md border border-stone-200" :class="order === 'desc' ? 'flex-col-reverse' : 'flex-col'">
       {% for chapter in book.chapters %}
-      <a href="/chapters/{{ chapter.id }}" onclick="return startTranslationProgress(this)" class="flex min-h-12 items-center gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+      <a data-offline-chapter data-chapter-id="{{ chapter.id }}" href="/chapters/{{ chapter.id }}" onclick="return startTranslationProgress(this)" class="flex min-h-12 items-center gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
         <span class="w-10 shrink-0 text-sm text-stone-400">#{{ chapter.chapter_number }}</span><span class="min-w-0 truncate">{{ chapter.translated_title or chapter.title }}</span>
       </a>
       {% else %}

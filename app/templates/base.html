@@ -4,11 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}My Novel Reader{% endblock %}</title>
+  <meta name="theme-color" content="#0f766e">
+  <link rel="manifest" href="/manifest.webmanifest">
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script defer src="https://unpkg.com/lucide@latest"></script>
   <script>htmx.config.responseHandling = [{code: "204", swap: false}, {code: "[23]xx", swap: true}, {code: "[45]xx", swap: true, error: true}];</script>
+  <script defer src="/static/offline.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js").catch(() => {}));
+    }
+  </script>
   <style>[x-cloak]{display:none!important}.htmx-indicator{display:none}.htmx-request .htmx-indicator,.htmx-request.htmx-indicator{display:inline-flex}.crawl-progress-panel{display:none}.crawl-progress-panel.is-active{display:block}.reader-content{font-family:"Segoe UI","Noto Sans",Arial,sans-serif;letter-spacing:0;word-spacing:normal;text-rendering:optimizeLegibility}.app-shell{border:1px solid rgb(231 229 228);border-radius:16px;background:#fff;box-shadow:0 10px 30px rgba(28,25,23,.06)}.book-cover-fallback{background:#f5f5f4}.icon-button{display:inline-flex;height:2.5rem;width:2.5rem;align-items:center;justify-content:center;border-radius:10px}.icon-button:hover{background:rgb(245 245 244)}button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid rgb(13 148 136);outline-offset:2px}</style>
   <script>
     (() => {

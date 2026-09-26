@@ -73,7 +73,7 @@ logger = logging.getLogger(__name__)
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health"}:
+    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health", "/manifest.webmanifest", "/service-worker.js"}:
         return await call_next(request)
     access_token = request.cookies.get("sb-access-token", "")
     request.state.user = user_from_token(access_token) if access_token else None
@@ -93,6 +93,14 @@ async def auth_guard(request: Request, call_next):
         response.set_cookie("sb-access-token", refreshed_session[0], **cookie_options)
         response.set_cookie("sb-refresh-token", refreshed_session[1], **cookie_options)
     return response
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def pwa_manifest():
+    return FileResponse(BASE_DIR.parent / "manifest.webmanifest", media_type="application/manifest+json")
+
+@app.get("/service-worker.js", include_in_schema=False)
+def service_worker():
+    return FileResponse(BASE_DIR.parent / "service-worker.js", media_type="application/javascript", headers={"Service-Worker-Allowed": "/"})
 
 @app.get("/login")
 def login():
