@@ -4,6 +4,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from curl_cffi import CurlOpt
+from curl_cffi.requests import AsyncSession
 
 from app.config import settings
 from app.crawlers.base import BaseCrawler, BookInfo, ChapterInfo, clean_chapter_text, dedupe_chapters, extract_cover_url
@@ -151,6 +153,40 @@ class UukanshuCrawler(HtmlNovelCrawler):
     domains = ("uukanshu.com", "www.uukanshu.com", "uukanshu.cc", "www.uukanshu.cc")
     chapter_selectors = ("#list-chapterAll dd a[href]", "#chapterList a[href]", ".chapter-list a[href]", "#list a[href]")
     content_selectors = (".readcotent", "#content", "#contents", ".content", ".article-content", ".read-content")
+
+    async def _get_html(self, url: str) -> str:
+        """Use a Chrome TLS fingerprint because uukanshu.cc blocks httpx."""
+        try:
+            async with AsyncSession(
+                impersonate="chrome",
+                headers={"Accept-Language": "zh-CN,zh;q=0.9"},
+                trust_env=False,
+                curl_options={CurlOpt.PROXY: ""},
+            ) as client:
+                response = await client.get(url, timeout=settings.crawler_timeout)
+                response.raise_for_status()
+                return response.text
+        except Exception as exc:
+            logger.warning("%s request failed for %s: %s", self.source_name, url, exc)
+            raise SourceRequestError("Không thể tải dữ liệu từ website nguồn.") from exc
+
+    async def get_book_info(self, url: str) -> BookInfo:
+        soup = BeautifulSoup(await self._get_html(url), "html.parser")
+        title_node = soup.select_one(".bookinfo h1, h1")
+        title = title_node.get_text(" ", strip=True) if title_node else ""
+        if not title:
+            raise SourceParseError("Không tìm thấy tên truyện từ website nguồn.")
+        author_node = soup.select_one(".booktag a.red")
+        description_node = soup.select_one(".bookintro, #intro, .intro, .description, .book-intro")
+        return BookInfo(
+            url,
+            self.source_name,
+            self._book_id(url),
+            title,
+            author_node.get_text(" ", strip=True) if author_node else None,
+            description_node.get_text("\n", strip=True) if description_node else None,
+            extract_cover_url(soup, url),
+        )
 
     @staticmethod
     def _book_id(url: str) -> str | None:
