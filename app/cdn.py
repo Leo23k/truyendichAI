@@ -167,6 +167,24 @@ def _rest_rows(table: str, params: dict[str, str]) -> list[dict]:
     return [item for item in payload if isinstance(item, dict)]
 
 
+def _rest_count(table: str, params: dict[str, str]) -> int:
+    """Read PostgREST's exact count without downloading every matching row."""
+    if not _configured():
+        raise CdnDataError("Supabase is not configured")
+    try:
+        with httpx.Client(timeout=15, trust_env=False) as client:
+            response = client.get(
+                f"{SUPABASE_URL}/rest/v1/{table}",
+                params={**params, "limit": "1"},
+                headers={**_headers(), "Prefer": "count=exact"},
+            )
+        response.raise_for_status()
+        total = response.headers.get("content-range", "").partition("/")[2]
+        return int(total)
+    except (httpx.HTTPError, ValueError) as exc:
+        raise CdnDataError(f"Could not count Supabase {table}") from exc
+
+
 def _all_rows(table: str, params: dict[str, str]) -> list[dict]:
     rows: list[dict] = []
     offset = 0
@@ -259,6 +277,27 @@ def load_novels() -> list[dict]:
         except CdnDataError:
             pass
     return _fallback_json("metadata.json").get("novels", [])
+
+
+def load_synced_novel(slug: str) -> dict:
+    if _configured():
+        try:
+            rows = _rest_rows(
+                "novels",
+                {"select": "id,slug,title,author,cover_url,latest_chapter,updated_at,source_url", "slug": f"eq.{slug}", "deleted_at": "is.null", "limit": "1"},
+            )
+            if rows:
+                novel = rows[0]
+                novel["cover"] = _resolved_cover_url(novel.get("cover_url"), slug, {})
+                novel["source_name"] = _source_name(novel.get("source_url"))
+                return novel
+        except CdnDataError:
+            pass
+    metadata = _fallback_json("metadata.json")
+    novel = next((item for item in metadata.get("novels", []) if item.get("slug") == slug), None)
+    if not isinstance(novel, dict):
+        raise CdnDataError("Novel was not found")
+    return novel
 
 
 def get_synced_novel_for_management(slug: str) -> dict:
@@ -396,20 +435,30 @@ def load_chapters_index(slug: str) -> list[dict]:
     return [chapter for chapter in chapters if isinstance(chapter, dict)]
 
 
-def load_chapters_page(slug: str, offset: int = 0, limit: int = 100) -> tuple[list[dict], bool]:
-    """Fetch one table-of-contents page without loading thousands of rows."""
-    offset, limit = max(0, offset), max(1, min(limit, 100))
+def load_chapters_page(slug: str, page: int = 1, sort: str = "asc", limit: int = 50) -> tuple[list[dict], int, int]:
+    """Fetch one ordered table-of-contents page without loading every chapter."""
+    page, limit = max(1, page), max(1, min(limit, 100))
+    sort = "desc" if sort == "desc" else "asc"
     if _configured():
         try:
             novels = _rest_rows("novels", {"select": "id", "slug": f"eq.{slug}", "limit": "1"})
             if not novels:
                 raise CdnDataError("Novel was not found")
-            rows = _rest_rows("chapters", {"select": "id,chapter_number,title", "novel_id": f"eq.{novels[0]['id']}", "order": "chapter_number.asc", "limit": str(limit + 1), "offset": str(offset)})
-            return rows[:limit], len(rows) > limit
+            params = {"novel_id": f"eq.{novels[0]['id']}"}
+            total = _rest_count("chapters", params)
+            total_pages = max(1, (total + limit - 1) // limit)
+            page = min(page, total_pages)
+            rows = _rest_rows("chapters", {"select": "id,chapter_number,title", **params, "order": f"chapter_number.{sort}", "limit": str(limit), "offset": str((page - 1) * limit)})
+            return rows, total, page
         except CdnDataError:
             pass
     chapters = load_chapters_index(slug)
-    return chapters[offset : offset + limit], len(chapters) > offset + limit
+    chapters.sort(key=lambda item: int(item.get("chapter_number", 0)), reverse=sort == "desc")
+    total = len(chapters)
+    total_pages = max(1, (total + limit - 1) // limit)
+    page = min(page, total_pages)
+    offset = (page - 1) * limit
+    return chapters[offset : offset + limit], total, page
 
 
 def publish_translated_chapter(

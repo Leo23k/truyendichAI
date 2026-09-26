@@ -32,6 +32,7 @@ from app.cdn import (
     load_chapters_index,
     load_chapters_page,
     load_deleted_synced_novels,
+    load_synced_novel,
     load_replacement_rules,
     load_translation_progress,
     load_translation_memory,
@@ -70,6 +71,32 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _chapter_pagination(current: int, total: int) -> list[int | None]:
+    pages = {1, total, *range(max(1, current - 2), min(total, current + 2) + 1)}
+    result: list[int | None] = []
+    previous = 0
+    for page in sorted(pages):
+        if page > previous + 1:
+            result.append(None)
+        result.append(page)
+        previous = page
+    return result
+
+
+def _chapter_list_context(slug: str, page: int, sort: str) -> dict[str, object]:
+    chapters, total, page = load_chapters_page(slug, page, sort)
+    total_pages = max(1, (total + 49) // 50)
+    return {
+        "slug": slug,
+        "chapters": chapters,
+        "chapter_page": page,
+        "chapter_sort": "desc" if sort == "desc" else "asc",
+        "chapter_total": total,
+        "chapter_total_pages": total_pages,
+        "chapter_pages": _chapter_pagination(page, total_pages),
+    }
 
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
@@ -596,29 +623,26 @@ def control_crawl_job(job_id: str, action: str, request: Request):
 
 @app.get("/truyen/{slug}")
 @app.get("/synced/{slug}", include_in_schema=False)
-def synced_book(slug: str, request: Request):
+def synced_book(slug: str, request: Request, chapter_page: int = 1, chapter_sort: str = "asc"):
     try:
-        metadata = load_cdn_json("metadata.json")
-        novel = next((item for item in metadata.get("novels", []) if item.get("slug") == slug), None)
-        chapters, has_more = load_chapters_page(slug)
-        if not novel:
-            raise CdnDataError("Novel was not found")
+        novel = load_synced_novel(slug)
+        chapter_context = _chapter_list_context(slug, chapter_page, chapter_sort)
     except CdnDataError:
         raise HTTPException(status_code=404, detail="Truyện chưa được đồng bộ.") from None
     return templates.TemplateResponse(
         request=request,
         name="synced_book_detail.html",
-        context={"novel": novel, "chapters": chapters, "has_more": has_more, "next_offset": len(chapters)},
+        context={"novel": novel, **chapter_context},
     )
 
 
 @app.get("/truyen/{slug}/chapters", include_in_schema=False)
-def synced_chapter_page(slug: str, request: Request, offset: int = 0):
+def synced_chapter_page(slug: str, request: Request, chapter_page: int = 1, chapter_sort: str = "asc"):
     try:
-        chapters, has_more = load_chapters_page(slug, offset)
+        context = _chapter_list_context(slug, chapter_page, chapter_sort)
     except CdnDataError:
         raise HTTPException(status_code=404, detail="Truyện chưa được đồng bộ.") from None
-    return templates.TemplateResponse(request=request, name="partials/synced_chapter_items.html", context={"slug": slug, "chapters": chapters, "has_more": has_more, "next_offset": offset + len(chapters)})
+    return templates.TemplateResponse(request=request, name="partials/synced_chapter_items.html", context=context)
 
 
 @app.get("/truyen/{slug}/offline-chapters", include_in_schema=False)
