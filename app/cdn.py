@@ -234,14 +234,13 @@ def load_novels() -> list[dict]:
                     "order": "updated_at.desc",
                 },
             )
-            translated = _all_rows("chapters", {"select": "novel_id", "translated": "eq.true"})
-            totals = _all_rows("chapters", {"select": "novel_id"})
+            chapter_counts = _all_rows("chapters", {"select": "novel_id,translated"})
             translated_counts: dict[int, int] = {}
             total_counts: dict[int, int] = {}
-            for row in translated:
-                translated_counts[row["novel_id"]] = translated_counts.get(row["novel_id"], 0) + 1
-            for row in totals:
+            for row in chapter_counts:
                 total_counts[row["novel_id"]] = total_counts.get(row["novel_id"], 0) + 1
+                if row.get("translated"):
+                    translated_counts[row["novel_id"]] = translated_counts.get(row["novel_id"], 0) + 1
             fallback_covers: dict[str, str] = {}
             try:
                 fallback_covers = {
@@ -358,7 +357,10 @@ def load_cdn_json(path: str) -> dict:
     relative = _safe_path(path)
     if relative.as_posix() == "metadata.json":
         return {"novels": load_novels()}
-    if _configured() and len(relative.parts) >= 4 and relative.parts[0] == "novels" and relative.parts[2] == "chapters":
+    if _configured() and (
+        (len(relative.parts) >= 4 and relative.parts[0] == "novels" and relative.parts[2] == "chapters")
+        or (len(relative.parts) >= 3 and relative.parts[0] == "chapters")
+    ):
         try:
             with httpx.Client(timeout=15, trust_env=False) as client:
                 response = client.get(cdn_url(path), headers=_headers())
@@ -392,6 +394,22 @@ def load_chapters_index(slug: str) -> list[dict]:
     if not isinstance(chapters, list):
         raise CdnDataError(f"Invalid chapters index: {slug}")
     return [chapter for chapter in chapters if isinstance(chapter, dict)]
+
+
+def load_chapters_page(slug: str, offset: int = 0, limit: int = 100) -> tuple[list[dict], bool]:
+    """Fetch one table-of-contents page without loading thousands of rows."""
+    offset, limit = max(0, offset), max(1, min(limit, 100))
+    if _configured():
+        try:
+            novels = _rest_rows("novels", {"select": "id", "slug": f"eq.{slug}", "limit": "1"})
+            if not novels:
+                raise CdnDataError("Novel was not found")
+            rows = _rest_rows("chapters", {"select": "id,chapter_number,title", "novel_id": f"eq.{novels[0]['id']}", "order": "chapter_number.asc", "limit": str(limit + 1), "offset": str(offset)})
+            return rows[:limit], len(rows) > limit
+        except CdnDataError:
+            pass
+    chapters = load_chapters_index(slug)
+    return chapters[offset : offset + limit], len(chapters) > offset + limit
 
 
 def publish_translated_chapter(

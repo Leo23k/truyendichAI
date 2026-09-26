@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -30,6 +30,7 @@ from app.cdn import (
     get_synced_novel_for_management,
     load_cdn_json,
     load_chapters_index,
+    load_chapters_page,
     load_deleted_synced_novels,
     load_replacement_rules,
     load_translation_progress,
@@ -599,7 +600,7 @@ def synced_book(slug: str, request: Request):
     try:
         metadata = load_cdn_json("metadata.json")
         novel = next((item for item in metadata.get("novels", []) if item.get("slug") == slug), None)
-        chapters = load_chapters_index(slug)
+        chapters, has_more = load_chapters_page(slug)
         if not novel:
             raise CdnDataError("Novel was not found")
     except CdnDataError:
@@ -607,8 +608,23 @@ def synced_book(slug: str, request: Request):
     return templates.TemplateResponse(
         request=request,
         name="synced_book_detail.html",
-        context={"novel": novel, "chapters": chapters},
+        context={"novel": novel, "chapters": chapters, "has_more": has_more, "next_offset": len(chapters)},
     )
+
+
+@app.get("/truyen/{slug}/chapters", include_in_schema=False)
+def synced_chapter_page(slug: str, request: Request, offset: int = 0):
+    try:
+        chapters, has_more = load_chapters_page(slug, offset)
+    except CdnDataError:
+        raise HTTPException(status_code=404, detail="Truyện chưa được đồng bộ.") from None
+    return templates.TemplateResponse(request=request, name="partials/synced_chapter_items.html", context={"slug": slug, "chapters": chapters, "has_more": has_more, "next_offset": offset + len(chapters)})
+
+
+@app.get("/truyen/{slug}/offline-chapters", include_in_schema=False)
+def synced_offline_chapters(slug: str):
+    chapters = load_chapters_index(slug)
+    return JSONResponse([{"id": item.get("id"), "title": item.get("title"), "chapter_number": item.get("chapter_number"), "url": f"/truyen/{slug}/{item.get('chapter_number')}"} for item in chapters])
 
 
 @app.get("/truyen/{slug}/{chapter_number}")
@@ -617,7 +633,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
     key = f"{chapter_number:03d}"
     try:
         entries = load_chapters_index(slug)
-        position = next((index for index, item in enumerate(entries) if item.get("chapter_number") == chapter_number), None)
+        position = next((index for index, item in enumerate(entries) if int(item.get("chapter_number", 0)) == chapter_number), None)
         if position is None:
             return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
         current = entries[position]
@@ -673,7 +689,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "queue_chapter_id": current.get("id"),
                 },
             )
-        payload = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
+        payload = load_cdn_json(current.get("content_path") or f"novels/{slug}/chapters/{key}.json")
     except CdnDataError:
         return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
     previous = entries[position - 1] if position else None
