@@ -60,8 +60,8 @@ async def test_fanqie_search_returns_only_verified_crawlable_books(monkeypatch) 
 @pytest.mark.parametrize(
     ("crawler_type", "book_url", "chapter_url"),
     [
-        (PiaotianCrawler, "https://www.piaotian.com/html/1/42/index.html", "https://www.piaotian.com/html/1/42/100.html"),
-        (UukanshuCrawler, "https://www.uukanshu.com/b/42/", "https://www.uukanshu.com/b/42/100.html"),
+        (PiaotianCrawler, "https://www.piaotia.com/bookinfo/1/42.html", "https://www.piaotia.com/html/1/42/100.html"),
+        (UukanshuCrawler, "https://uukanshu.cc/book/42/", "https://uukanshu.cc/book/42/100.html"),
     ],
 )
 async def test_html_site_crawlers_parse_book_chapter_and_content(monkeypatch, crawler_type, book_url, chapter_url) -> None:
@@ -78,3 +78,39 @@ async def test_html_site_crawlers_parse_book_chapter_and_content(monkeypatch, cr
     assert info.title == "Test Book"
     assert len(chapters) == 1
     assert await crawler.get_chapter_content(chapter_url) == "Paragraph one.\nParagraph two."
+
+
+@pytest.mark.asyncio
+async def test_piaotia_uses_document_gbk_charset_when_header_is_wrong(monkeypatch) -> None:
+    crawler = PiaotianCrawler()
+
+    class Response:
+        content = b'<meta http-equiv="Content-Type" content="text/html; charset=gbk"><h1>\xc6\xd5\xc2\xde</h1>'
+        text = "mojibake"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr("app.crawlers.plugins.text_sites.httpx.AsyncClient", lambda **_kwargs: Client())
+    assert "普罗" in await crawler._get_html("https://www.piaotia.com/bookinfo/1/42.html")
+
+
+@pytest.mark.asyncio
+async def test_piaotia_reads_unwrapped_reader_content(monkeypatch) -> None:
+    crawler = PiaotianCrawler()
+
+    async def html(_url: str) -> str:
+        return '<div class="toplink">Previous</div><br><br>&nbsp;&nbsp;第1章 Start<br><br>&nbsp;&nbsp;Paragraph one.<br><br>&nbsp;&nbsp;Paragraph two.<div class="bottomlink">Next</div>'
+
+    monkeypatch.setattr(crawler, "_get_html", html)
+    assert await crawler.get_chapter_content("https://www.piaotia.com/html/1/42/100.html") == "第1章 Start\nParagraph one.\nParagraph two."

@@ -27,6 +27,19 @@ class HtmlNovelCrawler(BaseCrawler):
             ) as client:
                 response = await client.get(url)
                 response.raise_for_status()
+                # Some older Chinese novel sites send a UTF-8 HTTP header while
+                # their document itself declares GBK.  Trust the document's
+                # declaration so CSS parsing and saved text are not mojibake.
+                declared_charset = re.search(
+                    rb"<meta[^>]+charset\s*=\s*['\"]?([a-zA-Z0-9_-]+)",
+                    response.content[:4096],
+                    re.IGNORECASE,
+                )
+                if declared_charset:
+                    try:
+                        return response.content.decode(declared_charset.group(1).decode("ascii"), errors="replace")
+                    except LookupError:
+                        logger.warning("Unknown charset from %s: %r", url, declared_charset.group(1))
                 return response.text
         except httpx.HTTPStatusError as exc:
             logger.warning("%s returned HTTP %s for %s", self.source_name, exc.response.status_code, url)
@@ -81,13 +94,13 @@ class HtmlNovelCrawler(BaseCrawler):
 
 class PiaotianCrawler(HtmlNovelCrawler):
     source_name = "piaotian"
-    domains = ("piaotian.com", "www.piaotian.com")
+    domains = ("piaotian.com", "www.piaotian.com", "piaotia.com", "www.piaotia.com")
     chapter_selectors = ("#list a[href]", ".centent a[href]", ".chapterlist a[href]")
     content_selectors = ("#content", "#contents", ".content", ".yd_text2", ".read-content")
 
     @staticmethod
     def _book_id(url: str) -> str | None:
-        match = re.search(r"/html/\d+/(\d+)", urlparse(url).path)
+        match = re.search(r"/(?:html|bookinfo)/\d+/(\d+)", urlparse(url).path)
         return match.group(1) if match else None
 
     def _is_chapter_url(self, url: str) -> bool:
@@ -99,20 +112,54 @@ class PiaotianCrawler(HtmlNovelCrawler):
         match = re.search(r"/(\d+)\.html$", urlparse(url).path)
         return match.group(1) if match else None
 
+    async def get_chapters(self, url: str) -> list[ChapterInfo]:
+        """Follow Piaotia's book-info page to its complete table of contents."""
+        soup = BeautifulSoup(await self._get_html(url), "html.parser")
+        index_link = next(
+            (
+                urljoin(url, link["href"])
+                for link in soup.select("a[href]")
+                if re.search(r"/html/\d+/\d+/index\.html$", link["href"])
+            ),
+            None,
+        )
+        if index_link:
+            return await super().get_chapters(index_link)
+        return await super().get_chapters(url)
+
+    async def get_chapter_content(self, url: str) -> str:
+        html = await self._get_html(url)
+        soup = BeautifulSoup(html, "html.parser")
+        content_node = next((soup.select_one(selector) for selector in self.content_selectors if soup.select_one(selector)), None)
+        if content_node:
+            return await super().get_chapter_content(url)
+
+        # Piaotia's reader has no content wrapper: the prose is bare HTML
+        # between the reader controls and the footer controls.
+        start = re.search(r"(?:<br\s*/?>\s*){2,}(?:&nbsp;|\s)*第", html, re.IGNORECASE)
+        end = re.search(r'<div\s+class=["\']bottomlink["\']', html, re.IGNORECASE)
+        if not start or not end or end.start() <= start.start():
+            raise SourceParseError("Không tìm thấy nội dung chương.")
+        content = clean_chapter_text(BeautifulSoup(html[start.start():end.start()], "html.parser").get_text("\n", strip=True))
+        if not content:
+            raise SourceParseError("Nội dung chương trống.")
+        return content
+
 
 class UukanshuCrawler(HtmlNovelCrawler):
     source_name = "uukanshu"
-    domains = ("uukanshu.com", "www.uukanshu.com")
-    chapter_selectors = ("#chapterList a[href]", ".chapter-list a[href]", "#list a[href]")
+    domains = ("uukanshu.com", "www.uukanshu.com", "uukanshu.cc", "www.uukanshu.cc")
+    chapter_selectors = ("#list-chapterAll dd a[href]", "#chapterList a[href]", ".chapter-list a[href]", "#list a[href]")
+    content_selectors = (".readcotent", "#content", "#contents", ".content", ".article-content", ".read-content")
 
     @staticmethod
     def _book_id(url: str) -> str | None:
-        match = re.search(r"/b/(\d+)", urlparse(url).path)
+        match = re.search(r"/(?:b|book)/(\d+)", urlparse(url).path)
         return match.group(1) if match else None
 
     def _is_chapter_url(self, url: str) -> bool:
         book_id = self._book_id(url)
-        return bool(book_id and re.search(rf"/b/{re.escape(book_id)}/[^/]+\.html$", urlparse(url).path))
+        return bool(book_id and re.search(rf"/(?:b|book)/{re.escape(book_id)}/[^/]+\.html$", urlparse(url).path))
 
     @staticmethod
     def _chapter_id(url: str) -> str | None:
