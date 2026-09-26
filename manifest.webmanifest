@@ -6,8 +6,8 @@
   "theme_color": "#0f766e",
   "background_color": "#faf8f3",
   "icons": [{
-    "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='36' fill='%230f766e'/%3E%3Cpath d='M45 47h46c18 0 31 8 36 18 5-10 18-18 36-18h-46c-18 0-31 8-36 18v80c5-10 18-18 36-18h46V47h-46c-18 0-31 8-36 18-5-10-18-18-36-18H45v80h46c18 0 31 8 36 18V65c-5-10-18-18-36-18H45z' fill='white'/%3E%3C/svg%3E",
-    "sizes": "192x192",
+    "src": "/static/pwa-icon.svg",
+    "sizes": "192x192 512x512",
     "type": "image/svg+xml",
     "purpose": "any"
   }]

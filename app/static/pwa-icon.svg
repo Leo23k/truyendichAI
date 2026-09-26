@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="My Novel Reader">
+  <rect width="192" height="192" rx="36" fill="#0f766e"/>
+  <path d="M45 47h46c18 0 31 8 36 18 5-10 18-18 36-18h-46c-18 0-31 8-36 18v80c5-10 18-18 36-18h46V47h-46c-18 0-31 8-36 18-5-10-18-18-36-18H45v80h46c18 0 31 8 36 18V65c-5-10-18-18-36-18H45z" fill="#fff"/>
+</svg>

@@ -14,10 +14,11 @@
   const remove = (name, key) => tx(name, "readwrite", s => s.delete(key));
   const all = name => tx(name, "readonly", s => s.getAll());
   const byUrl = url => tx("chapters", "readonly", s => s.index("url").get(url));
+  const removeBookChapters = async bookId => Promise.all((await all("chapters")).filter(chapter => chapter.bookId === bookId).map(chapter => remove("chapters", chapter.id)));
   const text = node => node?.textContent?.trim() || "";
   const escape = value => String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const chapterId = link => link.dataset.chapterId || link.href.split("?")[0].split("/").pop();
-  const storedChapter = chapter => get("chapters", chapter.id).then(found => found || get("chapters", chapter.chapterId));
+  const storedChapter = chapter => get("chapters", chapter.id).then(found => found?.content ? found : get("chapters", chapter.chapterId)).then(found => found?.content ? found : undefined);
 
   async function renderOfflineReader() {
     const chapter = await byUrl(location.pathname);
@@ -30,6 +31,12 @@
     document.body.innerHTML = `<main style="max-width:48rem;margin:0 auto;padding:2rem 1.25rem 5rem;font:18px/1.85 Georgia,serif;color:#302d28;background:#faf8f3;min-height:100vh"><a href="${escape(chapter.bookUrl)}" style="font:14px system-ui;color:#0f766e">← Quay lại truyện</a><h1 style="font:600 1.5rem/1.35 system-ui;margin:2rem 0">${escape(chapter.title)}</h1><article>${content}</article><nav style="display:flex;justify-content:space-between;gap:1rem;margin-top:3rem;font:14px system-ui">${nav(entries[index - 1], "← Chương trước")}${nav(entries[index + 1], "Chương sau →")}</nav></main>`;
   }
   function missing() { document.body.innerHTML = '<main style="max-width:42rem;margin:4rem auto;padding:0 1.25rem;font-family:system-ui"><h1>Không có bản offline</h1><p>Chương này chưa được tải để đọc offline.</p><a href="/">Về thư viện</a></main>'; }
+  async function renderOfflineBook() {
+    const book = (await all("books")).find(item => item.bookUrl === location.pathname);
+    const chapters = book ? (await get("chapterLists", book.id))?.chapters || [] : [];
+    const list = chapters.map(item => `<li><a href="${escape(item.url)}">${escape(item.title)}</a></li>`).join("") || "<li>Chưa có chương nào được tải offline.</li>";
+    document.body.innerHTML = `<main style="max-width:42rem;margin:3rem auto;padding:0 1.25rem;font-family:system-ui"><p style="color:#0f766e">Đang đọc offline</p><h1>${escape(book?.title || "Truyện offline")}</h1><p>${chapters.length} chương đã lưu trên thiết bị.</p><ol style="line-height:2;padding-left:1.5rem">${list}</ol></main>`;
+  }
   async function renderOfflineHome() { const books = await all("books"); const items = books.map(book => `<li><a href="${escape(book.bookUrl)}">${escape(book.title)}</a></li>`).join("") || "<li>Chưa có truyện nào được tải offline.</li>"; document.body.innerHTML = `<main style="max-width:42rem;margin:4rem auto;padding:0 1.25rem;font-family:system-ui"><h1>My Novel Reader</h1><p>Bạn đang offline. Truyện đã tải:</p><ul style="line-height:2">${items}</ul></main>`; }
 
   async function fetchChapter(chapter) {
@@ -59,8 +66,8 @@
       controls(stored); status.textContent = stored === chapters.length ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương.${failed ? " Tải thất bại. Có thể tiếp tục sau." : ""}`;
     };
     download.onclick = update.onclick = downloadMissing;
-    del.onclick = async () => { await Promise.all(chapters.flatMap(c => [remove("chapters", c.id), remove("chapters", c.chapterId)])); await Promise.all([remove("chapterLists", id), remove("books", id)]); stored = 0; controls(stored); status.textContent = "Đã xóa bản offline."; };
+    del.onclick = async () => { await removeBookChapters(id); await Promise.all([remove("chapterLists", id), remove("books", id)]); stored = 0; controls(stored); status.textContent = "Đã xóa bản offline."; };
   }
   document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); });
-  window.NovelOffline = { renderOfflineReader, renderOfflineHome };
+  window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome };
 })();
