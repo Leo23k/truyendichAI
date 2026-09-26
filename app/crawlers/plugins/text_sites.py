@@ -137,12 +137,16 @@ class PiaotianCrawler(HtmlNovelCrawler):
             return await super().get_chapter_content(url)
 
         # Piaotia's reader has no content wrapper: the prose is bare HTML
-        # between the reader controls and the footer controls.
-        start = re.search(r"(?:<br\s*/?>\s*){2,}(?:&nbsp;|\s)*第", html, re.IGNORECASE)
-        end = re.search(r'<div\s+class=["\']bottomlink["\']', html, re.IGNORECASE)
-        if not start or not end or end.start() <= start.start():
+        # between the top and bottom reader controls. Do not anchor this on
+        # the chapter heading: some pages begin directly with prose.
+        content_match = re.search(
+            r'<div\s+class=["\']toplink["\'][^>]*>.*?</div>\s*(.*?)\s*<div\s+class=["\']bottomlink["\']',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not content_match:
             raise SourceParseError("Không tìm thấy nội dung chương.")
-        content = clean_chapter_text(BeautifulSoup(html[start.start():end.start()], "html.parser").get_text("\n", strip=True))
+        content = clean_chapter_text(BeautifulSoup(content_match.group(1), "html.parser").get_text("\n", strip=True))
         if not content:
             raise SourceParseError("Nội dung chương trống.")
         return content
