@@ -287,6 +287,36 @@ def claim_translation_job(remote: SupabaseSync) -> dict | None:
     return claimed[0] if claimed else None
 
 
+def reclaim_stale_translation_jobs(remote: SupabaseSync) -> int:
+    """Return abandoned translating jobs to the queue after a worker interruption."""
+    stale_after = max(600, int(os.getenv("TRANSLATION_JOB_STALE_SECONDS", "900")))
+    stale_before = (datetime.now(timezone.utc) - timedelta(seconds=stale_after)).isoformat()
+    reclaimed = remote.patch_rows(
+        "translation_queue",
+        {"status": "eq.translating", "updated_at": f"lt.{stale_before}"},
+        {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    if reclaimed:
+        logger.warning("Đã nhận lại %s job dịch bị kẹt quá %s giây.", len(reclaimed), stale_after)
+    return len(reclaimed)
+
+
+def complete_crawl_job_when_translation_finishes(remote: SupabaseSync, crawl_job_id: str) -> bool:
+    """Close a crawl job once its independent translation queue is empty."""
+    active = remote.rows(
+        "translation_queue",
+        {"select": "id", "crawl_job_id": f"eq.{crawl_job_id}", "status": "in.(queued,translating,paused,failed)", "limit": "1"},
+    )
+    if active:
+        return False
+    completed = remote.patch_rows(
+        "remote_crawl_jobs",
+        {"id": f"eq.{crawl_job_id}", "status": "eq.translating"},
+        {"status": "completed", "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    return bool(completed)
+
+
 def prioritize_translation(remote: SupabaseSync, chapter_id: int, priority: int) -> bool:
     """Raise a queued chapter without interrupting the chunk already translating."""
     rows = remote.patch_rows(
@@ -437,6 +467,7 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
 
 def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     remote = remote or SupabaseSync()
+    reclaim_stale_translation_jobs(remote)
     job = claim_translation_job(remote)
 
     if not job:
@@ -517,6 +548,8 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
 
             if status == "completed":
                 publish_completed_translation(remote, int(job["chapter_id"]))
+                if crawl_job_id:
+                    complete_crawl_job_when_translation_finishes(remote, str(crawl_job_id))
 
             logger.info(
                 "Đã dịch chương ID %s: hoàn tất %s/%s đoạn.",

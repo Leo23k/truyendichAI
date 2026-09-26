@@ -98,16 +98,62 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
             return []
 
     remote = WorkerRemote()
-    monkeypatch.setattr(service.translator, "translate_batch", lambda texts: [f"Dịch {text}" for text in texts])
+    monkeypatch.setattr(service.translator, "translate_batch", lambda texts, _glossary: [f"Dịch {text}" for text in texts])
 
     published: list[int] = []
     monkeypatch.setattr(service, "publish_completed_translation", lambda _remote, chapter_id: published.append(chapter_id))
 
     assert service.run_translation_worker_once(remote) is True
     assert [patch[2]["translated_text"] for patch in remote.patches if patch[0] == "chapter_chunks"] == ["Dịch Một.", "Dịch Hai."]
-    assert [patch[0] for patch in remote.patches].index("chapter_chunks") < [patch[0] for patch in remote.patches].index("translation_queue", 1)
+    updates = [index for index, patch in enumerate(remote.patches) if patch[0] == "translation_queue" and patch[2].get("status") in {"translating", "completed"}]
+    assert [index for index, patch in enumerate(remote.patches) if patch[0] == "chapter_chunks"][0] < updates[1]
     assert remote.patches[-1][2]["status"] == "completed"
     assert published == [7]
+
+
+def test_stale_translation_jobs_are_requeued_before_claiming() -> None:
+    class QueueRemote:
+        def __init__(self) -> None:
+            self.patches: list[tuple[str, dict, dict]] = []
+
+        def patch_rows(self, table: str, params: dict, payload: dict) -> list[dict]:
+            self.patches.append((table, params, payload))
+            return [{"id": "stale"}]
+
+    remote = QueueRemote()
+
+    assert service.reclaim_stale_translation_jobs(remote) == 1
+    table, params, payload = remote.patches[0]
+    assert table == "translation_queue"
+    assert params["status"] == "eq.translating"
+    assert params["updated_at"].startswith("lt.")
+    assert payload["status"] == "queued"
+
+
+def test_crawl_job_completes_when_its_translation_queue_is_empty() -> None:
+    class QueueRemote:
+        def __init__(self, active: list[dict]) -> None:
+            self.active = active
+            self.patches: list[tuple[str, dict, dict]] = []
+
+        def rows(self, table: str, params: dict) -> list[dict]:
+            assert table == "translation_queue"
+            assert params["status"] == "in.(queued,translating,paused,failed)"
+            return self.active
+
+        def patch_rows(self, table: str, params: dict, payload: dict) -> list[dict]:
+            self.patches.append((table, params, payload))
+            return [{"id": "crawl"}]
+
+    remote = QueueRemote([])
+    assert service.complete_crawl_job_when_translation_finishes(remote, "crawl") is True
+    assert remote.patches[0][0] == "remote_crawl_jobs"
+    assert remote.patches[0][1]["status"] == "eq.translating"
+    assert remote.patches[0][2]["status"] == "completed"
+
+    active_remote = QueueRemote([{"id": "pending"}])
+    assert service.complete_crawl_job_when_translation_finishes(active_remote, "crawl") is False
+    assert active_remote.patches == []
 
 
 def test_remote_crawl_job_is_claimed_only_while_queued() -> None:
