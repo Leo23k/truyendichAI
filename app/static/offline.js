@@ -37,7 +37,7 @@
     const list = chapters.map(item => `<li><a href="${escape(item.url)}">${escape(item.title)}</a></li>`).join("") || "<li>Chưa có chương nào được tải offline.</li>";
     document.body.innerHTML = `<main style="max-width:42rem;margin:3rem auto;padding:0 1.25rem;font-family:system-ui"><p style="color:#0f766e">Đang đọc offline</p><h1>${escape(book?.title || "Truyện offline")}</h1><p>${chapters.length} chương đã lưu trên thiết bị.</p><ol style="line-height:2;padding-left:1.5rem">${list}</ol></main>`;
   }
-  async function renderOfflineHome() { const books = await all("books"); const items = books.map(book => `<li><a href="${escape(book.bookUrl)}">${escape(book.title)}</a></li>`).join("") || "<li>Chưa có truyện nào được tải offline.</li>"; document.body.innerHTML = `<main style="max-width:42rem;margin:4rem auto;padding:0 1.25rem;font-family:system-ui"><h1>My Novel Reader</h1><p>Bạn đang offline. Truyện đã tải:</p><ul style="line-height:2">${items}</ul></main>`; }
+  async function renderOfflineHome() { const books = await all("books"); const items = books.map(book => `<li><a href="${escape(book.bookUrl)}">${escape(book.title)}</a></li>`).join("") || "<li>Chưa có truyện nào được tải offline.</li>"; document.body.innerHTML = `<main style="max-width:42rem;margin:4rem auto;padding:0 1.25rem;font-family:system-ui"><h1>Leo Truyen</h1><p>Bạn đang offline. Truyện đã tải:</p><ul style="line-height:2">${items}</ul></main>`; }
 
   async function fetchChapter(chapter) {
     for (let attempt = 0; attempt < 2; attempt += 1) try {
