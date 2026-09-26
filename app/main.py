@@ -642,7 +642,9 @@ def synced_chapter_page(slug: str, request: Request, chapter_page: int = 1, chap
         context = _chapter_list_context(slug, chapter_page, chapter_sort)
     except CdnDataError:
         raise HTTPException(status_code=404, detail="Truyện chưa được đồng bộ.") from None
-    return templates.TemplateResponse(request=request, name="partials/synced_chapter_items.html", context=context)
+    response = templates.TemplateResponse(request=request, name="partials/synced_chapter_items.html", context=context)
+    response.headers["HX-Push-Url"] = f"/truyen/{slug}?chapter_page={context['chapter_page']}&chapter_sort={context['chapter_sort']}"
+    return response
 
 
 @app.get("/truyen/{slug}/offline-chapters", include_in_schema=False)
