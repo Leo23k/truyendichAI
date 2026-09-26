@@ -41,7 +41,8 @@
 
   async function fetchChapter(chapter) {
     for (let attempt = 0; attempt < 2; attempt += 1) try {
-      const response = await fetch(chapter.url, { cache: "no-store" }); if (!response.ok) throw new Error(String(response.status));
+      const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 25000);
+      const response = await fetch(chapter.url, { cache: "no-store", signal: controller.signal }).finally(() => clearTimeout(timeout)); if (!response.ok) throw new Error(String(response.status));
       const page = new DOMParser().parseFromString(await response.text(), "text/html"), content = text(page.querySelector("[data-reader-content]"));
       if (!content) throw new Error("empty chapter");
       await put("chapters", { ...chapter, title: text(page.querySelector("h2")) || chapter.title, content, savedAt: Date.now() }); return true;
@@ -54,19 +55,19 @@
     const id = book.dataset.bookId, title = book.dataset.bookTitle;
     const chapters = [...book.querySelectorAll("[data-offline-chapter]")].map((link, order) => { const sourceId = chapterId(link); return { id: `${id}:${sourceId}`, chapterId: sourceId, url: new URL(link.href).pathname, title: text(link.querySelector("span:last-child")) || text(link), bookId: id, bookUrl: location.pathname, order }; });
     const count = async () => (await Promise.all(chapters.map(storedChapter))).filter(Boolean).length;
-    const controls = (stored, busy = false) => { const complete = stored === chapters.length && chapters.length > 0, label = download.querySelector("span"); download.disabled = busy || complete; label.textContent = busy ? `Đang tải ${stored} / ${chapters.length}` : complete ? "✓ Đã tải offline" : stored ? "Tải tiếp" : "Tải để đọc offline"; update.hidden = del.hidden = !stored; update.disabled = del.disabled = busy; };
-    let stored = await count(); controls(stored); if (stored) status.textContent = stored === chapters.length ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương`;
+    const controls = (stored, busy = false, resumable = false) => { const complete = stored === chapters.length && chapters.length > 0, label = download.querySelector("span"); download.disabled = busy || complete; label.textContent = busy ? `Đang tải ${stored} / ${chapters.length}` : complete ? "✓ Đã tải offline" : (stored || resumable) ? "Tải tiếp" : "Tải để đọc offline"; update.hidden = del.hidden = !(stored || resumable); update.disabled = del.disabled = busy; };
+    let stored = await count(), resume = Boolean(await get("books", id)); controls(stored, false, resume); if (stored || resume) status.textContent = stored === chapters.length ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương. Có thể tải tiếp.`;
     const downloadMissing = async () => {
       const local = await Promise.all(chapters.map(storedChapter)), pending = chapters.filter((c, i) => !local[i]);
       await put("chapterLists", { bookId: id, chapters, updatedAt: Date.now() }); await put("books", { id, title, bookUrl: location.pathname, totalChapters: chapters.length, downloadedChapters: stored, updatedAt: Date.now(), status: "downloading" });
       if (!pending.length) { controls(stored); return; }
-      let cursor = 0, failed = false; controls(stored, true); const show = () => { status.textContent = `Đang tải ${stored} / ${chapters.length} chương`; controls(stored, true); };
+      let cursor = 0, failed = false; resume = true; controls(stored, true, resume); const show = () => { status.textContent = `Đang tải ${stored} / ${chapters.length} chương`; controls(stored, true, resume); };
       await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => { while (cursor < pending.length) { const chapter = pending[cursor++]; if (await fetchChapter(chapter)) { stored += 1; show(); } else failed = true; } }));
       await put("books", { id, title, bookUrl: location.pathname, totalChapters: chapters.length, downloadedChapters: stored, updatedAt: Date.now(), status: stored === chapters.length ? "downloaded" : "partial" });
-      controls(stored); status.textContent = stored === chapters.length ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương.${failed ? " Tải thất bại. Có thể tiếp tục sau." : ""}`;
+      resume = stored !== chapters.length; controls(stored, false, resume); status.textContent = stored === chapters.length ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương.${failed ? " Tải thất bại. Có thể tiếp tục sau." : ""}`;
     };
     download.onclick = update.onclick = downloadMissing;
-    del.onclick = async () => { await removeBookChapters(id); await Promise.all([remove("chapterLists", id), remove("books", id)]); stored = 0; controls(stored); status.textContent = "Đã xóa bản offline."; };
+    del.onclick = async () => { await removeBookChapters(id); await Promise.all([remove("chapterLists", id), remove("books", id)]); stored = 0; resume = false; controls(stored); status.textContent = "Đã xóa bản offline."; };
   }
   document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); });
   window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome };
