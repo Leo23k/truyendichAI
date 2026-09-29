@@ -13,7 +13,6 @@ import sqlite3
 import threading
 import time
 import unicodedata
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
@@ -65,11 +64,20 @@ class SyncError(RuntimeError):
     pass
 
 
-def slugify(value: str, book_id: int) -> str:
+def slugify(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value or "")
     ascii_value = normalized.encode("ascii", "ignore").decode("ascii").lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", ascii_value).strip("-")
-    return f"{slug or 'novel'}-{book_id}"
+    return re.sub(r"[^a-z0-9]+", "-", ascii_value).strip("-") or "novel"
+
+
+def unique_slug(value: str, existing_slugs: set[str]) -> str:
+    base = slugify(value)
+    candidate = base
+    suffix = 1
+    while candidate in existing_slugs:
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
 
 
 def chapter_key(number: int) -> str:
@@ -590,8 +598,13 @@ def sync_once() -> dict[str, int | bool]:
     connection.row_factory = sqlite3.Row
     counts = {"novels": 0, "chapters": 0, "queued": 0, "json_uploaded": 0, "audio_uploaded": 0, "covers_uploaded": 0}
     try:
+        remote_novels = remote.all_rows("novels", {"select": "slug,source_url", "order": "slug.asc"})
+        slugs_by_source = {str(item.get("source_url")): str(item["slug"]) for item in remote_novels if item.get("source_url") and item.get("slug")}
+        used_slugs = {str(item["slug"]) for item in remote_novels if item.get("slug")}
         for book in connection.execute("SELECT * FROM books ORDER BY id").fetchall():
-            slug = slugify(book["translated_title"] or book["title"], book["id"])
+            source_url = str(book["source_url"] or "")
+            slug = slugs_by_source.get(source_url) or unique_slug(book["translated_title"] or book["title"], used_slugs)
+            used_slugs.add(slug)
             cover_path = None
             cover = cover_bytes(book["cover_url"])
             if cover:
@@ -723,8 +736,8 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
             novel = novels[0]
             remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"title": translated_title, "author": translated_author, "cover_url": info.cover_url, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()})
         else:
-            slug_id = uuid.uuid5(uuid.NAMESPACE_URL, info.source_url).int % 100000000
-            novel = remote.insert("novels", {"slug": slugify(translated_title, slug_id), "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "source_url": info.source_url, "latest_chapter": 0})
+            existing_slugs = {str(item["slug"]) for item in remote.all_rows("novels", {"select": "slug", "order": "slug.asc"}) if item.get("slug")}
+            novel = remote.insert("novels", {"slug": unique_slug(translated_title, existing_slugs), "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "source_url": info.source_url, "latest_chapter": 0})
 
         update_status(book_id=novel["id"], title=translated_title)
 
