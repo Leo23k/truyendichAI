@@ -98,6 +98,12 @@ def _chapter_list_context(slug: str, page: int, sort: str) -> dict[str, object]:
         "chapter_pages": _chapter_pagination(page, total_pages),
     }
 
+
+def _synced_chapter_entry_and_payload(slug: str, chapter_number: int) -> tuple[dict, dict]:
+    entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
+    key = f"{chapter_number:03d}"
+    return entry, load_cdn_json(entry.get("content_path") or f"novels/{slug}/chapters/{key}.json")
+
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
     path = request.url.path
@@ -827,10 +833,8 @@ async def synced_audio_manifest(
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
 ):
-    key = f"{chapter_number:03d}"
     try:
-        chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
-        entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
+        entry, chapter = _synced_chapter_entry_and_payload(slug, chapter_number)
         progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
         translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
@@ -855,10 +859,8 @@ async def synced_audio_manifest(
 @app.get("/truyen/{slug}/{chapter_number}/audio/segments/{index}")
 @app.get("/synced/{slug}/{chapter_number}/audio/segments/{index}", include_in_schema=False)
 async def synced_audio_segment(slug: str, chapter_number: int, index: int, request: Request, voice: str = DEFAULT_EDGE_VOICE, rate: float = 1.0):
-    key = f"{chapter_number:03d}"
     try:
-        chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
-        entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
+        entry, chapter = _synced_chapter_entry_and_payload(slug, chapter_number)
         progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
         translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
@@ -885,14 +887,12 @@ async def stream_synced_chapter_audio(
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
 ) -> StreamingResponse:
-    key = f"{chapter_number:03d}"
     try:
-        chapter = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
+        entry, chapter = _synced_chapter_entry_and_payload(slug, chapter_number)
     except CdnDataError:
         raise HTTPException(status_code=404, detail="Chương này chưa được đồng bộ.") from None
     translated_content = str(chapter.get("translated_content") or chapter.get("content") or "")
     try:
-        entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
         progress = load_translation_progress(int(entry["id"])) if entry.get("id") else None
         partial_text = "\n\n".join(str(item.get("translated_text") or "") for item in (progress or {}).get("chunks", []))
         if partial_text.strip():
