@@ -21,6 +21,5 @@
   </div>
   {% include "partials/synced_chapter_items.html" %}
 </section>
-<script>document.body.addEventListener("htmx:afterSwap", event => { if (event.detail.target.id === "chapter-list") event.detail.target.querySelector("[data-chapter-scroll]")?.scrollTo({ top: 0, behavior: "smooth" }); });</script>
 <script src="/static/batch_translate.js" defer></script>
 {% endblock %}
