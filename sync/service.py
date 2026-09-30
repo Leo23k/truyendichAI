@@ -419,6 +419,7 @@ _AUTO_SECT_PATTERN = re.compile(r"(?=([\u3400-\u9fff]{2,8}(?:\u5b97\u95e8|\u5c71
 _AUTO_TECHNIQUE_PATTERN = re.compile(r"(?:\u4fee\u70bc|\u65bd\u5c55|\u8fd0\u8f6c|\u4fee\u884c|\u4e60\u5f97|\u638c\u63e1|\u53c2\u609f)([\u3400-\u9fff]{2,10}(?:\u529f\u6cd5|\u5fc3\u6cd5|\u5251\u6cd5|\u5200\u6cd5|\u62f3\u6cd5|\u638c\u6cd5|\u8eab\u6cd5|\u8bc0|\u7ecf|\u529f|\u672f|\u5178|\u5f55|\u7bc7))")
 _AUTO_SECT_VALUE_RE = re.compile(r"^[\u3400-\u9fff]{2,8}(?:\u5b97\u95e8|\u5c71\u5e84|\u4ed9\u5e9c|\u9053\u5bab|\u5251\u9601|\u4e66\u9662|\u5b97|\u95e8|\u6d3e|\u5e9c|\u5bab|\u9601|\u697c|\u5bfa|\u89c2|\u5802|\u9662)$")
 _AUTO_TECHNIQUE_VALUE_RE = re.compile(r"^[\u3400-\u9fff]{2,10}(?:\u529f\u6cd5|\u5fc3\u6cd5|\u5251\u6cd5|\u5200\u6cd5|\u62f3\u6cd5|\u638c\u6cd5|\u8eab\u6cd5|\u8bc0|\u7ecf|\u529f|\u672f|\u5178|\u5f55|\u7bc7)$")
+_AUTO_ALIAS_VALUE_RE = re.compile(r"^[\u3400-\u9fff]{2,8}(?:\u5ba2|\u541b|\u4ed9|\u9b54|\u738b|\u5723|\u5c0a|\u5e1d|\u5b50|\u5a18|\u7237)$")
 _AUTO_NAME_PATTERN = re.compile(r"(?=([\u3400-\u9fff]{2,4}?)(?:先生|道友|师兄|师姐|前辈|真人|姑娘|公子|大人|老祖|掌门))")
 _COMMON_NAME_FALSE_POSITIVES = {"王朝", "王者", "李代桃僵", "张口", "张望", "赵国"}
 _NON_NAME_PREFIXES = frozenset("和与及但而或若在从向被把给将对于由为让使令跟同至")
@@ -441,6 +442,7 @@ def is_allowed_auto_glossary_entry(candidate: str) -> bool:
     candidate = traditional_to_simplified(candidate)
     return (
         (_is_safe_auto_glossary_term(candidate, person=True) and len(candidate) <= 4)
+        or (_is_safe_auto_glossary_term(candidate) and bool(_AUTO_ALIAS_VALUE_RE.fullmatch(candidate)))
         or (_is_safe_auto_glossary_term(candidate) and bool(_AUTO_SECT_VALUE_RE.fullmatch(candidate)))
         or (_is_safe_auto_glossary_term(candidate) and bool(_AUTO_TECHNIQUE_VALUE_RE.fullmatch(candidate)))
     )

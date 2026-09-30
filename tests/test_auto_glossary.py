@@ -12,6 +12,7 @@ def test_auto_glossary_whitelists_only_named_terms() -> None:
 
 def test_existing_auto_glossary_rejects_non_entities() -> None:
     assert is_allowed_auto_glossary_entry("张三")
+    assert is_allowed_auto_glossary_entry("青衣客")
     assert is_allowed_auto_glossary_entry("青云宗")
     assert is_allowed_auto_glossary_entry("太上剑诀")
     assert not is_allowed_auto_glossary_entry("那两位")
