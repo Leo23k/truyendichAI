@@ -405,7 +405,7 @@ def remote_job_is_running(remote: SupabaseSync, job_id: str) -> bool:
     return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "in.(crawling,syncing,translating,completed)", "limit": "1"}))
 
 
-AUTO_GLOSSARY_MIN_CHAPTERS = 6
+AUTO_GLOSSARY_MIN_CHAPTERS = 2
 AUTO_GLOSSARY_MAX_CANDIDATES = 12
 _AUTO_NAME_PATTERN = re.compile(r"(?=([\u3400-\u9fff]{2,4}?)(?:先生|道友|师兄|师姐|前辈|真人|姑娘|公子|大人|老祖|掌门))")
 _COMMON_NAME_FALSE_POSITIVES = {"王朝", "王者", "李代桃僵", "张口", "张望", "赵国"}
@@ -439,7 +439,7 @@ def _auto_glossary_entries(remote: SupabaseSync, novel_id: int) -> list[Glossary
 
 
 def _learn_auto_glossary(remote: SupabaseSync, novel_id: int, original_content: str) -> None:
-    """Observe names across chapters, but only protect them after six observations."""
+    """Observe names across chapters, but only protect them after two observations."""
     candidates = _auto_name_candidates(original_content)
     if not candidates:
         return
