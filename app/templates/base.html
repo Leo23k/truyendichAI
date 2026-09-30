@@ -101,12 +101,17 @@
             const documentSnapshot = new DOMParser().parseFromString(await response.text(), "text/html");
             const updated = documentSnapshot.querySelector("[data-jobs-refresh]");
             if (!updated) throw new Error("Job refresh response has no job list");
-            // Refresh only live progress.  The retranslation form is stateful
-            // (book, chapter list and checkboxes) and must remain intact.
-            for (const selector of [":scope > .space-y-4", ":scope > section.mt-10"]) {
-              const existingPart = current.querySelector(selector);
-              const incomingPart = updated.querySelector(selector);
-              if (!existingPart || !incomingPart) continue;
+            // Never replace the Admin · Crawler card.  Refresh only the two
+            // direct child regions that show live crawl/translation progress.
+            const liveParts = Array.from(current.children).filter((part) =>
+              part.matches(".space-y-4") || part.matches("section.mt-10")
+            );
+            const incomingLiveParts = Array.from(updated.children).filter((part) =>
+              part.matches(".space-y-4") || part.matches("section.mt-10")
+            );
+            for (const [index, existingPart] of liveParts.entries()) {
+              const incomingPart = incomingLiveParts[index];
+              if (!incomingPart) continue;
               existingPart.replaceWith(incomingPart);
               window.Alpine?.initTree(incomingPart);
               window.htmx?.process(incomingPart);
