@@ -569,47 +569,34 @@ def retranslate_novel(
             request=request, name="retranslate.html", context=_retranslate_page_context(toast="Hãy chọn ít nhất một chương để dịch lại.", toast_error=True)
         )
 
-    remote = SupabaseSync()
-    filters = {"select": "id,chapter_number,content_path", "novel_id": f"eq.{novel_id}", "order": "chapter_number.asc"}
-    if mode == "selected":
-        filters["id"] = f"in.({','.join(str(chapter_id) for chapter_id in sorted(set(chapter_ids)))})"
-    chapters = remote.all_rows("chapters", filters)
-    if not chapters:
+    selected_ids = sorted(set(chapter_ids)) if mode == "selected" else None
+    try:
+        result = SupabaseSync().rpc_rows(
+            "reset_retranslation",
+            {"p_novel_id": novel_id, "p_chapter_ids": selected_ids},
+        )
+    except SyncError as exc:
+        logger.exception("Could not reset retranslation queue for novel %s", novel_id)
+        return templates.TemplateResponse(
+            request=request,
+            name="retranslate.html",
+            context=_retranslate_page_context(toast=f"Chưa thể đưa truyện vào hàng đợi: {exc}", toast_error=True),
+        )
+
+    state = result[0] if result else {}
+    chapter_count = int(state.get("chapter_count") or 0)
+    if not chapter_count:
         return templates.TemplateResponse(
             request=request, name="retranslate.html", context=_retranslate_page_context(toast="Không tìm thấy chương phù hợp của truyện này.", toast_error=True)
         )
-
-    chapter_id_csv = ",".join(str(chapter["id"]) for chapter in chapters)
-    queues = remote.rows(
-        "translation_queue",
-        {"select": "id,chapter_id,status", "chapter_id": f"in.({chapter_id_csv})"},
-    )
-    if any(queue.get("status") == "translating" for queue in queues):
+    if state.get("blocked"):
         return templates.TemplateResponse(
             request=request,
             name="retranslate.html",
             context=_retranslate_page_context(toast="Có chương đang được translator xử lý. Hãy đợi xong hoặc dừng worker rồi thử lại để tránh ghi đè bản dịch.", toast_error=True),
         )
 
-    now = datetime.now(timezone.utc).isoformat()
-    remote.patch_rows(
-        "chapter_chunks",
-        {"chapter_id": f"in.({chapter_id_csv})"},
-        {"status": "queued", "translated_text": None},
-    )
-    remote.patch_rows(
-        "chapters",
-        {"id": f"in.({chapter_id_csv})"},
-        {"translated": False, "updated_at": now},
-    )
-    if queues:
-        remote.patch_rows(
-            "translation_queue",
-            {"chapter_id": f"in.({chapter_id_csv})"},
-            {"status": "queued", "current_chunk": 0, "retry_count": 0, "priority": 100, "updated_at": now},
-        )
-
-    message = f"Đã xóa bản dịch cũ và đưa {len(chapters)} chương vào hàng đợi dịch lại từ raw gốc."
+    message = f"Đã xóa bản dịch cũ và đưa {chapter_count} chương vào hàng đợi dịch lại từ raw gốc."
     response = templates.TemplateResponse(request=request, name="retranslate.html", context=_retranslate_page_context(toast=message))
     response.headers["HX-Trigger"] = "jobsChanged"
     return response

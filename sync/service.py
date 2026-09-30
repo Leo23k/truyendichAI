@@ -139,6 +139,13 @@ class SupabaseSync:
             raise SyncError(f"Supabase did not return rows for {table}.")
         return [row for row in payload if isinstance(row, dict)]
 
+    def rpc_rows(self, function: str, payload: dict) -> list[dict]:
+        """Run an internal database function and require its table result."""
+        result = self.request("POST", f"/rest/v1/rpc/{quote(function)}", json=payload).json()
+        if not isinstance(result, list):
+            raise SyncError(f"Supabase did not return rows for RPC {function}.")
+        return [row for row in result if isinstance(row, dict)]
+
     def all_rows(self, table: str, params: dict[str, str]) -> list[dict]:
         """Read every matching row instead of PostgREST's first 1,000 rows."""
         page_size = 1000
