@@ -153,8 +153,12 @@ def auth_callback(request: Request, code: str):
     with httpx.Client(timeout=15, trust_env=False) as c:
         result = c.post(f"{AUTH_URL}/auth/v1/token?grant_type=pkce", headers={"apikey": ANON}, json={"auth_code": code, "code_verifier": verifier})
     if not result.is_success:
-        logger.warning("Google OAuth PKCE exchange failed: status=%s body=%s", result.status_code, result.text[:500])
-        raise HTTPException(401, "Không thể hoàn tất đăng nhập Google.")
+        try:
+            error_code = str(result.json().get("code") or result.json().get("error") or "unknown_error")
+        except ValueError:
+            error_code = "invalid_auth_response"
+        logger.warning("Google OAuth PKCE exchange failed: status=%s code=%s", result.status_code, error_code)
+        raise HTTPException(401, f"Không thể hoàn tất đăng nhập Google. ({error_code})")
     payload = result.json()
     access_token = payload.get("access_token")
     refresh_token = payload.get("refresh_token")
