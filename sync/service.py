@@ -29,6 +29,8 @@ if str(ROOT) not in sys.path:
 
 from app.config import PROJECT_ROOT, settings
 from app.translator.chunking import chunk_text
+from app.translator.glossary import GlossaryEntry
+from app.translator.preprocess import traditional_to_simplified
 from app.translator.service import TranslationUnavailableError, glossary_for_source_url, translator
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
@@ -403,6 +405,74 @@ def remote_job_is_running(remote: SupabaseSync, job_id: str) -> bool:
     return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "in.(crawling,syncing,translating,completed)", "limit": "1"}))
 
 
+AUTO_GLOSSARY_MIN_CHAPTERS = 6
+AUTO_GLOSSARY_MAX_CANDIDATES = 12
+_AUTO_NAME_PATTERN = re.compile(r"(?=([\u3400-\u9fff]{2,4}?)(?:先生|道友|师兄|师姐|前辈|真人|姑娘|公子|大人|老祖|掌门))")
+_COMMON_NAME_FALSE_POSITIVES = {"王朝", "王者", "李代桃僵", "张口", "张望", "赵国"}
+_NON_NAME_PREFIXES = frozenset("和与及但而或若在从向被把给将对于由为让使令跟同至")
+_COMMON_SURNAMES = frozenset("赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳酆鲍史唐费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于傅皮卞齐康伍余元卜顾孟平黄和穆萧尹姚邵湛汪祁毛禹狄米贝明臧计伏成戴谈宋茅庞熊纪舒屈项祝董梁杜阮蓝闵席季麻强贾路娄危江童颜郭梅盛林刁钟徐邱骆高夏蔡田樊胡凌霍虞万支柯昝管卢莫经房裘缪干解应宗丁宣邓郁单杭洪包诸左石崔吉龚程嵇邢滑裴陆荣翁荀羊於惠甄曲封储靳汲邴糜松井段富巫乌焦巴弓牧隗山谷车侯宓蓬全郗班仰秋仲伊宫宁仇栾暴甘钭厉戎祖武符刘景詹束龙叶幸司韶郜黎蓟薄印宿白怀蒲台从鄂索咸籍赖卓蔺屠蒙池乔阴郁胥能苍双闻莘党翟谭贡劳逄姬申扶堵冉宰郦雍却璩桑桂濮牛寿通边扈燕冀浦尚温庄晏柴瞿阎充慕连茹习宦艾鱼容向古易慎戈廖庾终暨居衡步都耿满弘匡国文寇广禄阙东欧殳沃利蔚越夔隆师巩聂晁勾敖融冷訾辛阚那简饶空曾毋沙乜养鞠须丰巢关蒯相查后荆红游竺权逯盖益桓公")
+
+
+def _auto_name_candidates(source: str) -> set[str]:
+    """Return only conservative Chinese personal-name candidates from one chapter."""
+    candidates: set[str] = set()
+    for match in _AUTO_NAME_PATTERN.finditer(source):
+        candidate = traditional_to_simplified(match.group(1))
+        if candidate[0] not in _NON_NAME_PREFIXES and candidate[0] in _COMMON_SURNAMES and candidate not in _COMMON_NAME_FALSE_POSITIVES:
+            candidates.add(candidate)
+    # A suffix of a longer matched name (e.g. 文铭 in 杜文铭) is not a separate entity.
+    full_names = {candidate for candidate in candidates if not any(other != candidate and other.endswith(candidate) for other in candidates)}
+    return set(sorted(full_names, key=lambda value: (-len(value), value))[:AUTO_GLOSSARY_MAX_CANDIDATES])
+
+
+def _auto_glossary_entries(remote: SupabaseSync, novel_id: int) -> list[GlossaryEntry]:
+    """Load only already-confirmed, per-novel entries; failures never block MT."""
+    try:
+        rows = remote.rows(
+            "novel_auto_glossary",
+            {"select": "source_text,replacement_text", "novel_id": f"eq.{novel_id}", "status": "eq.auto_confirmed"},
+        )
+    except SyncError:
+        logger.warning("Auto glossary unavailable for novel %s; continuing without it.", novel_id)
+        return []
+    return [GlossaryEntry(str(row["source_text"]), str(row["replacement_text"])) for row in rows if row.get("source_text") and row.get("replacement_text")]
+
+
+def _learn_auto_glossary(remote: SupabaseSync, novel_id: int, original_content: str) -> None:
+    """Observe names across chapters, but only protect them after six observations."""
+    candidates = _auto_name_candidates(original_content)
+    if not candidates:
+        return
+    try:
+        existing = {
+            str(row["source_text"]): row
+            for row in remote.rows(
+                "novel_auto_glossary",
+                {"select": "source_text,replacement_text,appearances,status", "novel_id": f"eq.{novel_id}"},
+            )
+        }
+        now = datetime.now(timezone.utc).isoformat()
+        updates: list[dict] = []
+        for source in candidates:
+            row = existing.get(source, {})
+            if row.get("status") == "auto_confirmed":
+                continue
+            appearances = int(row.get("appearances") or 0) + 1
+            target = row.get("replacement_text")
+            status = "candidate"
+            if appearances >= AUTO_GLOSSARY_MIN_CHAPTERS and not target:
+                target = translator.translate(source)
+                if not target or any("\u3400" <= char <= "\u9fff" for char in target) or len(target) > 80:
+                    target = None
+                else:
+                    status = "auto_confirmed"
+            updates.append({"novel_id": novel_id, "source_text": source, "replacement_text": target, "appearances": appearances, "status": status, "updated_at": now})
+        if updates:
+            remote.upsert_many("novel_auto_glossary", updates, "novel_id,source_text")
+    except (SyncError, TranslationUnavailableError, ValueError):
+        logger.exception("Auto glossary observation failed for novel %s; translation output was kept unchanged.", novel_id)
+
+
 def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None:
     """Publish a fully translated queue item and expose it to the reader."""
     logger.info("Đang xuất bản bản dịch của chương ID %s...", chapter_id)
@@ -470,6 +540,7 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
             {"id": f"eq.{novel['id']}"},
             {"latest_chapter": chapter["chapter_number"], "updated_at": datetime.now(timezone.utc).isoformat()},
         )
+    _learn_auto_glossary(remote, int(novel["id"]), original_content)
     logger.info("Đã xuất bản chương %s: %s", chapter["chapter_number"], chapter["title"])
 
 
@@ -486,10 +557,11 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     try:
         chapter_rows = remote.rows(
             "chapters",
-            {"select": "source_url", "id": f"eq.{job['chapter_id']}", "limit": "1"},
+            {"select": "source_url,novel_id", "id": f"eq.{job['chapter_id']}", "limit": "1"},
         )
         source_url = str(chapter_rows[0].get("source_url") or "") if chapter_rows else ""
-        glossary = glossary_for_source_url(source_url)
+        novel_id = int(chapter_rows[0]["novel_id"]) if chapter_rows and chapter_rows[0].get("novel_id") else 0
+        glossary = [*glossary_for_source_url(source_url), *_auto_glossary_entries(remote, novel_id)] if novel_id else glossary_for_source_url(source_url)
         total_chunks = int(job["total_chunks"])
         logger.info("Bắt đầu dịch chương ID %s (%s đoạn).", job["chapter_id"], total_chunks)
 
