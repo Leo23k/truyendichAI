@@ -114,3 +114,23 @@ async def test_piaotia_reads_unwrapped_reader_content(monkeypatch) -> None:
 
     monkeypatch.setattr(crawler, "_get_html", html)
     assert await crawler.get_chapter_content("https://www.piaotia.com/html/1/42/100.html") == "第1章 Start\nParagraph one.\nParagraph two."
+
+
+@pytest.mark.asyncio
+async def test_piaotia_uses_source_order_when_the_source_repeats_numbers(monkeypatch) -> None:
+    crawler = PiaotianCrawler()
+
+    async def html(_url: str) -> str:
+        return """
+        <div id='list'>
+          <a href='/html/8/8717/100.html'>第一章 First source chapter</a>
+          <a href='/html/8/8717/101.html'>第二章 Second source chapter</a>
+          <a href='/html/8/8717/200.html'>第1章 Stale duplicate</a>
+          <a href='/html/8/8717/201.html'>第2章 Stale duplicate</a>
+        </div>
+        """
+
+    monkeypatch.setattr(crawler, "_get_html", html)
+    chapters = await crawler.get_chapters("https://www.piaotia.com/html/8/8717/")
+
+    assert [(chapter.chapter_number, chapter.source_chapter_id) for chapter in chapters] == [(1, "100"), (2, "101"), (3, "200"), (4, "201")]

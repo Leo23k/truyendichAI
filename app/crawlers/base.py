@@ -171,7 +171,8 @@ class BaseCrawler:
         raise NotImplementedError
 
 
-def dedupe_chapters(chapters: list[ChapterInfo]) -> list[ChapterInfo]:
+def dedupe_chapters(chapters: list[ChapterInfo], *, sort_by_number: bool = True) -> list[ChapterInfo]:
+    """Drop repeated source links while retaining every distinct chapter URL."""
     seen_ids: set[str] = set()
     seen_urls: set[str] = set()
     unique: list[ChapterInfo] = []
@@ -186,7 +187,7 @@ def dedupe_chapters(chapters: list[ChapterInfo]) -> list[ChapterInfo]:
             seen_ids.add(chapter_id)
         seen_urls.add(normalized_url)
         unique.append(chapter)
-    return sorted(unique, key=lambda chapter: chapter.chapter_number)
+    return sorted(unique, key=lambda chapter: chapter.chapter_number) if sort_by_number else unique
 
 
 def pagination_request_urls(soup, base_url: str) -> list[str]:

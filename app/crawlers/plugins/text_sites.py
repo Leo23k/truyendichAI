@@ -12,12 +12,35 @@ from app.crawlers.base import BaseCrawler, BookInfo, ChapterInfo, clean_chapter_
 from app.crawlers.errors import SourceParseError, SourceRequestError
 
 logger = logging.getLogger(__name__)
-_CHAPTER_NUMBER = re.compile(r"\u7b2c\s*(\d+)\s*\u7ae0")
+_CHAPTER_NUMBER = re.compile(r"\u7b2c\s*([0-9\u96f6\u3007\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u4e24\u5341\u767e\u5343]+)\s*\u7ae0")
+_CHINESE_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "两": 2}
+_CHINESE_UNITS = {"十": 10, "百": 100, "千": 1000}
+
+
+def _chapter_number_from_title(title: str) -> int | None:
+    match = _CHAPTER_NUMBER.search(title)
+    if not match:
+        return None
+    value = match.group(1)
+    if value.isdigit():
+        return int(value)
+
+    total = current = 0
+    for char in value:
+        if char in _CHINESE_DIGITS:
+            current = _CHINESE_DIGITS[char]
+        elif char in _CHINESE_UNITS:
+            total += (current or 1) * _CHINESE_UNITS[char]
+            current = 0
+        else:
+            return None
+    return total + current
 
 
 class HtmlNovelCrawler(BaseCrawler):
     chapter_selectors: tuple[str, ...] = ()
     content_selectors: tuple[str, ...] = ("#content", "#contents", ".content", ".article-content", ".read-content")
+    preserve_source_chapter_order = False
 
     async def _get_html(self, url: str) -> str:
         try:
@@ -75,11 +98,11 @@ class HtmlNovelCrawler(BaseCrawler):
             title = link.get_text(" ", strip=True)
             if not title:
                 continue
-            number_match = _CHAPTER_NUMBER.search(title)
-            chapters.append(ChapterInfo(int(number_match.group(1)) if number_match else index, self._chapter_id(href), title, href))
+            number = _chapter_number_from_title(title)
+            chapters.append(ChapterInfo(number if number is not None else index, self._chapter_id(href), title, href))
         if not chapters:
             raise SourceParseError("Kh\u00f4ng t\u00ecm th\u1ea5y danh s\u00e1ch ch\u01b0\u01a1ng.")
-        return dedupe_chapters(chapters)
+        return dedupe_chapters(chapters, sort_by_number=not self.preserve_source_chapter_order)
 
     async def get_chapter_content(self, url: str) -> str:
         soup = BeautifulSoup(await self._get_html(url), "html.parser")
@@ -99,6 +122,7 @@ class PiaotianCrawler(HtmlNovelCrawler):
     domains = ("piaotian.com", "www.piaotian.com", "piaotia.com", "www.piaotia.com")
     chapter_selectors = ("#list a[href]", ".centent a[href]", ".chapterlist a[href]")
     content_selectors = ("#content", "#contents", ".content", ".yd_text2", ".read-content")
+    preserve_source_chapter_order = True
 
     @staticmethod
     def _book_id(url: str) -> str | None:
@@ -125,9 +149,13 @@ class PiaotianCrawler(HtmlNovelCrawler):
             ),
             None,
         )
-        if index_link:
-            return await super().get_chapters(index_link)
-        return await super().get_chapters(url)
+        chapters = await super().get_chapters(index_link or url)
+        # Piaotia's displayed "第…章" labels can restart or skip. The page
+        # order is the only stable reader position, just as it is for XSW.
+        return [
+            ChapterInfo(index, chapter.source_chapter_id, chapter.title, chapter.url)
+            for index, chapter in enumerate(chapters, start=1)
+        ]
 
     async def get_chapter_content(self, url: str) -> str:
         html = await self._get_html(url)
