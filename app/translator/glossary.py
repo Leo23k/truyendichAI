@@ -6,6 +6,12 @@ from dataclasses import dataclass
 import re
 
 
+# The model can preserve an alias inside angle brackets while appending a
+# positional digit (for example, <term0>).  Placeholder markers (<PH1>) do
+# not match because this pattern requires a readable term (space/non-ASCII).
+_TERM_TOKEN_ARTIFACT_RE = re.compile(r"<\s*([^<>]*?(?:\s|[^\x00-\x7f])[^<>]*?)\d+\s*>")
+
+
 @dataclass(frozen=True)
 class GlossaryEntry:
     source: str
@@ -55,4 +61,4 @@ def restore(text: str, protected: ProtectedText) -> str:
             restored = restored.replace(variant, entry.target)
         for alias in entry.aliases:
             restored = restored.replace(alias, entry.target)
-    return restored
+    return _TERM_TOKEN_ARTIFACT_RE.sub(lambda match: match.group(1).strip(), restored)

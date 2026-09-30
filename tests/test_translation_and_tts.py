@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models import TranslationMemory
 from app.tts.service import content_hash
+from app.translator.glossary import GlossaryEntry, protect, restore
 from app.translator import service as translator_service
 from app.translator.service import TranslatorService, apply_memory, postprocess_v9
 
@@ -73,6 +74,13 @@ def test_user_glossary_restores_after_model_postprocess(monkeypatch) -> None:
     translated = TranslatorService().translate("陆江仙到了。", session)
 
     assert translated == "Lục Giang Tiên đã đến."
+
+
+def test_glossary_restore_removes_numbered_term_token_artifact() -> None:
+    protected = protect("source", [GlossaryEntry("source", "Master Sage", ("alias",))])
+
+    assert restore("<alias0>", protected) == "Master Sage"
+    assert restore("<PH1>", protected) == "Master Sage"
 
 
 def test_short_titles_and_names_go_through_model_service(monkeypatch) -> None:
