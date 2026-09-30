@@ -1,5 +1,5 @@
 {% if chapters %}
-  <div x-show="retranslateMode === 'selected'" x-cloak class="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3" x-data="{ query: '' }">
+  <div class="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3" x-data="{ query: '' }">
     <label class="block text-sm font-medium text-stone-700" for="retranslate-chapter-search">Chọn chương cần dịch lại</label>
     <input id="retranslate-chapter-search" x-model="query" type="search" inputmode="numeric" placeholder="Tìm theo số chương" class="mt-2 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm">
     <div class="mt-2 max-h-64 overflow-y-auto rounded border border-stone-200 bg-white">
