@@ -1,4 +1,5 @@
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 import ctranslate2
@@ -8,6 +9,14 @@ from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
 MODEL_NAME=os.getenv("MODEL_NAME","ngocdang83/HachimiMT-60-QT")
 MODEL_DIR=Path(os.getenv("MODEL_DIR","/app/models/hachimi")); app=FastAPI(title="LeoTruyen Translator")
+_EMPTY_DIALOGUE_LINE_RE = re.compile(r'(?m)^[ \t]*(?:""|“”|‘’)[ \t]*\n?')
+_BROKEN_MARKER_RE = re.compile(r'(?<![\w<])P([^\n<>]*?(?:\s|[^\x00-\x7f])[^\n<>]*?)\d>')
+_UNMATCHED_MARKER_CLOSE_RE = re.compile(r'(?<!<)(?<=[\wÀ-ỹ])>(?=\s+(?:["“]?[A-ZÀ-Ỵ]))')
+
+def clean_decoded_text(text):
+    text = _EMPTY_DIALOGUE_LINE_RE.sub("", text)
+    text = _BROKEN_MARKER_RE.sub(lambda match: match.group(1).strip(), text)
+    return _UNMATCHED_MARKER_CLOSE_RE.sub("", text).strip()
 class TranslateRequest(BaseModel):
     text:str=Field(min_length=1); beam_size:int=Field(default=4,ge=1,le=4)
 class TranslateBatchRequest(BaseModel):
@@ -26,8 +35,8 @@ def translate_texts(texts,beam_size):
                 for start in range(0,len(tokens),480): work.append((ti,pi,tokens[start:start+480]))
     size=max(1,int(os.getenv("TRANSLATOR_BATCH_SIZE","8")))
     for start in range(0,len(work),size):
-        batch=work[start:start+size]; results=translator.translate_batch([tokens for _,_,tokens in batch],beam_size=beam_size,max_decoding_length=512)
-        for (ti,pi,_),result in zip(batch,results): layouts[ti][pi].append(tokenizer.decode(tokenizer.convert_tokens_to_ids(result.hypotheses[0]),skip_special_tokens=True))
+        batch=work[start:start+size]; results=translator.translate_batch([tokens for _,_,tokens in batch],beam_size=beam_size,max_decoding_length=512,end_token="</s>",disable_unk=True)
+        for (ti,pi,_),result in zip(batch,results): layouts[ti][pi].append(clean_decoded_text(tokenizer.decode(tokenizer.convert_tokens_to_ids(result.hypotheses[0]),skip_special_tokens=True)))
     return ["\n".join("".join(parts) for parts in paragraphs) for paragraphs in layouts]
 @app.get("/health")
 def health(): return {"status":"ok","model":MODEL_NAME}
