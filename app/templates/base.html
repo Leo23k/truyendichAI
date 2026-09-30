@@ -92,6 +92,12 @@
             jobsRefreshTimer = window.setTimeout(refreshJobs, 1000);
             return;
           }
+          // Replacing the entire Jobs panel while a retranslation is being
+          // selected discards its chapter picker and checked chapters.
+          if (current.querySelector('#retranslate-novel')?.value) {
+            jobsRefreshTimer = window.setTimeout(refreshJobs, 3000);
+            return;
+          }
           try {
             const response = await fetch(`/jobs/list?_=${Date.now()}`, {
               cache: "no-store",
