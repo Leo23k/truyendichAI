@@ -70,6 +70,7 @@ def test_user_glossary_restores_after_model_postprocess(monkeypatch) -> None:
         return Response()
 
     monkeypatch.setattr(translator_service.httpx, "post", fake_post)
+    monkeypatch.setattr(translator_service.settings, "enable_glossary", True)
 
     translated = TranslatorService().translate("陆江仙到了。", session)
 

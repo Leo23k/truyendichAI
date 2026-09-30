@@ -62,7 +62,7 @@ class TranslatorService:
         if not text or not text.strip():
             return text
         source = normalize_text(traditional_to_simplified(text))
-        entries = glossary_entries(db, source)
+        entries = glossary_entries(db, source) if settings.enable_glossary else []
         protected = protect(source, entries) if entries else ProtectedText(source, ())
         translated = postprocess_v9(source, self._translate_text(protected), entries)
         return restore(translated, protected)
@@ -72,7 +72,7 @@ class TranslatorService:
         if not text or not text.strip():
             return text
         source = normalize_text(traditional_to_simplified(text))
-        entries = [*glossary_entries(db, source), *METADATA_HANVIET_GLOSSARY]
+        entries = [*glossary_entries(db, source), *METADATA_HANVIET_GLOSSARY] if settings.enable_glossary else []
         protected = protect(source, entries)
         # A wider beam is inexpensive for short metadata and favors literal,
         # title-like wording over a fluent paraphrase.
@@ -82,7 +82,7 @@ class TranslatorService:
     def translate_batch(self, texts: list[str], entries: list[GlossaryEntry] | None = None) -> list[str]:
         if not texts:
             return []
-        glossary = entries or []
+        glossary = entries or [] if settings.enable_glossary else []
         protected_texts = [
             protect(normalize_text(traditional_to_simplified(text)), glossary) if glossary else ProtectedText(normalize_text(traditional_to_simplified(text)), ())
             for text in texts
