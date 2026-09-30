@@ -114,9 +114,11 @@ async def auth_guard(request: Request, call_next):
     refreshed_session: tuple[str, str] | None = None
     if not request.state.user:
         refreshed_session = refresh_session(request.cookies.get("sb-refresh-token", ""))
-        if refreshed_session:
-            request.state.user = user_from_token(refreshed_session[0])
+    if refreshed_session:
+        request.state.user = user_from_token(refreshed_session[0])
     if not request.state.user:
+        if request.headers.get("HX-Request") == "true":
+            return HTMLResponse(status_code=401)
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
     admin = path.startswith(("/jobs", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and path not in {"/api/tts"})
     if admin and request.state.user.role != "admin":
