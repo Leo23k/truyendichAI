@@ -106,6 +106,19 @@ async def test_piaotia_uses_document_gbk_charset_when_header_is_wrong(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_piaotia_removes_latest_chapters_label_from_book_title(monkeypatch) -> None:
+    crawler = PiaotianCrawler()
+
+    async def html(_url: str) -> str:
+        return "<h1>剑来最新章节</h1><p>作者：烽火戏诸侯</p>"
+
+    monkeypatch.setattr(crawler, "_get_html", html)
+    info = await crawler.get_book_info("https://www.piaotia.com/html/8/8717/")
+
+    assert info.title == "剑来"
+
+
+@pytest.mark.asyncio
 async def test_piaotia_reads_unwrapped_reader_content(monkeypatch) -> None:
     crawler = PiaotianCrawler()
 

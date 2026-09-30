@@ -124,6 +124,13 @@ class PiaotianCrawler(HtmlNovelCrawler):
     content_selectors = ("#content", "#contents", ".content", ".yd_text2", ".read-content")
     preserve_source_chapter_order = True
 
+    async def get_book_info(self, url: str) -> BookInfo:
+        info = await super().get_book_info(url)
+        # Piaotia puts this navigation label inside <h1>; it is not part of
+        # the novel title and should never reach metadata translation.
+        info.title = re.sub(r"\s*最新章节\s*$", "", info.title).strip()
+        return info
+
     @staticmethod
     def _book_id(url: str) -> str | None:
         match = re.search(r"/(?:html|bookinfo)/\d+/(\d+)", urlparse(url).path)
