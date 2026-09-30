@@ -92,12 +92,6 @@
             jobsRefreshTimer = window.setTimeout(refreshJobs, 1000);
             return;
           }
-          // Replacing the entire Jobs panel while a retranslation is being
-          // selected discards its chapter picker and checked chapters.
-          if (current.querySelector('#retranslate-novel')?.value) {
-            jobsRefreshTimer = window.setTimeout(refreshJobs, 3000);
-            return;
-          }
           try {
             const response = await fetch(`/jobs/list?_=${Date.now()}`, {
               cache: "no-store",
@@ -107,9 +101,16 @@
             const documentSnapshot = new DOMParser().parseFromString(await response.text(), "text/html");
             const updated = documentSnapshot.querySelector("[data-jobs-refresh]");
             if (!updated) throw new Error("Job refresh response has no job list");
-            current.replaceWith(updated);
-            window.Alpine?.initTree(updated);
-            window.htmx?.process(updated);
+            // Refresh only live progress.  The retranslation form is stateful
+            // (book, chapter list and checkboxes) and must remain intact.
+            for (const selector of [":scope > .space-y-4", ":scope > section.mt-10"]) {
+              const existingPart = current.querySelector(selector);
+              const incomingPart = updated.querySelector(selector);
+              if (!existingPart || !incomingPart) continue;
+              existingPart.replaceWith(incomingPart);
+              window.Alpine?.initTree(incomingPart);
+              window.htmx?.process(incomingPart);
+            }
             window.lucide?.createIcons();
           } catch (error) {
             console.warn("Could not refresh crawl jobs", error);
