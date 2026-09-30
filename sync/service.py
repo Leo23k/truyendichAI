@@ -473,6 +473,24 @@ def _learn_auto_glossary(remote: SupabaseSync, novel_id: int, original_content: 
         logger.exception("Auto glossary observation failed for novel %s; translation output was kept unchanged.", novel_id)
 
 
+def _restore_raw_title_before_translation(remote: SupabaseSync, chapter: dict) -> None:
+    """Restore the raw title lazily on the PC, avoiding a Vercel request per chapter."""
+    content_path = str(chapter.get("content_path") or "")
+    if not content_path.startswith("chapters/"):
+        return
+    try:
+        payload = remote.download_json("chapters", content_path.removeprefix("chapters/"))
+        raw_title = str(payload.get("original_title") or "").strip()
+        if raw_title:
+            remote.patch_rows(
+                "chapters",
+                {"id": f"eq.{chapter['id']}"},
+                {"title": raw_title, "updated_at": datetime.now(timezone.utc).isoformat()},
+            )
+    except (SyncError, ValueError):
+        logger.warning("Could not restore raw title for chapter %s; continuing safely.", chapter.get("id"))
+
+
 def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None:
     """Publish a fully translated queue item and expose it to the reader."""
     logger.info("Đang xuất bản bản dịch của chương ID %s...", chapter_id)
@@ -557,10 +575,12 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     try:
         chapter_rows = remote.rows(
             "chapters",
-            {"select": "source_url,novel_id", "id": f"eq.{job['chapter_id']}", "limit": "1"},
+            {"select": "id,source_url,novel_id,content_path", "id": f"eq.{job['chapter_id']}", "limit": "1"},
         )
         source_url = str(chapter_rows[0].get("source_url") or "") if chapter_rows else ""
         novel_id = int(chapter_rows[0]["novel_id"]) if chapter_rows and chapter_rows[0].get("novel_id") else 0
+        if chapter_rows:
+            _restore_raw_title_before_translation(remote, chapter_rows[0])
         glossary = [*glossary_for_source_url(source_url), *_auto_glossary_entries(remote, novel_id)] if novel_id else glossary_for_source_url(source_url)
         total_chunks = int(job["total_chunks"])
         logger.info("Bắt đầu dịch chương ID %s (%s đoạn).", job["chapter_id"], total_chunks)

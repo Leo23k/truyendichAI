@@ -1,5 +1,4 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import logging
 import os
@@ -556,25 +555,6 @@ def retranslate_chapter_picker(request: Request, novel_id: int):
     )
 
 
-def _raw_titles_for_retranslation(remote: SupabaseSync, chapters: list[dict]) -> tuple[dict[int, str], list[int]]:
-    """Read original titles from the stored raw chapter payloads before requeueing."""
-    def load_title(chapter: dict) -> tuple[int, str | None]:
-        content_path = str(chapter.get("content_path") or "")
-        if not content_path.startswith("chapters/"):
-            return int(chapter["id"]), None
-        try:
-            payload = remote.download_json("chapters", content_path.removeprefix("chapters/"))
-        except (SyncError, ValueError):
-            return int(chapter["id"]), None
-        title = str(payload.get("original_title") or "").strip()
-        return int(chapter["id"]), title or None
-
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        loaded = list(pool.map(load_title, chapters))
-    titles = {chapter_id: title for chapter_id, title in loaded if title}
-    return titles, [chapter_id for chapter_id, title in loaded if not title]
-
-
 @app.post("/retranslate", include_in_schema=False)
 def retranslate_novel(
     request: Request,
@@ -611,27 +591,16 @@ def retranslate_novel(
             context=_retranslate_page_context(toast="Có chương đang được translator xử lý. Hãy đợi xong hoặc dừng worker rồi thử lại để tránh ghi đè bản dịch.", toast_error=True),
         )
 
-    raw_titles, missing_raw_titles = _raw_titles_for_retranslation(remote, chapters)
-    if missing_raw_titles:
-        return templates.TemplateResponse(
-            request=request,
-            name="retranslate.html",
-            context=_retranslate_page_context(toast=f"Không tìm được tiêu đề raw cho {len(missing_raw_titles)} chương nên chưa thay đổi hàng đợi.", toast_error=True),
-        )
-
     now = datetime.now(timezone.utc).isoformat()
     remote.patch_rows(
         "chapter_chunks",
         {"chapter_id": f"in.({chapter_id_csv})"},
         {"status": "queued", "translated_text": None},
     )
-    remote.upsert_many(
+    remote.patch_rows(
         "chapters",
-        [
-            {"id": chapter["id"], "title": raw_titles[int(chapter["id"])], "translated": False, "updated_at": now}
-            for chapter in chapters
-        ],
-        "id",
+        {"id": f"in.({chapter_id_csv})"},
+        {"translated": False, "updated_at": now},
     )
     if queues:
         remote.patch_rows(
