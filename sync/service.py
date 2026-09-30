@@ -414,19 +414,49 @@ def remote_job_is_running(remote: SupabaseSync, job_id: str) -> bool:
 
 AUTO_GLOSSARY_MIN_CHAPTERS = 2
 AUTO_GLOSSARY_MAX_CANDIDATES = 12
+_AUTO_ALIAS_PATTERN = re.compile(r"(?:\u4eba\u79f0|\u53f7\u79f0|\u5916\u53f7|\u7ef0\u53f7|\u81ea\u53f7|\u540d\u4e3a)[\"\u201c\u300c\u300e]([\u3400-\u9fff]{2,8})[\"\u201d\u300d\u300f]")
+_AUTO_SECT_PATTERN = re.compile(r"(?=([\u3400-\u9fff]{2,8}(?:\u5b97\u95e8|\u5c71\u5e84|\u4ed9\u5e9c|\u9053\u5bab|\u5251\u9601|\u4e66\u9662|\u5b97|\u95e8|\u6d3e|\u5e9c|\u5bab|\u9601|\u697c|\u5bfa|\u89c2|\u5802|\u9662)))")
+_AUTO_TECHNIQUE_PATTERN = re.compile(r"(?:\u4fee\u70bc|\u65bd\u5c55|\u8fd0\u8f6c|\u4fee\u884c|\u4e60\u5f97|\u638c\u63e1|\u53c2\u609f)([\u3400-\u9fff]{2,10}(?:\u529f\u6cd5|\u5fc3\u6cd5|\u5251\u6cd5|\u5200\u6cd5|\u62f3\u6cd5|\u638c\u6cd5|\u8eab\u6cd5|\u8bc0|\u7ecf|\u529f|\u672f|\u5178|\u5f55|\u7bc7))")
+_AUTO_SECT_VALUE_RE = re.compile(r"^[\u3400-\u9fff]{2,8}(?:\u5b97\u95e8|\u5c71\u5e84|\u4ed9\u5e9c|\u9053\u5bab|\u5251\u9601|\u4e66\u9662|\u5b97|\u95e8|\u6d3e|\u5e9c|\u5bab|\u9601|\u697c|\u5bfa|\u89c2|\u5802|\u9662)$")
+_AUTO_TECHNIQUE_VALUE_RE = re.compile(r"^[\u3400-\u9fff]{2,10}(?:\u529f\u6cd5|\u5fc3\u6cd5|\u5251\u6cd5|\u5200\u6cd5|\u62f3\u6cd5|\u638c\u6cd5|\u8eab\u6cd5|\u8bc0|\u7ecf|\u529f|\u672f|\u5178|\u5f55|\u7bc7)$")
 _AUTO_NAME_PATTERN = re.compile(r"(?=([\u3400-\u9fff]{2,4}?)(?:先生|道友|师兄|师姐|前辈|真人|姑娘|公子|大人|老祖|掌门))")
 _COMMON_NAME_FALSE_POSITIVES = {"王朝", "王者", "李代桃僵", "张口", "张望", "赵国"}
 _NON_NAME_PREFIXES = frozenset("和与及但而或若在从向被把给将对于由为让使令跟同至")
 _COMMON_SURNAMES = frozenset("赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳酆鲍史唐费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于傅皮卞齐康伍余元卜顾孟平黄和穆萧尹姚邵湛汪祁毛禹狄米贝明臧计伏成戴谈宋茅庞熊纪舒屈项祝董梁杜阮蓝闵席季麻强贾路娄危江童颜郭梅盛林刁钟徐邱骆高夏蔡田樊胡凌霍虞万支柯昝管卢莫经房裘缪干解应宗丁宣邓郁单杭洪包诸左石崔吉龚程嵇邢滑裴陆荣翁荀羊於惠甄曲封储靳汲邴糜松井段富巫乌焦巴弓牧隗山谷车侯宓蓬全郗班仰秋仲伊宫宁仇栾暴甘钭厉戎祖武符刘景詹束龙叶幸司韶郜黎蓟薄印宿白怀蒲台从鄂索咸籍赖卓蔺屠蒙池乔阴郁胥能苍双闻莘党翟谭贡劳逄姬申扶堵冉宰郦雍却璩桑桂濮牛寿通边扈燕冀浦尚温庄晏柴瞿阎充慕连茹习宦艾鱼容向古易慎戈廖庾终暨居衡步都耿满弘匡国文寇广禄阙东欧殳沃利蔚越夔隆师巩聂晁勾敖融冷訾辛阚那简饶空曾毋沙乜养鞠须丰巢关蒯相查后荆红游竺权逯盖益桓公")
 
 
+_AUTO_GLOSSARY_REJECT_PARTS = ("\u90a3\u4f4d", "\u90a3\u4e24\u4f4d", "\u90a3\u540d", "\u8fd9\u4f4d", "\u6b64\u4eba", "\u67d0\u4f4d", "\u4e00\u4f4d", "\u7684", "\u4eec", "\u5bb6\u4e8c", "\u9ebb\u70e6", "\u51fa\u8eab", "\u6765\u81ea", "\u8eab")
+
+
+def _is_safe_auto_glossary_term(candidate: str, *, person: bool = False) -> bool:
+    if not 2 <= len(candidate) <= 12 or any(not "\u3400" <= char <= "\u9fff" for char in candidate):
+        return False
+    if any(part in candidate for part in _AUTO_GLOSSARY_REJECT_PARTS):
+        return False
+    return not person or candidate[0] in _COMMON_SURNAMES
+
+
+def is_allowed_auto_glossary_entry(candidate: str) -> bool:
+    """Validate stored auto entries without trusting old extraction rules."""
+    candidate = traditional_to_simplified(candidate)
+    return (
+        (_is_safe_auto_glossary_term(candidate, person=True) and len(candidate) <= 4)
+        or (_is_safe_auto_glossary_term(candidate) and bool(_AUTO_SECT_VALUE_RE.fullmatch(candidate)))
+        or (_is_safe_auto_glossary_term(candidate) and bool(_AUTO_TECHNIQUE_VALUE_RE.fullmatch(candidate)))
+    )
+
+
 def _auto_name_candidates(source: str) -> set[str]:
-    """Return only conservative Chinese personal-name candidates from one chapter."""
+    """Learn only named people, personal aliases, sects, and named techniques."""
+    source = traditional_to_simplified(source)
     candidates: set[str] = set()
     for match in _AUTO_NAME_PATTERN.finditer(source):
         candidate = traditional_to_simplified(match.group(1))
-        if candidate[0] not in _NON_NAME_PREFIXES and candidate[0] in _COMMON_SURNAMES and candidate not in _COMMON_NAME_FALSE_POSITIVES:
+        if candidate[0] not in _NON_NAME_PREFIXES and candidate not in _COMMON_NAME_FALSE_POSITIVES and _is_safe_auto_glossary_term(candidate, person=True):
             candidates.add(candidate)
+    candidates.update(candidate for candidate in _AUTO_ALIAS_PATTERN.findall(source) if _is_safe_auto_glossary_term(candidate))
+    candidates.update(candidate for candidate in _AUTO_SECT_PATTERN.findall(source) if _is_safe_auto_glossary_term(candidate))
+    candidates.update(candidate for candidate in _AUTO_TECHNIQUE_PATTERN.findall(source) if _is_safe_auto_glossary_term(candidate))
     # A suffix of a longer matched name (e.g. 文铭 in 杜文铭) is not a separate entity.
     full_names = {candidate for candidate in candidates if not any(other != candidate and other.endswith(candidate) for other in candidates)}
     return set(sorted(full_names, key=lambda value: (-len(value), value))[:AUTO_GLOSSARY_MAX_CANDIDATES])
