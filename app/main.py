@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import logging
 import os
@@ -484,6 +485,9 @@ def _jobs_page_context(**extra: object) -> dict[str, object]:
     return {
         "jobs": _crawl_job_cards(),
         "translation_queue": _translation_queue_cards(),
+        "retranslate_books": SupabaseSync().all_rows(
+            "novels", {"select": "id,title", "deleted_at": "is.null", "order": "title.asc"}
+        ),
         "workers": _worker_statuses(),
         "worker_controls_available": worker_manager.can_control_locally,
         "crawler_sources": [crawler.source_name for crawler in registry._crawlers],
@@ -525,6 +529,109 @@ def crawl_jobs_list(request: Request):
     # This endpoint is polled by HTMX.  Without an explicit no-store response,
     # a CDN/browser may repeatedly serve the same job snapshot until a full reload.
     response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
+
+
+@app.get("/jobs/retranslate/chapters", include_in_schema=False)
+def retranslate_chapter_picker(request: Request, novel_id: int):
+    chapters = SupabaseSync().all_rows(
+        "chapters",
+        {"select": "id,chapter_number,title", "novel_id": f"eq.{novel_id}", "order": "chapter_number.asc"},
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/retranslate_chapters.html",
+        context={"chapters": chapters},
+    )
+
+
+def _raw_titles_for_retranslation(remote: SupabaseSync, chapters: list[dict]) -> tuple[dict[int, str], list[int]]:
+    """Read original titles from the stored raw chapter payloads before requeueing."""
+    def load_title(chapter: dict) -> tuple[int, str | None]:
+        content_path = str(chapter.get("content_path") or "")
+        if not content_path.startswith("chapters/"):
+            return int(chapter["id"]), None
+        try:
+            payload = remote.download_json("chapters", content_path.removeprefix("chapters/"))
+        except (SyncError, ValueError):
+            return int(chapter["id"]), None
+        title = str(payload.get("original_title") or "").strip()
+        return int(chapter["id"]), title or None
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        loaded = list(pool.map(load_title, chapters))
+    titles = {chapter_id: title for chapter_id, title in loaded if title}
+    return titles, [chapter_id for chapter_id, title in loaded if not title]
+
+
+@app.post("/jobs/retranslate", include_in_schema=False)
+def retranslate_novel(
+    request: Request,
+    novel_id: int = Form(...),
+    mode: str = Form("all"),
+    chapter_ids: list[int] = Form(default=[]),
+):
+    if mode not in {"all", "selected"}:
+        raise HTTPException(status_code=400, detail="Tùy chọn dịch lại không hợp lệ.")
+    if mode == "selected" and not chapter_ids:
+        return templates.TemplateResponse(
+            request=request, name="jobs.html", context=_jobs_page_context(partial=True, toast="Hãy chọn ít nhất một chương để dịch lại.", toast_error=True)
+        )
+
+    remote = SupabaseSync()
+    filters = {"select": "id,chapter_number,content_path", "novel_id": f"eq.{novel_id}", "order": "chapter_number.asc"}
+    if mode == "selected":
+        filters["id"] = f"in.({','.join(str(chapter_id) for chapter_id in sorted(set(chapter_ids)))})"
+    chapters = remote.all_rows("chapters", filters)
+    if not chapters:
+        return templates.TemplateResponse(
+            request=request, name="jobs.html", context=_jobs_page_context(partial=True, toast="Không tìm thấy chương phù hợp của truyện này.", toast_error=True)
+        )
+
+    chapter_id_csv = ",".join(str(chapter["id"]) for chapter in chapters)
+    queues = remote.rows(
+        "translation_queue",
+        {"select": "id,chapter_id,status", "chapter_id": f"in.({chapter_id_csv})"},
+    )
+    if any(queue.get("status") == "translating" for queue in queues):
+        return templates.TemplateResponse(
+            request=request,
+            name="jobs.html",
+            context=_jobs_page_context(partial=True, toast="Có chương đang được translator xử lý. Hãy đợi xong hoặc dừng worker rồi thử lại để tránh ghi đè bản dịch.", toast_error=True),
+        )
+
+    raw_titles, missing_raw_titles = _raw_titles_for_retranslation(remote, chapters)
+    if missing_raw_titles:
+        return templates.TemplateResponse(
+            request=request,
+            name="jobs.html",
+            context=_jobs_page_context(partial=True, toast=f"Không tìm được tiêu đề raw cho {len(missing_raw_titles)} chương nên chưa thay đổi hàng đợi.", toast_error=True),
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    remote.patch_rows(
+        "chapter_chunks",
+        {"chapter_id": f"in.({chapter_id_csv})"},
+        {"status": "queued", "translated_text": None},
+    )
+    remote.upsert_many(
+        "chapters",
+        [
+            {"id": chapter["id"], "title": raw_titles[int(chapter["id"])], "translated": False, "updated_at": now}
+            for chapter in chapters
+        ],
+        "id",
+    )
+    if queues:
+        remote.patch_rows(
+            "translation_queue",
+            {"chapter_id": f"in.({chapter_id_csv})"},
+            {"status": "queued", "current_chunk": 0, "retry_count": 0, "priority": 100, "updated_at": now},
+        )
+
+    message = f"Đã xóa bản dịch cũ và đưa {len(chapters)} chương vào hàng đợi dịch lại từ raw gốc."
+    response = templates.TemplateResponse(request=request, name="jobs.html", context=_jobs_page_context(partial=True, toast=message))
+    response.headers["HX-Trigger"] = "jobsChanged"
     return response
 
 
