@@ -154,11 +154,15 @@ def auth_callback(request: Request, code: str):
         result = c.post(f"{AUTH_URL}/auth/v1/token?grant_type=pkce", headers={"apikey": ANON}, json={"auth_code": code, "code_verifier": verifier})
     if not result.is_success:
         try:
-            error_code = str(result.json().get("code") or result.json().get("error") or "unknown_error")
+            error_payload = result.json()
+            error_code = str(error_payload.get("error_code") or error_payload.get("error") or error_payload.get("code") or "unknown_error")
+            error_message = str(error_payload.get("msg") or error_payload.get("message") or "").replace("\n", " ")[:160]
         except ValueError:
             error_code = "invalid_auth_response"
-        logger.warning("Google OAuth PKCE exchange failed: status=%s code=%s", result.status_code, error_code)
-        raise HTTPException(401, f"Không thể hoàn tất đăng nhập Google. ({error_code})")
+            error_message = ""
+        logger.warning("Google OAuth PKCE exchange failed: status=%s code=%s message=%s", result.status_code, error_code, error_message)
+        detail = f"Không thể hoàn tất đăng nhập Google. ({error_code})"
+        raise HTTPException(401, f"{detail} {error_message}".strip())
     payload = result.json()
     access_token = payload.get("access_token")
     refresh_token = payload.get("refresh_token")
