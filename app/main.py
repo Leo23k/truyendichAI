@@ -121,7 +121,7 @@ async def auth_guard(request: Request, call_next):
         if request.headers.get("HX-Request") == "true":
             return HTMLResponse(status_code=401)
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
-    admin = path.startswith(("/jobs", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and path not in {"/api/tts"})
+    admin = path.startswith(("/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and path not in {"/api/tts"})
     if admin and request.state.user.role != "admin":
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
     response = await call_next(request)
@@ -485,12 +485,18 @@ def _jobs_page_context(**extra: object) -> dict[str, object]:
     return {
         "jobs": _crawl_job_cards(),
         "translation_queue": _translation_queue_cards(),
-        "retranslate_books": SupabaseSync().all_rows(
-            "novels", {"select": "id,title", "deleted_at": "is.null", "order": "title.asc"}
-        ),
         "workers": _worker_statuses(),
         "worker_controls_available": worker_manager.can_control_locally,
         "crawler_sources": [crawler.source_name for crawler in registry._crawlers],
+        **extra,
+    }
+
+
+def _retranslate_page_context(**extra: object) -> dict[str, object]:
+    return {
+        "retranslate_books": SupabaseSync().all_rows(
+            "novels", {"select": "id,title", "deleted_at": "is.null", "order": "title.asc"}
+        ),
         **extra,
     }
 
@@ -532,7 +538,12 @@ def crawl_jobs_list(request: Request):
     return response
 
 
-@app.get("/jobs/retranslate/chapters", include_in_schema=False)
+@app.get("/retranslate")
+def retranslate_page(request: Request):
+    return templates.TemplateResponse(request=request, name="retranslate.html", context=_retranslate_page_context())
+
+
+@app.get("/retranslate/chapters", include_in_schema=False)
 def retranslate_chapter_picker(request: Request, novel_id: int):
     chapters = SupabaseSync().all_rows(
         "chapters",
@@ -564,7 +575,7 @@ def _raw_titles_for_retranslation(remote: SupabaseSync, chapters: list[dict]) ->
     return titles, [chapter_id for chapter_id, title in loaded if not title]
 
 
-@app.post("/jobs/retranslate", include_in_schema=False)
+@app.post("/retranslate", include_in_schema=False)
 def retranslate_novel(
     request: Request,
     novel_id: int = Form(...),
@@ -575,7 +586,7 @@ def retranslate_novel(
         raise HTTPException(status_code=400, detail="Tùy chọn dịch lại không hợp lệ.")
     if mode == "selected" and not chapter_ids:
         return templates.TemplateResponse(
-            request=request, name="jobs.html", context=_jobs_page_context(partial=True, toast="Hãy chọn ít nhất một chương để dịch lại.", toast_error=True)
+            request=request, name="retranslate.html", context=_retranslate_page_context(toast="Hãy chọn ít nhất một chương để dịch lại.", toast_error=True)
         )
 
     remote = SupabaseSync()
@@ -585,7 +596,7 @@ def retranslate_novel(
     chapters = remote.all_rows("chapters", filters)
     if not chapters:
         return templates.TemplateResponse(
-            request=request, name="jobs.html", context=_jobs_page_context(partial=True, toast="Không tìm thấy chương phù hợp của truyện này.", toast_error=True)
+            request=request, name="retranslate.html", context=_retranslate_page_context(toast="Không tìm thấy chương phù hợp của truyện này.", toast_error=True)
         )
 
     chapter_id_csv = ",".join(str(chapter["id"]) for chapter in chapters)
@@ -596,16 +607,16 @@ def retranslate_novel(
     if any(queue.get("status") == "translating" for queue in queues):
         return templates.TemplateResponse(
             request=request,
-            name="jobs.html",
-            context=_jobs_page_context(partial=True, toast="Có chương đang được translator xử lý. Hãy đợi xong hoặc dừng worker rồi thử lại để tránh ghi đè bản dịch.", toast_error=True),
+            name="retranslate.html",
+            context=_retranslate_page_context(toast="Có chương đang được translator xử lý. Hãy đợi xong hoặc dừng worker rồi thử lại để tránh ghi đè bản dịch.", toast_error=True),
         )
 
     raw_titles, missing_raw_titles = _raw_titles_for_retranslation(remote, chapters)
     if missing_raw_titles:
         return templates.TemplateResponse(
             request=request,
-            name="jobs.html",
-            context=_jobs_page_context(partial=True, toast=f"Không tìm được tiêu đề raw cho {len(missing_raw_titles)} chương nên chưa thay đổi hàng đợi.", toast_error=True),
+            name="retranslate.html",
+            context=_retranslate_page_context(toast=f"Không tìm được tiêu đề raw cho {len(missing_raw_titles)} chương nên chưa thay đổi hàng đợi.", toast_error=True),
         )
 
     now = datetime.now(timezone.utc).isoformat()
@@ -630,7 +641,7 @@ def retranslate_novel(
         )
 
     message = f"Đã xóa bản dịch cũ và đưa {len(chapters)} chương vào hàng đợi dịch lại từ raw gốc."
-    response = templates.TemplateResponse(request=request, name="jobs.html", context=_jobs_page_context(partial=True, toast=message))
+    response = templates.TemplateResponse(request=request, name="retranslate.html", context=_retranslate_page_context(toast=message))
     response.headers["HX-Trigger"] = "jobsChanged"
     return response
 

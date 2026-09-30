@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Dịch lại truyện | Leo Truyen{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-3xl" x-data="{ retranslateMode: 'all', selectedNovel: '' }">
+  <a href="/" class="inline-flex items-center gap-2 text-sm font-medium text-stone-600 hover:text-stone-950">← Thư viện</a>
+  <section class="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm">
+    <p class="text-sm font-medium text-indigo-700">Translator</p>
+    <h1 class="text-2xl font-semibold text-stone-950">Dịch lại truyện</h1>
+    <p class="mt-1 text-sm text-stone-600">Bản dịch cũ, gồm nội dung và tiêu đề chương, sẽ được xóa trước khi dịch lại từ raw gốc.</p>
+    {% if toast %}<div class="mt-4 rounded-lg border {% if toast_error %}border-red-200 bg-red-50 text-red-800{% else %}border-teal-200 bg-teal-50 text-teal-800{% endif %} px-4 py-3 text-sm">{{ toast }}</div>{% endif %}
+    <form class="mt-4" method="post" action="/retranslate">
+      <label class="block text-sm font-medium text-stone-700" for="retranslate-novel">1. Chọn truyện</label>
+      <select id="retranslate-novel" name="novel_id" required x-model="selectedNovel" @change="retranslateMode='all'; $refs.chapterPicker.replaceChildren()" class="mt-2 h-11 w-full rounded-lg border border-indigo-200 bg-white px-3 text-sm"><option value="">Chọn truyện đã crawl</option>{% for book in retranslate_books %}<option value="{{ book.id }}">{{ book.title }}</option>{% endfor %}</select>
+      <fieldset x-show="selectedNovel" x-cloak class="mt-4"><legend class="text-sm font-medium text-stone-700">2. Chọn phạm vi dịch lại</legend><div class="mt-2 flex flex-col gap-2 sm:flex-row"><label class="flex cursor-pointer items-center gap-2 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm"><input type="radio" name="mode" value="all" x-model="retranslateMode" @change="$refs.chapterPicker.replaceChildren()" checked> Toàn bộ truyện</label><label class="flex cursor-pointer items-center gap-2 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm"><input type="radio" name="mode" value="selected" x-model="retranslateMode" hx-get="/retranslate/chapters" hx-trigger="click" hx-include="#retranslate-novel" hx-target="#retranslate-chapter-picker" hx-swap="innerHTML" hx-indicator="#retranslate-chapter-loading"> Chọn nhiều chương</label></div></fieldset>
+      <div id="retranslate-chapter-loading" class="htmx-indicator mt-3 text-sm text-indigo-700">Đang tải danh sách chương…</div><div id="retranslate-chapter-picker" x-ref="chapterPicker"></div>
+      <button id="retranslate-submit" x-show="selectedNovel" x-cloak class="mt-4 min-h-11 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50">Đưa vào hàng đợi dịch lại</button>
+    </form>
+  </section>
+</section>
+{% endblock %}
