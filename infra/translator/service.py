@@ -9,9 +9,9 @@ from transformers import AutoTokenizer
 MODEL_NAME=os.getenv("MODEL_NAME","ngocdang83/HachimiMT-60-QT")
 MODEL_DIR=Path(os.getenv("MODEL_DIR","/app/models/hachimi")); app=FastAPI(title="LeoTruyen Translator")
 class TranslateRequest(BaseModel):
-    text:str=Field(min_length=1); beam_size:int=Field(default=2,ge=1,le=4)
+    text:str=Field(min_length=1); beam_size:int=Field(default=4,ge=1,le=4)
 class TranslateBatchRequest(BaseModel):
-    texts:list[str]=Field(min_length=1,max_length=4); beam_size:int=Field(default=2,ge=1,le=4)
+    texts:list[str]=Field(min_length=1,max_length=4); beam_size:int=Field(default=4,ge=1,le=4)
 @lru_cache(maxsize=1)
 def engine():
     MODEL_DIR.mkdir(parents=True,exist_ok=True)
