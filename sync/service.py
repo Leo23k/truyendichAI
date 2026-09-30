@@ -729,13 +729,15 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
         info = await crawler.get_book_info(url)
         remote = SupabaseSync()
         logger.info("Bắt đầu crawl truyện: %s", info.title)
-        translated_title = translator.translate_metadata(info.title)
-        translated_author = translator.translate_metadata(info.author) if info.author else None
-        novels = remote.rows("novels", {"select": "id,slug", "source_url": f"eq.{info.source_url}", "limit": "1"})
+        novels = remote.rows("novels", {"select": "id,slug,title,author", "source_url": f"eq.{info.source_url}", "limit": "1"})
         if novels:
             novel = novels[0]
-            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"title": translated_title, "author": translated_author, "cover_url": info.cover_url, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()})
+            translated_title = str(novel.get("title") or info.title)
+            translated_author = novel.get("author") or info.author
+            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"cover_url": info.cover_url, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()})
         else:
+            translated_title = translator.translate_metadata(info.title)
+            translated_author = translator.translate_metadata(info.author) if info.author else None
             existing_slugs = {str(item["slug"]) for item in remote.all_rows("novels", {"select": "slug", "order": "slug.asc"}) if item.get("slug")}
             novel = remote.insert("novels", {"slug": unique_slug(translated_title, existing_slugs), "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "source_url": info.source_url, "latest_chapter": 0})
 
