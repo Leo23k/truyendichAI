@@ -141,14 +141,20 @@ def login():
     if not AUTH_URL or not ANON: raise HTTPException(503, "Supabase Auth chưa được cấu hình.")
     verifier, challenge = pkce(); callback = f"{settings.app_url.rstrip('/')}/auth/callback"
     response = RedirectResponse(f"{AUTH_URL}/auth/v1/authorize?provider=google&redirect_to={callback}&code_challenge={challenge}&code_challenge_method=s256")
+    response.headers["Cache-Control"] = "no-store, private"
     response.set_cookie("sb-pkce", verifier, httponly=True, secure=settings.app_url.startswith("https"), samesite="lax", max_age=600)
     return response
 
 @app.get("/auth/callback")
 def auth_callback(request: Request, code: str):
+    verifier = request.cookies.get("sb-pkce", "")
+    if not verifier:
+        raise HTTPException(400, "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.")
     with httpx.Client(timeout=15, trust_env=False) as c:
-        result = c.post(f"{AUTH_URL}/auth/v1/token?grant_type=pkce", headers={"apikey": ANON}, json={"auth_code": code, "code_verifier": request.cookies.get("sb-pkce", "")})
-    if not result.is_success: raise HTTPException(401, "Không thể hoàn tất đăng nhập Google.")
+        result = c.post(f"{AUTH_URL}/auth/v1/token?grant_type=pkce", headers={"apikey": ANON}, json={"auth_code": code, "code_verifier": verifier})
+    if not result.is_success:
+        logger.warning("Google OAuth PKCE exchange failed: status=%s body=%s", result.status_code, result.text[:500])
+        raise HTTPException(401, "Không thể hoàn tất đăng nhập Google.")
     payload = result.json()
     access_token = payload.get("access_token")
     refresh_token = payload.get("refresh_token")
