@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Dịch lại truyện | Leo Truyen{% endblock %}
+{% block theme_override %}<script>document.documentElement.dataset.theme="light";</script>{% endblock %}
 {% block content %}
 <section class="mx-auto max-w-3xl" x-data="{ retranslateMode: 'all', selectedNovel: '', loading: false, async loadChapters() { if (!this.selectedNovel) return; this.loading = true; this.$refs.chapterPicker.replaceChildren(); try { const response = await fetch('/retranslate/chapters?novel_id=' + encodeURIComponent(this.selectedNovel), { headers: { 'HX-Request': 'true' } }); if (!response.ok) throw new Error('HTTP ' + response.status); this.$refs.chapterPicker.innerHTML = await response.text(); window.Alpine?.initTree(this.$refs.chapterPicker); } catch (error) { this.$refs.chapterPicker.innerHTML = '<p class=&quot;mt-3 text-sm text-red-700&quot;>Không thể tải danh sách chương. Vui lòng thử lại.</p>'; } finally { this.loading = false; } } }">
   <a href="/" class="inline-flex items-center gap-2 text-sm font-medium text-stone-600 hover:text-stone-950">← Thư viện</a>

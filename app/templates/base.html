@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#171a1e">
   <link rel="manifest" href="/manifest.webmanifest">
   <script>document.documentElement.dataset.theme=localStorage.getItem("app-theme")||"dark";</script>
+  {% block theme_override %}{% endblock %}
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
