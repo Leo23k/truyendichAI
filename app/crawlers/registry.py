@@ -21,15 +21,22 @@ class CrawlerRegistry:
         parsed = urlparse(url.strip())
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise InvalidSourceUrlError("URL không hợp lệ. Chỉ hỗ trợ http:// và https://.")
+        hostname = parsed.hostname.lower().rstrip(".")
         try:
             host_ip = ipaddress.ip_address(parsed.hostname)
         except ValueError:
             host_ip = None
-        if parsed.hostname == "localhost" or host_ip and (host_ip.is_private or host_ip.is_loopback or host_ip.is_link_local):
+        if hostname == "localhost" or host_ip and (host_ip.is_private or host_ip.is_loopback or host_ip.is_link_local):
             raise InvalidSourceUrlError("Không thể truy cập địa chỉ mạng nội bộ.")
         for crawler in self._crawlers:
             if crawler.can_handle(url):
                 return crawler
+        if hostname in {"tienhiep.vercel.app", "www.tienhiep.vercel.app"}:
+            # Keep this supported Vietnamese source available even if a serverless
+            # instance imports the registry before the normal plugin bootstrap.
+            from app.crawlers.plugins.tienhiep import crawler as tienhiep_crawler
+
+            return tienhiep_crawler
         raise UnsupportedSourceError("Website này hiện chưa được hỗ trợ.")
 
     async def search(self, query: str) -> list[BookInfo]:
