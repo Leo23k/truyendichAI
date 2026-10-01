@@ -139,7 +139,7 @@
     <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-teal-100"><div data-translation-bar class="h-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </section>
 
-  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pt-5 text-sm text-[var(--muted)] sm:px-8" aria-label="Breadcrumb"><a href="{{ back_url or '/' }}" class="hover:text-teal-500">← Quay lại</a><span>›</span><a href="{{ back_url or '/' }}" class="max-w-44 truncate hover:text-teal-500">{{ chapter.book_id|replace('-', ' ')|title }}</a><span>›</span><span class="truncate font-medium text-[var(--text)]">{{ display_title }}</span></nav>
+  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pt-5 text-sm text-black sm:px-8" aria-label="Breadcrumb"><a href="{{ back_url or '/' }}" class="text-black hover:text-teal-600">← Quay lại</a><span>›</span><a href="{{ back_url or '/' }}" class="max-w-44 truncate text-black hover:text-teal-600">{{ chapter.book_id|replace('-', ' ')|title }}</a><span>›</span><span class="truncate font-medium text-black">{{ display_title }}</span></nav>
   <div class="reader-page-nav mx-auto max-w-5xl px-5 pt-5 sm:px-8 sm:pt-6">
     {% if previous %}<a href="{{ previous_url or '/chapters/' ~ previous.id }}" class="reader-nav-card"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="opacity-60">CHƯƠNG TRƯỚC</small><strong>{{ previous.translated_title or previous.title or 'Chương trước' }}</strong></span></a>{% else %}<span></span>{% endif %}
     <span class="text-center text-xs font-semibold uppercase tracking-[.18em] text-teal-500">Bản dịch tiếng Việt</span>

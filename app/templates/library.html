@@ -79,7 +79,7 @@
   <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4 xl:grid-cols-5">
     {% for book in books %}
     {% set first_chapter = book.chapters[0] if book.chapters else none %}
-    <article data-library-book data-book-key="{{ book.id }}" data-detail-url="/books/{{ book.id }}" tabindex="0" role="link" class="library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500">
+    <article data-library-book data-book-key="{{ book.id }}" data-chapter-ids="{{ book.chapters|map(attribute='id')|join(',') }}" data-detail-url="/books/{{ book.id }}" tabindex="0" role="link" class="library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500">
       <a href="/books/{{ book.id }}" class="block">
         <div class="relative aspect-[2/3] w-full">
         <span class="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] font-bold shadow-sm {% if book.reading_status == 'completed' %}bg-teal-500 text-[#062b28]{% else %}bg-amber-400 text-amber-950{% endif %}">{% if book.reading_status == 'completed' %}Hoàn thành{% else %}Đang ra{% endif %}</span>
@@ -171,14 +171,21 @@
         }
       }
       const progress = card.querySelector("[data-library-progress]");
-      if (progress && url && url.includes("/truyen/")) {
+      if (progress && url) {
         const total = Number(progress.dataset.totalChapters || 0);
-        const match = url.match(/\/(\d+)(?:\?.*)?$/);
-        const chapterNumber = Number(match?.[1] || 0);
-        if (total && chapterNumber) {
-          const completed = Math.min(total, chapterNumber);
+        const path = new URL(url, window.location.origin).pathname;
+        const syncedMatch = path.match(/^\/truyen\/[^/]+\/(\d+)$/);
+        const legacyMatch = path.match(/^\/chapters\/(\d+)$/);
+        const legacyChapterIndex = legacyMatch
+          ? (card.dataset.chapterIds || "").split(",").indexOf(legacyMatch[1])
+          : -1;
+        const chapterNumber = Number(syncedMatch?.[1] || 0);
+        const completed = chapterNumber
+          ? Math.min(total, chapterNumber)
+          : legacyChapterIndex >= 0 ? Math.min(total, legacyChapterIndex + 1) : 0;
+        if (total && completed) {
           progress.querySelector("[data-library-progress-label]").textContent = `${completed}/${total}`;
-          progress.querySelector("[data-library-progress-bar]").style.width = `${Math.round(completed / total * 100)}%`;
+          progress.querySelector("[data-library-progress-bar]").style.width = `${Math.max(2, Math.round(completed / total * 100))}%`;
         }
       }
       if (url && url === latestUrl) recentlyReadCard = card;
