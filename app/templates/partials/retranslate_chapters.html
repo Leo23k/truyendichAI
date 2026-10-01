@@ -1,11 +1,20 @@
 {% if chapters %}
-  <div class="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3" x-data="{ query: '' }">
+  <div class="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3" x-data="{ query: '', rangeStart: '', rangeEnd: '', selectedCount: 0, updateCount() { this.selectedCount = this.$el.querySelectorAll('input[name=chapter_ids]:checked').length }, selectRange() { const start = Number(this.rangeStart); const end = Number(this.rangeEnd); if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start) return; this.$el.querySelectorAll('input[data-chapter-number]').forEach((input) => { const number = Number(input.dataset.chapterNumber); input.checked = number >= start && number <= end; }); this.updateCount(); } }" x-init="updateCount()">
     <label class="block text-sm font-medium text-stone-700" for="retranslate-chapter-search">Chọn chương cần dịch lại</label>
+    <div class="mt-3 rounded-md border border-indigo-100 bg-indigo-50/70 p-3">
+      <p class="text-sm font-medium text-indigo-950">Chọn nhanh theo khoảng</p>
+      <div class="mt-2 flex flex-wrap items-end gap-2">
+        <label class="min-w-24 flex-1 text-xs font-medium text-stone-600">Từ chương<input x-model="rangeStart" inputmode="numeric" type="number" min="1" placeholder="555" class="mt-1 h-10 w-full rounded-md border border-indigo-200 bg-white px-3 text-sm"></label>
+        <label class="min-w-24 flex-1 text-xs font-medium text-stone-600">Đến chương<input x-model="rangeEnd" inputmode="numeric" type="number" min="1" placeholder="752" class="mt-1 h-10 w-full rounded-md border border-indigo-200 bg-white px-3 text-sm"></label>
+        <button type="button" @click="selectRange()" class="h-10 rounded-md bg-indigo-700 px-3 text-sm font-medium text-white hover:bg-indigo-800">Chọn khoảng</button>
+      </div>
+      <p class="mt-2 text-xs text-stone-600"><span x-text="selectedCount"></span> chương đã chọn.</p>
+    </div>
     <input id="retranslate-chapter-search" x-model="query" type="search" placeholder="Tìm theo số hoặc tên chương" class="mt-2 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm">
     <div class="mt-2 max-h-64 overflow-y-auto rounded border border-stone-200 bg-white">
       {% for chapter in chapters %}
         <label x-show="String({{ chapter.chapter_number }}).includes(query.trim()) || {{ (chapter.title or '')|tojson }}.toLowerCase().includes(query.toLowerCase().trim())" class="flex cursor-pointer items-center gap-3 border-b border-stone-100 px-3 py-2 text-sm last:border-0">
-          <input type="checkbox" form="retranslate-form" name="chapter_ids" value="{{ chapter.id }}" class="h-4 w-4 rounded border-stone-300 text-teal-700">
+          <input type="checkbox" data-chapter-number="{{ chapter.chapter_number }}" @change="updateCount()" form="retranslate-form" name="chapter_ids" value="{{ chapter.id }}" class="h-4 w-4 rounded border-stone-300 text-teal-700">
           <span class="font-medium text-stone-800">Chương {{ chapter.chapter_number }}</span>
           <span class="min-w-0 truncate text-stone-500">{{ chapter.title }}</span>
         </label>
