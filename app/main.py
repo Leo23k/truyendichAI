@@ -509,7 +509,12 @@ def admin_page(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
-        context={"novels": load_admin_novels(), "toast": request.query_params.get("toast"), "toast_error": request.query_params.get("error") == "1"},
+        context={
+            "novels": load_admin_novels(),
+            "crawler_sources": [crawler.source_name for crawler in registry._crawlers],
+            "toast": request.query_params.get("toast"),
+            "toast_error": request.query_params.get("error") == "1",
+        },
     )
 
 
