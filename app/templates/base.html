@@ -168,6 +168,12 @@
   </header>
   {% endblock %}
   <main class="{% block main_class %}mx-auto max-w-6xl px-6 py-10{% endblock %}">{% block content %}{% endblock %}</main>
+  {% block footer %}
+  <footer class="mx-auto flex max-w-[1380px] items-center justify-between px-4 py-4 text-sm text-[var(--muted)] sm:px-6 lg:px-8">
+    <span>@2026</span>
+    <span>Leo Truyện</span>
+  </footer>
+  {% endblock %}
   <script>
     document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
       button.addEventListener("click", () => {
