@@ -419,29 +419,52 @@ def _crawl_job_cards() -> list[dict]:
     # reach `completed` while rows it owns are still waiting in translation_queue.
     # Keep those cards visible until their translation work has also finished.
     jobs = remote.rows("remote_crawl_jobs", {"select": "id,source_url,source_type,status,error,result,started_at,created_at,updated_at", "status": "in.(queued,crawling,syncing,translating,paused,completed,failed)", "order": "updated_at.desc"})
+    job_ids = [str(job["id"]) for job in jobs]
+    all_queues = remote.rows(
+        "translation_queue",
+        {
+            "select": "crawl_job_id,status,chapter_id",
+            "crawl_job_id": f"in.({','.join(job_ids)})",
+            "status": "in.(queued,translating,paused,failed)",
+            "limit": "1000",
+        },
+    ) if job_ids else []
+    queues_by_job: dict[str, list[dict]] = {}
+    for queue in all_queues:
+        queues_by_job.setdefault(str(queue.get("crawl_job_id")), []).append(queue)
+    visible_jobs = [job for job in jobs if job.get("status") != "completed" or queues_by_job.get(str(job["id"]))]
+    book_ids = sorted({int(result["book_id"]) for job in visible_jobs if isinstance((result := job.get("result")), dict) and str(result.get("book_id") or "").isdigit()})
+    novels = remote.all_rows(
+        "novels",
+        {"select": "id,slug,title", "id": f"in.({','.join(str(book_id) for book_id in book_ids)})"},
+    ) if book_ids else []
+    novel_by_id = {int(novel["id"]): novel for novel in novels}
+    translating_ids = sorted({int(queue["chapter_id"]) for queue in all_queues if queue.get("status") == "translating" and str(queue.get("chapter_id") or "").isdigit()})
+    translating_chapters = remote.all_rows(
+        "chapters",
+        {"select": "id,chapter_number", "id": f"in.({','.join(str(chapter_id) for chapter_id in translating_ids)})"},
+    ) if translating_ids else []
+    chapter_number_by_id = {int(chapter["id"]): chapter.get("chapter_number") for chapter in translating_chapters}
+
     cards: list[dict] = []
-    for job in jobs:
+    for job in visible_jobs:
         result = job.get("result") if isinstance(job.get("result"), dict) else {}
         book_id = result.get("book_id")
-        novel = remote.rows("novels", {"select": "id,slug,title", "id": f"eq.{book_id}", "limit": "1"}) if book_id else remote.rows("novels", {"select": "id,slug,title", "source_url": f"eq.{job['source_url']}", "limit": "1"})
-        novel = novel[0] if novel else {}
-        if novel and not book_id:
-            result["book_id"] = novel.get("id")
-        chapters = remote.all_rows("chapters", {"select": "id,chapter_number,translated", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.desc"}) if novel else []
-        queues = remote.rows("translation_queue", {"select": "status,chapter_id", "crawl_job_id": f"eq.{job['id']}"})
+        novel = novel_by_id.get(int(book_id)) if str(book_id or "").isdigit() else {}
+        queues = queues_by_job.get(str(job["id"]), [])
         states = {state: sum(1 for row in queues if row.get("status") == state) for state in ("queued", "translating", "completed", "failed", "paused")}
+        states["completed"] = int(result.get("translated") or 0)
         has_pending_translation = bool(states["queued"] or states["translating"])
         if job.get("status") == "completed" and not has_pending_translation:
             continue
-        legacy_job = str(job.get("started_at") or job.get("created_at") or "") < "2026-09-24T12:30:00"
-        if not queues and chapters and legacy_job:
-            # Jobs created before crawl_job_id existed still own this novel by result.book_id.
-            states["completed"] = sum(bool(row.get("translated")) for row in chapters)
-            states["queued"] = len(chapters) - states["completed"]
-        current = [row for row in chapters if row.get("id") in {queue.get("chapter_id") for queue in queues if queue.get("status") == "translating"}]
+        current = [
+            chapter_number_by_id.get(int(queue["chapter_id"]))
+            for queue in queues
+            if queue.get("status") == "translating" and str(queue.get("chapter_id") or "").isdigit()
+        ]
         display_status = "translating" if job.get("status") == "completed" and has_pending_translation else job.get("status")
         source_type = job.get("source_type") or "zh"
-        job.update({"result": result, "title": result.get("title") or novel.get("title") or _source_name(str(job["source_url"])), "source_name": f"{_source_name(str(job['source_url']))} · {'Nguồn Việt' if source_type == 'vi' else 'Nguồn Trung'}", "source_type": source_type, "novel": novel, "crawl_total": result.get("total_raw"), "crawl_done": result.get("raw_loaded", 0), "queue": states, "current_chapters": [row.get("chapter_number") for row in current[:3]], "display_status": display_status, "updated_display": _gmt7(job.get("updated_at"))})
+        job.update({"result": result, "title": result.get("title") or novel.get("title") or _source_name(str(job["source_url"])), "source_name": f"{_source_name(str(job['source_url']))} · {'Nguồn Việt' if source_type == 'vi' else 'Nguồn Trung'}", "source_type": source_type, "novel": novel, "crawl_total": result.get("total_raw"), "crawl_done": result.get("raw_loaded", 0), "queue": states, "current_chapters": [number for number in current[:3] if number is not None], "display_status": display_status, "updated_display": _gmt7(job.get("updated_at"))})
         cards.append(job)
     return cards
 
@@ -449,12 +472,13 @@ def _crawl_job_cards() -> list[dict]:
 def _translation_queue_cards() -> list[dict]:
     """Return unfinished translation work independently of its crawl job."""
     remote = SupabaseSync()
-    queue = remote.all_rows(
+    queue = remote.rows(
         "translation_queue",
         {
             "select": "id,chapter_id,status,current_chunk,total_chunks,updated_at",
             "status": "in.(queued,translating,paused,failed)",
             "order": "updated_at.desc",
+            "limit": "100",
         },
     )
     if not queue:
