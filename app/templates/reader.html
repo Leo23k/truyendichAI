@@ -43,8 +43,6 @@
   @media(max-width:359px){.reader-player-controls{gap:.35rem}.reader-player-controls [data-volume-control]{display:none}.reader-player-track{font-size:.6rem}}
   [data-replacement-dialog]:not([hidden]){display:flex}
 </style>
-<nav class="border-b border-[var(--line)] bg-[var(--page)]" aria-label="Breadcrumb"><div class="mx-auto flex max-w-6xl items-center gap-2 px-5 py-4 text-sm text-[var(--muted)] sm:px-8"><a href="{{ back_url or '/' }}" class="hover:text-teal-500">← Quay lại</a><span>›</span><a href="{{ back_url or '/' }}" class="max-w-44 truncate hover:text-teal-500">{{ chapter.book_id|replace('-', ' ')|title }}</a><span>›</span><span class="truncate font-medium text-[var(--text)]">{{ display_title }}</span></div></nav>
-
 <div
   x-data="{ theme: (localStorage.getItem('reader-theme') || 'dark') === 'gray' ? 'sepia' : (localStorage.getItem('reader-theme') || 'dark'), size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', fontPanel: false, settingsPanel: false }"
   x-init="$watch('theme', value => localStorage.setItem('reader-theme', value)); $watch('size', value => localStorage.setItem('reader-size', value)); $watch('lineHeight', value => localStorage.setItem('reader-line-height-v5', value)); $watch('font', value => localStorage.setItem('reader-font', value))"
@@ -141,7 +139,8 @@
     <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-teal-100"><div data-translation-bar class="h-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </section>
 
-  <div class="reader-page-nav mx-auto max-w-5xl px-5 pt-10 sm:px-8 sm:pt-12">
+  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pt-5 text-sm text-[var(--muted)] sm:px-8" aria-label="Breadcrumb"><a href="{{ back_url or '/' }}" class="hover:text-teal-500">← Quay lại</a><span>›</span><a href="{{ back_url or '/' }}" class="max-w-44 truncate hover:text-teal-500">{{ chapter.book_id|replace('-', ' ')|title }}</a><span>›</span><span class="truncate font-medium text-[var(--text)]">{{ display_title }}</span></nav>
+  <div class="reader-page-nav mx-auto max-w-5xl px-5 pt-5 sm:px-8 sm:pt-6">
     {% if previous %}<a href="{{ previous_url or '/chapters/' ~ previous.id }}" class="reader-nav-card"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="opacity-60">CHƯƠNG TRƯỚC</small><strong>{{ previous.translated_title or previous.title or 'Chương trước' }}</strong></span></a>{% else %}<span></span>{% endif %}
     <span class="text-center text-xs font-semibold uppercase tracking-[.18em] text-teal-500">Bản dịch tiếng Việt</span>
     {% if following %}<a href="{{ following_url or '/chapters/' ~ following.id }}" class="reader-nav-card justify-end text-right"><span class="min-w-0"><small class="opacity-60">CHƯƠNG SAU</small><strong>{{ following.translated_title or following.title or 'Chương sau' }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% else %}<span></span>{% endif %}
