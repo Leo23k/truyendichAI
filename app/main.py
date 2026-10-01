@@ -32,6 +32,7 @@ from app.cdn import (
     load_chapters_index,
     load_chapters_page,
     load_deleted_synced_novels,
+    load_novels,
     load_synced_novel,
     load_replacement_rules,
     load_translation_progress,
@@ -386,8 +387,7 @@ def library(request: Request):
     except CdnDataError:
         pass
     try:
-        metadata = load_cdn_json("metadata.json")
-        synced_novels = metadata.get("novels", [])
+        synced_novels = load_novels()
     except CdnDataError:
         synced_novels = []
     return templates.TemplateResponse(
