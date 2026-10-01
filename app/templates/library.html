@@ -22,7 +22,7 @@
   </style>
   <div class="relative flex flex-col gap-4">
     <div class="pr-12 sm:pr-64">
-      <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện của bạn</h1><button type="button" data-theme-toggle class="site-nav-button ml-auto sm:hidden"><i data-lucide="sun-moon" class="h-4 w-4"></i>Giao diện</button></div>
+      <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện của bạn</h1></div>
       <p class="site-muted mt-1">Chào mừng trở lại! Bạn đang có {{ (books|length) if books else (synced_novels|length) }} cuốn sách.</p>
     </div>
     <div x-data="{ open: false }" @click.outside="open = false" class="hidden">
