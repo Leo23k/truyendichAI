@@ -63,18 +63,29 @@ class TienHiepCrawler(BaseCrawler):
         soup = BeautifulSoup(await self._get_html(url), "html.parser")
         count = int(self._book_json(soup).get("numberOfPages") or 0)
         pages = max(1, (count + 99) // 100)
+        book_id = self._book_id(url)
         chapters: list[ChapterInfo] = []
         for page in range(pages):
-            page_url = url if page == 0 else f"{url}?chaptersPage={page}"
-            page_soup = soup if page == 0 else BeautifulSoup(await self._get_html(page_url), "html.parser")
-            for link in page_soup.select("a[href]"):
-                href = urljoin(page_url, link.get("href", ""))
-                match = self._chapter_path.search(urlparse(href).path)
-                if not match:
-                    continue
-                title = link.get_text(" ", strip=True)
-                if title:
-                    chapters.append(ChapterInfo(int(match.group(2)), match.group(2), title, href))
+            try:
+                payload = json.loads(await self._get_html(f"https://tienhiep.vercel.app/api/books/{book_id}/chapters?page={page}"))
+                for item in payload.get("chapters", []):
+                    number = int(item.get("chapter_number") or 0)
+                    if number:
+                        chapters.append(ChapterInfo(number, str(item.get("id") or number), str(item.get("title") or f"Chương {number}"), f"{url.rstrip('/')}/chapters/{number}"))
+                continue
+            except (json.JSONDecodeError, SourceRequestError, ValueError, AttributeError):
+                # The public API is the primary source. Keep an SSR fallback
+                # for a temporary API outage rather than failing a whole crawl.
+                page_url = url if page == 0 else f"{url}?chaptersPage={page}"
+                page_soup = soup if page == 0 else BeautifulSoup(await self._get_html(page_url), "html.parser")
+                for link in page_soup.select("a[href]"):
+                    href = urljoin(page_url, link.get("href", ""))
+                    match = self._chapter_path.search(urlparse(href).path)
+                    if not match:
+                        continue
+                    title = link.get_text(" ", strip=True)
+                    if title:
+                        chapters.append(ChapterInfo(int(match.group(2)), match.group(2), title, href))
         if not chapters:
             raise SourceParseError("Không tìm thấy danh sách chương từ nguồn Truyện Việt.")
         return dedupe_chapters(chapters)
