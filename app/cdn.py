@@ -320,7 +320,7 @@ def load_synced_novel(slug: str) -> dict:
             try:
                 rows = _rest_rows(
                     "novels",
-                    {"select": "id,slug,title,author,description,cover_url,latest_chapter,updated_at,source_url", "slug": f"eq.{slug}", "deleted_at": "is.null", "limit": "1"},
+                    {"select": "id,slug,title,author,description,genres,reading_status,cover_url,latest_chapter,updated_at,source_url", "slug": f"eq.{slug}", "deleted_at": "is.null", "limit": "1"},
                 )
             except CdnDataError:
                 rows = _rest_rows(

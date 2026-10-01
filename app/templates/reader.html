@@ -43,6 +43,7 @@
   @media(max-width:359px){.reader-player-controls{gap:.35rem}.reader-player-controls [data-volume-control]{display:none}.reader-player-track{font-size:.6rem}}
   [data-replacement-dialog]:not([hidden]){display:flex}
 </style>
+<nav class="mx-auto flex max-w-6xl items-center gap-2 px-5 pt-4 text-sm text-[var(--muted)] sm:px-8" aria-label="Breadcrumb"><a href="{{ back_url or '/' }}" class="hover:text-teal-500">← Quay lại</a><span>›</span><a href="{{ back_url or '/' }}" class="max-w-44 truncate hover:text-teal-500">{{ chapter.book_id|replace('-', ' ')|title }}</a><span>›</span><span class="truncate font-medium text-[var(--text)]">{{ display_title }}</span></nav>
 
 <div
   x-data="{ theme: (localStorage.getItem('reader-theme') || 'dark') === 'gray' ? 'sepia' : (localStorage.getItem('reader-theme') || 'dark'), size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', fontPanel: false, settingsPanel: false }"
