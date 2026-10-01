@@ -909,6 +909,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "translation_error": None if progressive else "Chương này chưa được dịch. Hãy đồng bộ hoặc dịch trước.",
                     "translation_progress": progress,
                     "original_url": current.get("source_url"),
+                    "is_chinese_source": str(current.get("source_type") or "zh") == "zh",
                     "synced_reader": True,
                     "chapter_list": entries,
                     "back_url": f"/truyen/{slug}",
@@ -958,6 +959,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "tts_chunks": split_chapter_text(display_content) if showing_translation else [],
             "translation_error": None,
             "original_url": current.get("source_url"),
+            "is_chinese_source": str(current.get("source_type") or "zh") == "zh",
             "synced_reader": True,
             "chapter_list": entries,
             "back_url": f"/truyen/{slug}",
@@ -1411,6 +1413,7 @@ async def read_chapter(chapter_id: int, request: Request, db: Session = Depends(
             "replacement_book_id": replacement_book_id,
             "tts_chunks": split_chapter_text(display_content) if showing_translation else [],
             "translation_error": translation_error,
+            "is_chinese_source": True,
             "chapter_list": chapter_list,
         },
     )

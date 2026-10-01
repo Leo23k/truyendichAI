@@ -98,7 +98,7 @@
             <label class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 hover:bg-stone-50"><input type="checkbox" data-highlight-text checked> Highlight câu đang đọc</label>
             <button type="button" data-replacement-settings class="block w-full rounded-md px-3 py-2 text-left hover:bg-stone-50">Thay thế từ/câu</button>
             {% if synced_reader %}
-            {% if original_url %}<a href="{{ original_url }}" target="_blank" rel="noopener" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
+            {% if is_chinese_source and original_url %}<a href="{{ original_url }}" target="_blank" rel="noopener" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
             {% else %}
             {% if showing_translation %}
             <a href="/chapters/{{ chapter.id }}?mode=original" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>

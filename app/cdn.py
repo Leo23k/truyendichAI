@@ -513,10 +513,10 @@ def load_cdn_json(path: str) -> dict:
 def load_chapters_index(slug: str) -> list[dict]:
     if _configured():
         try:
-            novels = _rest_rows("novels", {"select": "id", "slug": f"eq.{slug}", "limit": "1"})
+            novels = _rest_rows("novels", {"select": "id,source_type", "slug": f"eq.{slug}", "limit": "1"})
             if not novels:
                 raise CdnDataError("Novel was not found")
-            return _all_rows(
+            chapters = _all_rows(
                 "chapters",
                 {
                     "select": "id,chapter_number,title,source_url,translated,audio_available,content_path",
@@ -524,6 +524,8 @@ def load_chapters_index(slug: str) -> list[dict]:
                     "order": "chapter_number.asc",
                 },
             )
+            source_type = str(novels[0].get("source_type") or "zh")
+            return [{**chapter, "source_type": source_type} for chapter in chapters]
         except CdnDataError:
             pass
     payload = _fallback_json(f"novels/{slug}/chapters_index.json")
