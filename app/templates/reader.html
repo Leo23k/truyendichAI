@@ -29,6 +29,18 @@
   .reader-progress-number{color:#35aaa0;font-size:1.25rem;font-weight:700}.reader-progress-label{display:block;margin-top:.1rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;opacity:.65}
   @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer [data-reader-reading-progress]{grid-column:1/-1;grid-row:1}.reader-reading-footer .reader-nav-card{grid-row:2}.reader-player-controls{gap:.5rem;justify-content:center}.reader-player-status{display:none}.reader-player-controls .reader-player-actions{margin-left:0;gap:.45rem}.reader-player-controls [data-voice-button],.reader-player-controls [data-sleep-button],.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:none}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}.reader-player-shell{padding:.7rem .8rem!important}}
   @media(max-width:639px){.reader-page-nav{grid-template-columns:1fr 1fr}.reader-page-nav>span{display:none}.reader-nav-card{min-width:0}.reader-nav-card strong{max-width:8rem}}
+  @media(max-width:639px){
+    .reader-player-shell{bottom:.75rem!important;width:calc(100% - 1rem)!important;padding:.7rem .75rem!important}
+    .reader-player-controls{display:grid;grid-template-columns:1fr auto 1fr auto;gap:.55rem;margin-top:.55rem}
+    .reader-player-controls [data-segment-prev]{justify-self:end}
+    .reader-player-controls [data-play-toggle]{grid-column:2;width:3.1rem;height:3.1rem}
+    .reader-player-controls [data-segment-next]{grid-column:3;justify-self:start}
+    .reader-player-controls .reader-player-actions{grid-column:4;margin:0;gap:.3rem;justify-self:end}
+    .reader-player-controls [data-voice-button],.reader-player-controls [data-sleep-button],.reader-player-controls [data-rate-control]{display:none}
+    .reader-player-controls .reader-player-actions label{display:flex!important}
+    .reader-player-controls [data-volume-control]{width:2.4rem}
+  }
+  @media(max-width:359px){.reader-player-controls{gap:.35rem}.reader-player-controls [data-volume-control]{display:none}.reader-player-track{font-size:.6rem}}
   [data-replacement-dialog]:not([hidden]){display:flex}
 </style>
 

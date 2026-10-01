@@ -11,7 +11,14 @@
     [id="library-grid"].is-list .library-card .p-4{display:flex;min-width:0;flex-direction:column;justify-content:center}
     [id="library-grid"].is-list .library-card h2{min-height:0}
     .library-card .library-progress{margin-top:1rem}.library-card .library-progress-head{display:flex;align-items:center;justify-content:space-between;font-size:.66rem;font-weight:700;letter-spacing:.06em;color:var(--muted)}.library-card .library-progress-head strong{color:var(--accent);letter-spacing:0}.library-card .library-progress-track{margin-top:.4rem;height:.32rem;overflow:hidden;border-radius:999px;background:var(--surface-3)}.library-card .library-progress-track>span{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .2s ease}.library-card [data-book-start]{width:100%;justify-content:center;margin-top:.9rem;background:var(--accent)!important;color:var(--accent-ink)!important}.library-card [data-book-start] span{color:var(--accent-ink)!important}
-    @media(max-width:639px){[id="library-grid"].is-list .library-card{grid-template-columns:76px minmax(0,1fr)}}
+    @media(max-width:639px){
+      [id="library-grid"].is-list .library-card{grid-template-columns:76px minmax(0,1fr)}
+      .library-toolbar [role="tablist"]{flex-wrap:nowrap;gap:.35rem;overflow-x:auto;padding-bottom:.1rem}
+      .library-toolbar [role="tablist"] .site-nav-button{min-height:2.4rem;padding:0 .6rem;font-size:.78rem;white-space:nowrap}
+      .library-toolbar [role="tablist"] .icon-button{height:2.4rem;width:2.4rem;flex:0 0 auto}
+      .library-toolbar [role="tablist"]>span{display:none}
+      .library-search{max-width:none}
+    }
   </style>
   <div class="relative flex flex-col gap-4">
     <div class="pr-12 sm:pr-64">
