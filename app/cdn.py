@@ -283,7 +283,7 @@ def load_admin_novels() -> list[dict]:
     """Load editable novel fields using the service role for the admin panel."""
     try:
         return _service_rows("novels", {
-            "select": "id,slug,title,author,description,original_title,source_url",
+            "select": "id,slug,title,author,description,genres,reading_status,cover_url,original_title,source_url",
             "deleted_at": "is.null",
             "order": "title.asc",
         })
@@ -296,7 +296,7 @@ def load_admin_novels() -> list[dict]:
         })
 
 
-def update_admin_novel(novel_id: int, *, slug: str, title: str, author: str, description: str) -> None:
+def update_admin_novel(novel_id: int, *, slug: str, title: str, author: str, description: str, cover_url: str = "", genres: list[str] | None = None, reading_status: str = "ongoing") -> None:
     existing = _service_rows("novels", {"select": "id,slug", "id": f"eq.{novel_id}", "limit": "1"})
     if not existing:
         raise CdnDataError("Novel was not found")
@@ -308,6 +308,9 @@ def update_admin_novel(novel_id: int, *, slug: str, title: str, author: str, des
         "title": title,
         "author": author or None,
         "description": description or None,
+        "cover_url": cover_url or None,
+        "genres": genres or [],
+        "reading_status": reading_status,
     })
 
 

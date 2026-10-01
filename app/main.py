@@ -520,10 +520,13 @@ def update_admin_novel_page(
     title: str = Form(...),
     author: str = Form(""),
     description: str = Form(""),
+    cover_url: str = Form(""),
+    genres: str = Form(""),
+    reading_status: str = Form("ongoing"),
 ):
     cleaned_slug = slug.strip().lower()
     cleaned_title = title.strip()
-    if not cleaned_title or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", cleaned_slug):
+    if not cleaned_title or reading_status not in {"ongoing", "completed"} or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", cleaned_slug):
         return RedirectResponse("/admin?toast=Slug%20chỉ%20gồm%20chữ%20thường,%20số%20và%20dấu%20gạch%20ngang.&error=1", status_code=303)
     try:
         update_admin_novel(
@@ -532,6 +535,9 @@ def update_admin_novel_page(
             title=cleaned_title,
             author=author.strip(),
             description=description.strip(),
+            cover_url=cover_url.strip(),
+            genres=sorted({item.strip() for item in genres.split(",") if item.strip()}),
+            reading_status=reading_status,
         )
     except CdnDataError as exc:
         return RedirectResponse(f"/admin?toast={quote(str(exc))}&error=1", status_code=303)
