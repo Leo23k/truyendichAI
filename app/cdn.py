@@ -279,13 +279,51 @@ def load_novels() -> list[dict]:
     return _fallback_json("metadata.json").get("novels", [])
 
 
+def load_admin_novels() -> list[dict]:
+    """Load editable novel fields using the service role for the admin panel."""
+    try:
+        return _service_rows("novels", {
+            "select": "id,slug,title,author,description,original_title,source_url",
+            "deleted_at": "is.null",
+            "order": "title.asc",
+        })
+    except CdnDataError:
+        # Keep the panel usable until the description migration has been applied.
+        return _service_rows("novels", {
+            "select": "id,slug,title,author,original_title,source_url",
+            "deleted_at": "is.null",
+            "order": "title.asc",
+        })
+
+
+def update_admin_novel(novel_id: int, *, slug: str, title: str, author: str, description: str) -> None:
+    existing = _service_rows("novels", {"select": "id,slug", "id": f"eq.{novel_id}", "limit": "1"})
+    if not existing:
+        raise CdnDataError("Novel was not found")
+    duplicate = _service_rows("novels", {"select": "id", "slug": f"eq.{slug}", "id": f"neq.{novel_id}", "limit": "1"})
+    if duplicate:
+        raise CdnDataError("Slug này đã được dùng bởi truyện khác.")
+    _service_patch("novels", {"id": f"eq.{novel_id}"}, {
+        "slug": slug,
+        "title": title,
+        "author": author or None,
+        "description": description or None,
+    })
+
+
 def load_synced_novel(slug: str) -> dict:
     if _configured():
         try:
-            rows = _rest_rows(
-                "novels",
-                {"select": "id,slug,title,author,cover_url,latest_chapter,updated_at,source_url", "slug": f"eq.{slug}", "deleted_at": "is.null", "limit": "1"},
-            )
+            try:
+                rows = _rest_rows(
+                    "novels",
+                    {"select": "id,slug,title,author,description,cover_url,latest_chapter,updated_at,source_url", "slug": f"eq.{slug}", "deleted_at": "is.null", "limit": "1"},
+                )
+            except CdnDataError:
+                rows = _rest_rows(
+                    "novels",
+                    {"select": "id,slug,title,author,cover_url,latest_chapter,updated_at,source_url", "slug": f"eq.{slug}", "deleted_at": "is.null", "limit": "1"},
+                )
             if rows:
                 novel = rows[0]
                 novel["cover"] = _resolved_cover_url(novel.get("cover_url"), slug, {})

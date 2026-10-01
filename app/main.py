@@ -3,9 +3,11 @@ from datetime import datetime, timedelta, timezone
 import logging
 import os
 from pathlib import Path
+import re
 import threading
 import uuid
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -33,6 +35,7 @@ from app.cdn import (
     load_chapters_page,
     load_deleted_synced_novels,
     load_novels,
+    load_admin_novels,
     load_synced_novel,
     load_replacement_rules,
     load_translation_progress,
@@ -41,6 +44,7 @@ from app.cdn import (
     save_translation_memory,
     save_replacement_rule,
     set_synced_novel_deletion,
+    update_admin_novel,
 )
 from app.database import SessionLocal, create_tables, get_db
 from app.crawlers.base import clean_chapter_text
@@ -121,7 +125,7 @@ async def auth_guard(request: Request, call_next):
         if request.headers.get("HX-Request") == "true":
             return HTMLResponse(status_code=401)
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
-    admin = path.startswith(("/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and path not in {"/api/tts"})
+    admin = path.startswith(("/admin", "/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and path not in {"/api/tts"})
     if admin and request.state.user.role != "admin":
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
     response = await call_next(request)
@@ -498,6 +502,40 @@ def _retranslate_page_context(**extra: object) -> dict[str, object]:
         ),
         **extra,
     }
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="admin.html",
+        context={"novels": load_admin_novels(), "toast": request.query_params.get("toast"), "toast_error": request.query_params.get("error") == "1"},
+    )
+
+
+@app.post("/admin/novels/{novel_id}", include_in_schema=False)
+def update_admin_novel_page(
+    novel_id: int,
+    slug: str = Form(...),
+    title: str = Form(...),
+    author: str = Form(""),
+    description: str = Form(""),
+):
+    cleaned_slug = slug.strip().lower()
+    cleaned_title = title.strip()
+    if not cleaned_title or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", cleaned_slug):
+        return RedirectResponse("/admin?toast=Slug%20chỉ%20gồm%20chữ%20thường,%20số%20và%20dấu%20gạch%20ngang.&error=1", status_code=303)
+    try:
+        update_admin_novel(
+            novel_id,
+            slug=cleaned_slug,
+            title=cleaned_title,
+            author=author.strip(),
+            description=description.strip(),
+        )
+    except CdnDataError as exc:
+        return RedirectResponse(f"/admin?toast={quote(str(exc))}&error=1", status_code=303)
+    return RedirectResponse("/admin?toast=Đã%20lưu%20thông%20tin%20truyện.", status_code=303)
 
 
 def _worker_statuses() -> dict[str, dict[str, object]]:
