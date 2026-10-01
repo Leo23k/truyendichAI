@@ -16,6 +16,13 @@
   .reader-sheet{transform:translateY(100%);transition:transform 210ms ease}
   .reader-sheet-backdrop.is-open .reader-sheet{transform:translateY(0)}
   .reader-range{accent-color:rgb(20 184 166)}
+  .reader-page-nav{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(0,13rem);gap:1rem;align-items:center}
+  .reader-nav-card{display:flex;min-height:3.75rem;align-items:center;gap:.65rem;border:1px solid rgba(120,130,125,.38);border-radius:.55rem;padding:.55rem .8rem;font-size:.78rem;line-height:1.2;transition:border-color .15s ease,background .15s ease}
+  .reader-nav-card:hover{border-color:rgb(45 174 162);background:rgba(45,174,162,.08)}
+  .reader-nav-card strong{display:block;margin-top:.2rem;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .reader-player-shell{border-color:rgba(140,145,142,.32)!important;border-radius:1rem!important;background:rgba(255,255,255,.96)!important;box-shadow:0 22px 55px rgba(0,0,0,.28)!important}
+  .reader-player-shell [data-play-toggle]{width:3.25rem;height:3.25rem;background:#159c91;box-shadow:0 8px 22px rgba(21,156,145,.32)}
+  @media(max-width:639px){.reader-page-nav{grid-template-columns:1fr 1fr}.reader-page-nav>span{display:none}.reader-nav-card{min-width:0}.reader-nav-card strong{max-width:8rem}}
   [data-replacement-dialog]:not([hidden]){display:flex}
 </style>
 
@@ -115,9 +122,15 @@
     <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-teal-100"><div data-translation-bar class="h-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </section>
 
-  <article class="reader-content mx-auto max-w-4xl px-5 py-10 sm:px-8 sm:py-14" lang="vi" itemscope itemtype="https://schema.org/Article" :style="`font-size: ${size}px; line-height: ${lineHeight}; font-family: ${font}`">
-    <header class="mb-8 border-b border-stone-200 pb-5">
-      <h2 itemprop="headline" class="text-xl font-semibold leading-snug sm:text-2xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#3d3a34]'">{{ display_title }}</h2>
+  <div class="reader-page-nav mx-auto max-w-5xl px-5 pt-10 sm:px-8 sm:pt-12">
+    {% if previous %}<a href="{{ previous_url or '/chapters/' ~ previous.id }}" class="reader-nav-card"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="opacity-60">CHƯƠNG TRƯỚC</small><strong>{{ previous.translated_title or previous.title or 'Chương trước' }}</strong></span></a>{% else %}<span></span>{% endif %}
+    <span class="text-center text-xs font-semibold uppercase tracking-[.18em] text-teal-500">Bản dịch tiếng Việt</span>
+    {% if following %}<a href="{{ following_url or '/chapters/' ~ following.id }}" class="reader-nav-card justify-end text-right"><span class="min-w-0"><small class="opacity-60">CHƯƠNG SAU</small><strong>{{ following.translated_title or following.title or 'Chương sau' }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% else %}<span></span>{% endif %}
+  </div>
+  <article class="reader-content mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-12" lang="vi" itemscope itemtype="https://schema.org/Article" :style="`font-size: ${size}px; line-height: ${lineHeight}; font-family: ${font}`">
+    <header class="mb-14 text-center">
+      <h2 itemprop="headline" class="text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#242522]'">{{ display_title }}</h2>
+      <div class="mx-auto mt-7 h-1 w-20 rounded-full bg-teal-500/60"></div>
     </header>
     <div itemprop="articleBody" data-reader-content class="reader-prose">
       {% for line in display_content.replace('\r', '').split('\n') %}{% if line.strip() %}<p class="mb-5">{{ line }}</p>{% endif %}{% endfor %}
@@ -160,7 +173,7 @@
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
     data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
     data-has-audio="{% if showing_translation and chapter.translated_content %}true{% else %}false{% endif %}"
-    class="reader-bottom-bar fixed bottom-4 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-4xl -translate-x-1/2 rounded-lg border border-stone-200 bg-white/95 px-2.5 py-2 text-stone-900 shadow-xl backdrop-blur sm:px-4"
+    class="reader-player-shell reader-bottom-bar fixed bottom-4 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-4xl -translate-x-1/2 border px-3 py-3 text-stone-900 backdrop-blur sm:px-5"
   >
     {% if showing_translation and chapter.translated_content %}
     <audio data-reader-audio preload="metadata"></audio>

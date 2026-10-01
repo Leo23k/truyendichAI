@@ -45,11 +45,11 @@
     <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </div>
 
-  <section class="book-hero mt-6">
-    <div class="mx-auto w-full max-w-[190px]">
+  <section class="book-hero mt-8 lg:gap-10 lg:py-8">
+    <div class="mx-auto w-full max-w-[240px]">
       <div class="book-cover overflow-hidden">
         {% if book.cover_url %}
-        <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" class="aspect-[3/4] w-full object-cover">
+        <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" width="480" height="720" class="aspect-[2/3] w-full object-cover">
         {% else %}
         <div class="book-cover-fallback flex aspect-[3/4] w-full items-center justify-center text-stone-500">Chưa có bìa</div>
         {% endif %}
@@ -57,9 +57,9 @@
     </div>
 
     <div class="book-copy min-w-0">
-      <p class="text-sm font-medium text-teal-700">{{ book.source_name }}</p>
+      <p class="inline-flex rounded-full bg-teal-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-teal-500">{{ book.source_name }}</p>
       <div class="mt-2 flex flex-wrap items-center gap-2">
-        <h1 class="max-w-4xl text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">{{ book.translated_title or book.title }}</h1>
+        <h1 class="max-w-4xl text-3xl font-extrabold tracking-tight text-stone-950 sm:text-5xl">{{ book.translated_title or book.title }}</h1>
         {% if book.translated_title and book.title != book.translated_title %}
         <button type="button" data-copy-original-title data-copy-text="{{ book.title }}" title="Bấm để sao chép tên gốc" onclick="navigator.clipboard?.writeText(this.dataset.copyText)" class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-stone-200 bg-white px-3 py-1 text-sm font-medium text-stone-600 hover:border-teal-300 hover:text-teal-800">
           <i data-lucide="copy" class="h-3.5 w-3.5 shrink-0"></i><span class="max-w-56 truncate sm:max-w-80">{{ book.title }}</span>
@@ -69,16 +69,16 @@
       <p class="mt-3 text-stone-500">{{ book.translated_author or book.author or 'Chưa rõ tác giả' }} · <span class="rounded-full bg-teal-50 px-2 py-1 text-xs font-medium text-teal-800">{{ book.source_name }}</span></p>
       <p class="mt-6 max-w-3xl whitespace-pre-line text-base leading-8 text-stone-700">{{ book.translated_description or book.description or 'Chưa có mô tả.' }}</p>
       {% if first_chapter %}
-      <div class="mt-7 flex flex-wrap gap-3">
-        <a data-book-continue-reading="{{ book.id }}" hidden href="#" onclick="return startTranslationProgress(this)" class="inline-flex h-11 items-center gap-2 rounded-md bg-teal-700 px-5 font-medium text-white hover:bg-teal-800">
+      <div class="book-actions mt-7 flex flex-wrap gap-3">
+        <a data-book-continue-reading="{{ book.id }}" hidden href="#" onclick="return startTranslationProgress(this)" class="book-action primary">
           <i data-lucide="bookmark-check" class="h-4 w-4"></i>
           <span>Đọc tiếp</span>
         </a>
-        <a href="/chapters/{{ first_chapter.id }}" onclick="return startTranslationProgress(this)" class="inline-flex h-11 items-center gap-2 rounded-md bg-stone-950 px-5 font-medium text-white hover:bg-stone-800">
+        <a href="/chapters/{{ first_chapter.id }}" onclick="return startTranslationProgress(this)" class="book-action primary">
           <i data-lucide="book-open" class="h-4 w-4"></i>
           <span>Đọc từ đầu</span>
         </a>
-        <button type="button" data-offline-download class="inline-flex h-11 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-4 text-sm font-medium text-teal-800 hover:bg-teal-100">
+        <button type="button" data-offline-download class="book-action text-sm">
           <i data-lucide="download" class="h-4 w-4"></i><span>Tải để đọc offline</span>
         </button>
         <button type="button" data-offline-update hidden class="inline-flex h-11 items-center gap-2 rounded-md border border-stone-200 bg-white px-4 text-sm font-medium hover:bg-stone-50"><i data-lucide="refresh-cw" class="h-4 w-4"></i><span>Cập nhật</span></button>
