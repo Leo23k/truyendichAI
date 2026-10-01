@@ -511,11 +511,19 @@ def admin_page(request: Request):
         request=request,
         name="admin.html",
         context={
-            "novels": load_admin_novels(),
             "crawler_sources": [crawler.source_name for crawler in registry._crawlers],
             "toast": request.query_params.get("toast"),
             "toast_error": request.query_params.get("error") == "1",
         },
+    )
+
+
+@app.get("/admin/novels", include_in_schema=False)
+def admin_novels_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="admin_novels.html",
+        context={"novels": load_admin_novels(), "toast": request.query_params.get("toast"), "toast_error": request.query_params.get("error") == "1"},
     )
 
 
@@ -533,7 +541,7 @@ def update_admin_novel_page(
     cleaned_slug = slug.strip().lower()
     cleaned_title = title.strip()
     if not cleaned_title or reading_status not in {"ongoing", "completed"} or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", cleaned_slug):
-        return RedirectResponse("/admin?toast=Slug%20chỉ%20gồm%20chữ%20thường,%20số%20và%20dấu%20gạch%20ngang.&error=1", status_code=303)
+        return RedirectResponse("/admin/novels?toast=Slug%20chỉ%20gồm%20chữ%20thường,%20số%20và%20dấu%20gạch%20ngang.&error=1", status_code=303)
     try:
         update_admin_novel(
             novel_id,
@@ -546,8 +554,8 @@ def update_admin_novel_page(
             reading_status=reading_status,
         )
     except CdnDataError as exc:
-        return RedirectResponse(f"/admin?toast={quote(str(exc))}&error=1", status_code=303)
-    return RedirectResponse("/admin?toast=Đã%20lưu%20thông%20tin%20truyện.", status_code=303)
+        return RedirectResponse(f"/admin/novels?toast={quote(str(exc))}&error=1", status_code=303)
+    return RedirectResponse("/admin/novels?toast=Đã%20lưu%20thông%20tin%20truyện.", status_code=303)
 
 
 def _worker_statuses() -> dict[str, dict[str, object]]:

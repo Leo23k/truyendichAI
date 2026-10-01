@@ -13,6 +13,7 @@
     <a href="/retranslate" class="site-panel group p-5 transition hover:border-indigo-400"><i data-lucide="languages" class="h-5 w-5 text-indigo-600"></i><h2 class="mt-3 font-semibold text-stone-950">Dịch lại truyện</h2><p class="mt-1 text-sm text-stone-600">Dịch lại toàn bộ hoặc chọn theo khoảng chương.</p></a>
     <a href="/?restore=1" class="site-panel group p-5 transition hover:border-amber-400"><i data-lucide="rotate-ccw" class="h-5 w-5 text-amber-600"></i><h2 class="mt-3 font-semibold text-stone-950">Restore</h2><p class="mt-1 text-sm text-stone-600">Khôi phục truyện đã xóa trong thời hạn cho phép.</p></a>
   </div>
+  <div class="mt-4 grid gap-4 sm:grid-cols-3"><a href="/admin/novels" class="site-panel group p-5 transition hover:border-teal-400"><i data-lucide="book-cog" class="h-5 w-5 text-teal-600"></i><h2 class="mt-3 font-semibold text-stone-950">Quản lý truyện</h2><p class="mt-1 text-sm text-stone-600">Chỉnh sửa metadata, thể loại, trạng thái, ảnh và slug.</p></a></div>
   <section class="mt-8 rounded-xl border border-teal-200 bg-teal-50 p-5 shadow-sm">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div><p class="text-sm font-medium text-teal-700">Admin · Crawler</p><h2 class="text-xl font-semibold text-stone-950">Tìm truyện để thêm</h2><p class="mt-1 text-sm text-stone-600">Tìm riêng từ nguồn crawl; không ảnh hưởng thanh tìm kiếm thư viện.</p></div>
@@ -27,7 +28,7 @@
     <span id="crawler-search-loading" class="htmx-indicator mt-3 text-sm text-teal-800">Đang tìm nguồn...</span>
     <div id="crawler-search-results" class="mt-4" role="status" aria-live="polite"></div>
   </section>
-  <section class="mt-8">
+  {% if false %}<section class="mt-8">
     <div class="flex items-center gap-2"><i data-lucide="settings-2" class="h-5 w-5 text-teal-600"></i><h2 class="text-xl font-bold text-stone-950">Quản lý truyện</h2></div>
     <p class="mt-1 text-sm text-stone-600">Bấm biểu tượng chỉnh sửa của truyện. Đổi slug tại đây giữ nguyên ID/chương và đường dẫn nội dung.</p>
     <div class="mt-4 space-y-3">
@@ -47,6 +48,6 @@
       </details>
       {% else %}<p class="site-muted rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm">Chưa có truyện để quản lý.</p>{% endfor %}
     </div>
-  </section>
+  </section>{% endif %}
 </section>
 {% endblock %}

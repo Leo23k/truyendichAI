@@ -283,7 +283,7 @@ def load_admin_novels() -> list[dict]:
     """Load editable novel fields using the service role for the admin panel."""
     try:
         return _service_rows("novels", {
-            "select": "id,slug,title,author,description,genres,reading_status,cover_url,original_title,source_url",
+            "select": "id,slug,title,author,description,genres,reading_status,source_type,cover_url,original_title,source_url",
             "deleted_at": "is.null",
             "order": "title.asc",
         })

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Quản lý truyện | Leo Truyen{% endblock %}
+{% block theme_override %}<script>document.documentElement.dataset.theme="light";</script>{% endblock %}
+{% block content %}
+<section class="site-page mx-auto max-w-5xl">
+  <div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-sm font-semibold text-teal-700">ADMIN</p><h1 class="site-title text-3xl">Quản lý truyện</h1><p class="site-muted mt-1 text-sm">Chỉnh sửa thông tin truyện mà không thay đổi ID, chapter hoặc dữ liệu người đọc.</p></div><a href="/admin" class="site-nav-button"><i data-lucide="arrow-left" class="h-4 w-4"></i>Admin Panel</a></div>
+  {% if toast %}<p class="mt-5 rounded-lg border {% if toast_error %}border-red-200 bg-red-50 text-red-800{% else %}border-teal-200 bg-teal-50 text-teal-800{% endif %} px-4 py-3 text-sm">{{ toast }}</p>{% endif %}
+  <div class="mt-7 space-y-3">
+    {% for novel in novels %}
+    <details class="site-panel group overflow-hidden">
+      <summary class="flex cursor-pointer list-none items-center gap-3 px-4 py-3"><span class="min-w-0 flex-1"><strong class="block truncate text-stone-950">{{ novel.title }}</strong><small class="text-stone-500">/{{ novel.slug }} · {{ novel.author or 'Chưa rõ tác giả' }}</small></span><span class="rounded-full px-2 py-1 text-xs {% if novel.reading_status == 'completed' %}bg-teal-100 text-teal-800{% else %}bg-amber-100 text-amber-800{% endif %}">{{ 'Hoàn thành' if novel.reading_status == 'completed' else 'Đang ra' }}</span><span class="icon-button h-9 w-9 text-teal-700"><i data-lucide="pencil" class="h-4 w-4"></i></span></summary>
+      <form action="/admin/novels/{{ novel.id }}" method="post" class="grid gap-4 border-t border-stone-200 p-4 sm:grid-cols-2">
+        <p class="sm:col-span-2 text-xs font-bold uppercase tracking-wide text-teal-700">Thông tin cơ bản</p>
+        <label class="text-sm font-medium text-stone-700">Tên truyện<input name="title" required value="{{ novel.title }}" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label>
+        <label class="text-sm font-medium text-stone-700">Tác giả<input name="author" value="{{ novel.author or '' }}" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label>
+        <label class="text-sm font-medium text-stone-700">Trạng thái<select name="reading_status" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"><option value="ongoing" {% if novel.reading_status == 'ongoing' %}selected{% endif %}>Đang ra</option><option value="completed" {% if novel.reading_status == 'completed' %}selected{% endif %}>Hoàn thành</option></select></label>
+        <label class="text-sm font-medium text-stone-700">Thể loại<input name="genres" value="{{ (novel.genres or [])|join(', ') }}" placeholder="Tiên hiệp, Huyền huyễn" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label>
+        <p class="sm:col-span-2 text-xs font-bold uppercase tracking-wide text-teal-700">Hiển thị</p>
+        <label class="text-sm font-medium text-stone-700 sm:col-span-2">Image URL<input name="cover_url" value="{{ novel.cover_url or '' }}" type="url" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label>
+        <label class="text-sm font-medium text-stone-700 sm:col-span-2">Slug URL<input name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*" value="{{ novel.slug }}" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"><span class="mt-1 block text-xs font-normal text-stone-500">Đổi slug vẫn giữ nguyên ID và chapter.</span></label>
+        <label class="text-sm font-medium text-stone-700 sm:col-span-2">Giới thiệu<textarea name="description" rows="4" class="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm">{{ novel.description or '' }}</textarea></label>
+        <p class="sm:col-span-2 text-xs font-bold uppercase tracking-wide text-teal-700">Nguồn</p>
+        <p class="text-sm text-stone-600">Source Type: <strong>{{ 'Việt' if novel.source_type == 'vi' else 'Trung' }}</strong></p><p class="truncate text-sm text-stone-600">Crawl URL: {{ novel.source_url or 'Chưa có' }}</p>
+        <div class="sm:col-span-2 flex justify-end"><button class="site-nav-button accent" onclick="return confirm('Lưu thay đổi thông tin truyện?');"><i data-lucide="save" class="h-4 w-4"></i>Lưu thay đổi</button></div>
+      </form>
+    </details>
+    {% else %}<p class="site-muted rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm">Chưa có truyện để quản lý.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}
