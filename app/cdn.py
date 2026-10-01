@@ -114,6 +114,35 @@ def _service_delete(table: str, params: dict[str, str]) -> None:
         raise CdnDataError(f"Could not delete Supabase {table}") from exc
 
 
+def _service_all_rows(table: str, params: dict[str, str]) -> list[dict]:
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        page = _service_rows(table, {**params, "limit": "1000", "offset": str(offset)})
+        rows.extend(page)
+        if len(page) < 1000:
+            return rows
+        offset += len(page)
+
+
+def _service_delete_storage_objects(bucket: str, paths: list[str]) -> None:
+    if not paths:
+        return
+    safe_paths = [_safe_path(path).as_posix() for path in paths]
+    try:
+        with httpx.Client(timeout=60, trust_env=False) as client:
+            for start in range(0, len(safe_paths), 100):
+                response = client.request(
+                    "DELETE",
+                    f"{SUPABASE_URL}/storage/v1/object/{quote(bucket)}",
+                    json={"prefixes": safe_paths[start : start + 100]},
+                    headers=_service_headers(),
+                )
+                response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise CdnDataError(f"Could not delete Supabase {bucket} storage objects") from exc
+
+
 def load_replacement_rules(user_id: str, book_id: str) -> list[dict]:
     return _service_rows("replacement_rules", {
         "select": "id,source_text,replacement_text,created_at,updated_at",
@@ -429,8 +458,28 @@ def set_synced_novel_deletion(slug: str, *, deleted_at: str | None, delete_after
     )
 
 
+def _delete_synced_novel_permanently(params: dict[str, str]) -> None:
+    novels = _service_rows("novels", {"select": "id", **params})
+    if not novels:
+        return
+    novel_ids = [int(novel["id"]) for novel in novels]
+    chapters = _service_all_rows(
+        "chapters",
+        {"select": "content_path", "novel_id": f"in.({','.join(str(novel_id) for novel_id in novel_ids)})"},
+    )
+    paths = sorted({str(chapter["content_path"]).removeprefix("chapters/") for chapter in chapters if str(chapter.get("content_path") or "").startswith("chapters/")})
+    # Remove Storage first: if it fails, retain database rows so the reader
+    # cannot be left pointing to files that were silently lost.
+    _service_delete_storage_objects("chapters", paths)
+    _service_delete("novels", params)
+
+
 def delete_synced_novel_permanently(slug: str) -> None:
-    _service_delete("novels", {"slug": f"eq.{slug}"})
+    _delete_synced_novel_permanently({"slug": f"eq.{slug}"})
+
+
+def delete_synced_novel_permanently_by_id(novel_id: int) -> None:
+    _delete_synced_novel_permanently({"id": f"eq.{novel_id}"})
 
 
 def load_translation_progress(chapter_id: int) -> dict | None:

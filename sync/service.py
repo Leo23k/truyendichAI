@@ -598,6 +598,9 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
             {"latest_chapter": chapter["chapter_number"], "updated_at": datetime.now(timezone.utc).isoformat()},
         )
     _learn_auto_glossary(remote, int(novel["id"]), original_content)
+    # The published chapter JSON is the durable raw/translated source. Chunks
+    # are temporary worker state and can be recreated from that JSON later.
+    remote.delete_rows("chapter_chunks", {"chapter_id": f"eq.{chapter_id}"})
     logger.info("Đã xuất bản chương %s: %s", chapter["chapter_number"], chapter["title"])
 
 
@@ -622,6 +625,29 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
             _restore_raw_title_before_translation(remote, chapter_rows[0])
         glossary = [*glossary_for_source_url(source_url), *_auto_glossary_entries(remote, novel_id)] if novel_id else glossary_for_source_url(source_url)
         total_chunks = int(job["total_chunks"])
+        if total_chunks == 0:
+            if not chapter_rows:
+                raise SyncError(f"Chapter {job['chapter_id']} was not found while rebuilding chunks.")
+            content_path = str(chapter_rows[0].get("content_path") or "")
+            if not content_path.startswith("chapters/"):
+                raise SyncError(f"Chapter {job['chapter_id']} has no stored raw content.")
+            stored = remote.download_json("chapters", content_path.removeprefix("chapters/"))
+            original_content = clean_chapter_text(str(stored.get("original_content") or ""))
+            parts = chunk_text(original_content)
+            if not parts:
+                raise SyncError(f"Chapter {job['chapter_id']} has empty stored raw content.")
+            remote.insert_many_ignore(
+                "chapter_chunks",
+                [{"chapter_id": job["chapter_id"], "chunk_index": index, "original_text": part, "status": "queued"} for index, part in enumerate(parts)],
+                "chapter_id,chunk_index",
+            )
+            total_chunks = len(parts)
+            remote.patch_rows(
+                "translation_queue",
+                {"id": f"eq.{job['id']}", "status": "eq.translating"},
+                {"current_chunk": 0, "total_chunks": total_chunks, "updated_at": datetime.now(timezone.utc).isoformat()},
+            )
+            job["total_chunks"] = total_chunks
         logger.info("Bắt đầu dịch chương ID %s (%s đoạn).", job["chapter_id"], total_chunks)
 
         while int(job["current_chunk"]) < total_chunks:

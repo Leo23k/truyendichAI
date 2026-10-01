@@ -117,6 +117,47 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
     assert published == [7]
 
 
+def test_worker_rebuilds_chunks_from_stored_raw_when_retranslation_has_none(monkeypatch) -> None:
+    class WorkerRemote:
+        def __init__(self) -> None:
+            self.job = {"id": "job", "chapter_id": 7, "current_chunk": 0, "total_chunks": 0}
+            self.chunks: list[dict] = []
+            self.inserted: list[tuple[str, list[dict], str]] = []
+            self.patches: list[tuple[str, dict, dict]] = []
+
+        def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
+            if table == "translation_queue":
+                return [self.job]
+            if table == "chapters":
+                return [{"id": 7, "content_path": "chapters/novel/007.json"}]
+            return [self.chunks[self.job["current_chunk"]]]
+
+        def download_json(self, bucket: str, path: str) -> dict:
+            assert (bucket, path) == ("chapters", "novel/007.json")
+            return {"original_content": "Nội dung gốc."}
+
+        def insert_many_ignore(self, table: str, payloads: list[dict], conflict: str) -> None:
+            self.inserted.append((table, payloads, conflict))
+            self.chunks = [{"id": str(row["chunk_index"]), "original_text": row["original_text"]} for row in payloads]
+
+        def patch_rows(self, table: str, _params: dict, payload: dict) -> list[dict]:
+            self.patches.append((table, _params, payload))
+            if table == "translation_queue" and payload.get("status") == "translating":
+                self.job.update(payload)
+                return [self.job]
+            return []
+
+    remote = WorkerRemote()
+    monkeypatch.setattr(service, "claim_translation_job", lambda _remote: remote.job)
+    monkeypatch.setattr(service.translator, "translate_batch", lambda texts, _glossary: [f"Dịch {text}" for text in texts])
+    monkeypatch.setattr(service, "publish_completed_translation", lambda *_args: None)
+
+    assert service.run_translation_worker_once(remote) is True
+    assert remote.inserted[0][0] == "chapter_chunks"
+    assert remote.inserted[0][1][0]["original_text"] == "Nội dung gốc."
+    assert remote.job["total_chunks"] == 1
+
+
 def test_stale_translation_jobs_are_requeued_before_claiming() -> None:
     class QueueRemote:
         def __init__(self) -> None:

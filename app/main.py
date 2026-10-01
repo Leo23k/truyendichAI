@@ -27,6 +27,7 @@ from app.cdn import (
     apply_replacement_rules,
     cdn_url,
     delete_synced_novel_permanently,
+    delete_synced_novel_permanently_by_id,
     delete_replacement_rule,
     delete_translation_memory as delete_supabase_translation_memory,
     get_synced_novel_for_management,
@@ -777,15 +778,11 @@ def retry_failed_translation(queue_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Không tìm thấy chương dịch bị lỗi.")
     queue = rows[0]
     now = datetime.now(timezone.utc).isoformat()
-    remote.patch_rows(
-        "chapter_chunks",
-        {"chapter_id": f"eq.{queue['chapter_id']}"},
-        {"status": "queued", "translated_text": None},
-    )
+    remote.delete_rows("chapter_chunks", {"chapter_id": f"eq.{queue['chapter_id']}"})
     remote.patch_rows(
         "translation_queue",
         {"id": f"eq.{queue_id}", "status": "eq.failed"},
-        {"status": "queued", "current_chunk": 0, "updated_at": now},
+        {"status": "queued", "current_chunk": 0, "total_chunks": 0, "updated_at": now},
     )
     response = templates.TemplateResponse(
         request=request,
@@ -811,7 +808,7 @@ def control_crawl_job(job_id: str, action: str, request: Request):
         remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "in.(queued,translating,paused)"}, {"status": "paused"})
         book_id = result.get("book_id")
         if book_id:
-            remote.delete_rows("novels", {"id": f"eq.{book_id}"})
+            delete_synced_novel_permanently_by_id(int(book_id))
         remote.delete_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"})
         message = "Đã xóa tiến trình và dữ liệu truyện liên quan."
     elif action == "pause":
