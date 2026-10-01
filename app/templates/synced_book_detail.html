@@ -3,8 +3,8 @@
 {% block main_class %}min-h-screen px-4 py-8 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
 {% set first_chapter = (chapters|sort(attribute='chapter_number')|first) if chapters else none %}
-<section data-offline-book data-book-id="{{ novel.slug }}" data-book-title="{{ novel.title }}" data-offline-chapters-url="/truyen/{{ novel.slug }}/offline-chapters" class="site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
-  <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện"><i data-lucide="arrow-left" class="h-5 w-5"></i></a>
+<section data-offline-book data-book-id="{{ novel.slug }}" data-book-title="{{ novel.title }}" data-offline-chapters-url="/truyen/{{ novel.slug }}/offline-chapters" class="site-page relative mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
+  <div class="flex items-center justify-between"><a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện"><i data-lucide="arrow-left" class="h-5 w-5"></i></a>{% if request.state.user.role == 'admin' %}<div class="flex items-center gap-2"><form action="/truyen/{{ novel.slug }}/update" method="post"><button type="submit" class="site-nav-button"><i data-lucide="refresh-cw" class="h-4 w-4"></i><span class="hidden sm:inline">Cập nhật</span></button></form><form action="/truyen/{{ novel.slug }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');"><button type="submit" class="icon-button text-red-400 hover:bg-red-500/10" title="Xóa truyện" aria-label="Xóa truyện"><i data-lucide="trash-2" class="h-4 w-4"></i></button></form></div>{% endif %}</div>
   <div class="book-hero mt-8 lg:gap-10 lg:py-8">
     <div class="book-copy min-w-0 lg:order-2">
       <p class="inline-flex rounded-full bg-teal-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-teal-500">{{ novel.source_name or 'Supabase' }}</p>

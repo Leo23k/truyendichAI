@@ -21,13 +21,14 @@
   .reader-nav-card{display:flex;min-height:3.75rem;align-items:center;gap:.65rem;border:1px solid rgba(120,130,125,.38);border-radius:.55rem;padding:.55rem .8rem;font-size:.78rem;line-height:1.2;transition:border-color .15s ease,background .15s ease}
   .reader-nav-card:hover{border-color:rgb(45 174 162);background:rgba(45,174,162,.08)}
   .reader-nav-card strong{display:block;margin-top:.2rem;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .reader-player-shell{border-color:rgba(140,145,142,.32)!important;border-radius:1rem!important;background:rgba(255,255,255,.96)!important;box-shadow:0 22px 55px rgba(0,0,0,.28)!important}
-  .reader-player-shell [data-play-toggle]{width:3.25rem;height:3.25rem;background:#159c91;box-shadow:0 8px 22px rgba(21,156,145,.32)}
+  .reader-player-shell{border-color:rgba(140,145,142,.22)!important;border-radius:1rem!important;background:rgba(255,255,255,.98)!important;box-shadow:0 20px 45px rgba(0,0,0,.24)!important}
+  .reader-player-shell [data-play-toggle]{width:3.1rem;height:3.1rem;background:#0f9d92;box-shadow:0 8px 20px rgba(15,157,146,.28)}
+  .reader-player-track{display:grid;grid-template-columns:2.4rem minmax(0,1fr) 2.4rem;align-items:center;gap:.65rem;color:#687078;font-size:.65rem;font-weight:600}.reader-player-track input{height:.35rem;width:100%;cursor:pointer;accent-color:#11a89d}.reader-player-controls{display:grid;grid-template-columns:minmax(8rem,1fr) 2.5rem 3.25rem 2.5rem minmax(11rem,1fr);align-items:center;gap:.9rem;margin-top:.45rem}.reader-player-controls [data-segment-prev],.reader-player-controls [data-segment-next]{justify-self:center}.reader-player-controls [data-play-toggle]{justify-self:center}.reader-player-controls .reader-player-actions{display:flex;align-items:center;justify-content:flex-end;gap:.75rem;color:#697078;font-size:.72rem}.reader-player-controls .reader-player-actions button{white-space:nowrap}.reader-player-status{display:inline-flex;width:max-content;border-radius:.35rem;background:#f5f7f7;padding:.25rem .45rem;font-size:.58rem;font-weight:800;letter-spacing:.05em;color:#697078}.reader-player-shell [data-reader-prev],.reader-player-shell [data-reader-next]{display:none!important}
   .reader-reading-footer{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(0,13rem);align-items:center;gap:1rem;border-top:1px solid rgba(130,140,135,.28);padding-top:1.8rem}
   .reader-reading-footer .reader-nav-card{min-height:3.25rem}
   .reader-progress-number{color:#35aaa0;font-size:1.25rem;font-weight:700}.reader-progress-label{display:block;margin-top:.1rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;opacity:.65}
   .reader-player-status{display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;color:#697078}
-  @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer [data-reader-reading-progress]{grid-column:1/-1;grid-row:1}.reader-reading-footer .reader-nav-card{grid-row:2}.reader-player-status{display:none}}
+  @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer [data-reader-reading-progress]{grid-column:1/-1;grid-row:1}.reader-reading-footer .reader-nav-card{grid-row:2}.reader-player-controls{grid-template-columns:2.2rem 3.1rem 2.2rem 1fr;justify-content:center}.reader-player-status{display:none}.reader-player-controls .reader-player-actions{gap:.4rem}.reader-player-controls [data-voice-button],.reader-player-controls [data-sleep-button],.reader-player-controls [data-volume-control]{display:none}}
   @media(max-width:639px){.reader-page-nav{grid-template-columns:1fr 1fr}.reader-page-nav>span{display:none}.reader-nav-card{min-width:0}.reader-nav-card strong{max-width:8rem}}
   [data-replacement-dialog]:not([hidden]){display:flex}
 </style>
@@ -190,63 +191,13 @@
     {% if showing_translation and chapter.translated_content %}
     <audio data-reader-audio preload="metadata"></audio>
     {% endif %}
-    <div class="reader-player-status"><span>ĐANG PHÁT ÂM THANH</span><span data-rate-status>1.0x</span></div>
-    <div class="grid grid-cols-[auto_auto_1fr_auto] items-center gap-2 sm:grid-cols-[auto_auto_auto_1fr_auto_auto] sm:gap-3">
-      {% if previous %}
-      <a href="{{ previous_url or '/chapters/' ~ previous.id }}" data-reader-prev class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương trước">
-        <i data-lucide="chevron-left" class="h-5 w-5"></i>
-        <span class="hidden sm:inline">Chương trước</span>
-      </a>
-      {% else %}
-      <span class="inline-flex h-10 items-center gap-1 px-2 text-sm text-stone-300 sm:px-3" aria-label="Không có chương trước">
-        <i data-lucide="chevron-left" class="h-5 w-5"></i>
-        <span class="hidden sm:inline">Chương trước</span>
-      </span>
-      {% endif %}
-
-      <button type="button" data-play-toggle class="inline-flex h-12 w-12 items-center justify-center rounded-full bg-teal-700 text-white shadow-sm hover:bg-teal-800 disabled:bg-stone-300" aria-label="Phát hoặc tạm dừng">
-        <i data-play-icon="play" data-lucide="play" class="h-5 w-5"></i>
-        <i data-play-icon="pause" data-lucide="pause" class="hidden h-5 w-5"></i>
-        <i data-play-icon="loading" data-lucide="loader-circle" class="hidden h-5 w-5 animate-spin"></i>
-      </button>
-
-      <button type="button" data-segment-prev disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc lại đoạn trước" title="Đoạn trước">
-        <i data-lucide="rewind" class="h-4 w-4"></i>
-      </button>
-
-      <div class="min-w-0">
-        <input data-audio-progress class="reader-range h-3 w-full" type="range" min="0" max="1000" value="0" aria-label="Tiến trình audio" {% if not showing_translation or not chapter.translated_content %}disabled{% endif %}>
-        <div class="mt-1 flex items-center justify-between gap-2 text-[11px] text-stone-500">
-          <span data-current-time>0:00</span>
-          <div class="flex min-w-0 items-center gap-2">
-            <button type="button" data-voice-button class="rounded px-1.5 py-0.5 hover:bg-stone-100">Giọng đọc</button>
-            <span class="text-stone-300">|</span>
-            <button type="button" data-sleep-button class="rounded px-1.5 py-0.5 hover:bg-stone-100">Hẹn giờ</button>
-            <span data-sleep-countdown class="hidden rounded bg-teal-50 px-1.5 py-0.5 text-teal-700"></span>
-          </div>
-          <span data-duration>0:00</span>
-        </div>
-      </div>
-
-      <button type="button" data-segment-next disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc đoạn kế tiếp" title="Đoạn kế tiếp">
-        <i data-lucide="fast-forward" class="h-4 w-4"></i>
-      </button>
-
-      {% if following %}
-      <a href="{{ following_url or '/chapters/' ~ following.id }}" data-reader-next class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương sau">
-        <span class="hidden sm:inline">Chương sau</span>
-        <i data-lucide="chevron-right" class="h-5 w-5"></i>
-      </a>
-      {% else %}
-      <span class="inline-flex h-10 items-center gap-1 px-2 text-sm text-stone-300 sm:px-3" aria-label="Không có chương sau">
-        <span class="hidden sm:inline">Chương sau</span>
-        <i data-lucide="chevron-right" class="h-5 w-5"></i>
-      </span>
-      {% endif %}
-    </div>
-    <div class="mt-2 grid grid-cols-2 gap-3 border-t border-stone-100 pt-2 text-xs text-stone-500 sm:flex sm:items-center sm:justify-center">
-      <label class="flex items-center gap-2">Tốc độ <input data-rate-control class="reader-range w-full sm:w-28" type="range" min="0.75" max="2" step="0.05"></label>
-      <label class="flex items-center gap-2">Âm lượng <input data-volume-control class="reader-range w-full sm:w-28" type="range" min="0" max="1" step="0.05"></label>
+    <div class="reader-player-track"><span data-current-time>0:00</span><input data-audio-progress class="reader-range" type="range" min="0" max="1000" value="0" aria-label="Tiến trình audio" {% if not showing_translation or not chapter.translated_content %}disabled{% endif %}><span class="text-right" data-duration>0:00</span></div>
+    <div class="reader-player-controls">
+      <span class="reader-player-status">ĐANG PHÁT ÂM THANH</span>
+      <button type="button" data-segment-prev disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc lại đoạn trước" title="Đoạn trước"><i data-lucide="skip-back" class="h-4 w-4"></i></button>
+      <button type="button" data-play-toggle class="inline-flex items-center justify-center rounded-full text-white hover:bg-teal-800 disabled:bg-stone-300" aria-label="Phát hoặc tạm dừng"><i data-play-icon="play" data-lucide="play" class="h-5 w-5"></i><i data-play-icon="pause" data-lucide="pause" class="hidden h-5 w-5"></i><i data-play-icon="loading" data-lucide="loader-circle" class="hidden h-5 w-5 animate-spin"></i></button>
+      <button type="button" data-segment-next disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc đoạn kế tiếp" title="Đoạn kế tiếp"><i data-lucide="skip-forward" class="h-4 w-4"></i></button>
+      <div class="reader-player-actions"><button type="button" data-voice-button class="rounded px-1 hover:bg-stone-100">Giọng đọc</button><span data-rate-status>1.0x</span><button type="button" data-sleep-button class="rounded px-1 hover:bg-stone-100">Hẹn giờ</button><span data-sleep-countdown class="hidden rounded bg-teal-50 px-1.5 py-0.5 text-teal-700"></span><label title="Tốc độ" class="hidden sm:flex items-center gap-1"><i data-lucide="gauge" class="h-3.5 w-3.5"></i><input data-rate-control class="reader-range w-14" type="range" min="0.75" max="2" step="0.05"></label><label title="Âm lượng" class="flex items-center gap-1"><i data-lucide="volume-2" class="h-3.5 w-3.5"></i><input data-volume-control class="reader-range w-14" type="range" min="0" max="1" step="0.05"></label></div>
     </div>
   </div>
 

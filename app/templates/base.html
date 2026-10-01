@@ -151,7 +151,7 @@
     <div class="mx-auto flex h-[68px] max-w-[1380px] items-center justify-between px-4 sm:px-6 lg:px-8">
       <a href="/" class="flex items-center gap-2.5 font-semibold tracking-tight text-[var(--text)]"><span class="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)]"><i data-lucide="book-open" class="h-5 w-5"></i></span><span class="text-lg">Leo Truyện</span></a>
       <nav class="ml-auto flex items-center gap-2 text-sm">
-        {% if request.state.user.role == 'admin' %}<a href="/?restore=1" class="site-nav-button desktop-only"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore</a><a href="/retranslate" class="site-nav-button desktop-only"><i data-lucide="languages" class="h-4 w-4"></i>Dịch lại truyện</a>{% endif %}
+        {% if request.state.user.role == 'admin' %}<a href="/?restore=1" class="site-nav-button desktop-only"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore</a>{% endif %}<a href="/retranslate" class="site-nav-button desktop-only"><i data-lucide="languages" class="h-4 w-4"></i>Dịch lại truyện</a>
         <a href="/jobs" class="site-nav-button accent"><i data-lucide="wrench" class="h-4 w-4"></i><span class="desktop-only">Tiến trình</span><span class="sm:hidden">Jobs</span></a>
         {% if request.url.path == '/' %}<button type="button" data-theme-toggle class="icon-button hidden sm:inline-flex" aria-label="Đổi giao diện sáng hoặc tối"><i data-lucide="sun-moon" class="h-4 w-4"></i></button>{% endif %}
         <div x-data="{ open: false }" @click.outside="open = false" class="relative ml-1 border-l border-[var(--line)] pl-3">
