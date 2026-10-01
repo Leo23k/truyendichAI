@@ -153,8 +153,13 @@
 <script>
   (() => {
     const libraryGrid = document.querySelector("#library-grid");
+    const readerStoragePrefix = `reader.${document.body.dataset.userId || "anonymous"}.`;
     const progressStorage = {
-      getItem: (key) => window.localStorage.getItem(`reader.${document.body.dataset.userId || "anonymous"}.${key}`),
+      getItem: (key) => window.localStorage.getItem(`${readerStoragePrefix}reader.${key}`),
+    };
+    const libraryStateStorage = {
+      getItem: (key) => window.localStorage.getItem(`${readerStoragePrefix}library.${key}`),
+      setItem: (key, value) => window.localStorage.setItem(`${readerStoragePrefix}library.${key}`, value),
     };
     const latestUrl = progressStorage.getItem("lastUrl");
     let recentlyReadCard = null;
@@ -228,18 +233,18 @@
       });
       activeLibraryFilter = filter;
       applyLibraryFilters();
-      window.localStorage.setItem("library.filter", filter);
+      libraryStateStorage.setItem("filter", filter);
     };
     const setLibraryView = (view) => {
       if (!libraryGrid) return;
       libraryGrid.classList.toggle("is-list", view === "list");
       document.querySelectorAll("[data-library-view]").forEach((button) => button.classList.toggle("bg-[var(--surface-3)]", button.dataset.libraryView === view));
-      window.localStorage.setItem("library.view", view);
+      libraryStateStorage.setItem("view", view);
     };
     document.querySelectorAll("[data-library-filter]").forEach((button) => button.addEventListener("click", () => setLibraryFilter(button.dataset.libraryFilter)));
     document.querySelectorAll("[data-library-view]").forEach((button) => button.addEventListener("click", () => setLibraryView(button.dataset.libraryView)));
-    setLibraryFilter(window.localStorage.getItem("library.filter") || "all");
-    setLibraryView(window.localStorage.getItem("library.view") || "grid");
+    setLibraryFilter(libraryStateStorage.getItem("filter") || "all");
+    setLibraryView(libraryStateStorage.getItem("view") || "grid");
     const searchForm = document.querySelector("[data-library-search]");
     const searchInput = document.querySelector("#source-query");
     const clearSearch = document.querySelector("[data-clear-search]");
