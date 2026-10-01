@@ -417,7 +417,7 @@ def _crawl_job_cards() -> list[dict]:
     # The crawler and translator are separate workers. A crawl job can therefore
     # reach `completed` while rows it owns are still waiting in translation_queue.
     # Keep those cards visible until their translation work has also finished.
-    jobs = remote.rows("remote_crawl_jobs", {"select": "id,source_url,status,error,result,started_at,created_at,updated_at", "status": "in.(queued,crawling,syncing,translating,paused,completed,failed)", "order": "updated_at.desc"})
+    jobs = remote.rows("remote_crawl_jobs", {"select": "id,source_url,source_type,status,error,result,started_at,created_at,updated_at", "status": "in.(queued,crawling,syncing,translating,paused,completed,failed)", "order": "updated_at.desc"})
     cards: list[dict] = []
     for job in jobs:
         result = job.get("result") if isinstance(job.get("result"), dict) else {}
@@ -439,7 +439,8 @@ def _crawl_job_cards() -> list[dict]:
             states["queued"] = len(chapters) - states["completed"]
         current = [row for row in chapters if row.get("id") in {queue.get("chapter_id") for queue in queues if queue.get("status") == "translating"}]
         display_status = "translating" if job.get("status") == "completed" and has_pending_translation else job.get("status")
-        job.update({"result": result, "title": result.get("title") or novel.get("title") or _source_name(str(job["source_url"])), "source_name": _source_name(str(job["source_url"])), "novel": novel, "crawl_total": result.get("total_raw"), "crawl_done": result.get("raw_loaded", 0), "queue": states, "current_chapters": [row.get("chapter_number") for row in current[:3]], "display_status": display_status, "updated_display": _gmt7(job.get("updated_at"))})
+        source_type = job.get("source_type") or "zh"
+        job.update({"result": result, "title": result.get("title") or novel.get("title") or _source_name(str(job["source_url"])), "source_name": f"{_source_name(str(job['source_url']))} · {'Nguồn Việt' if source_type == 'vi' else 'Nguồn Trung'}", "source_type": source_type, "novel": novel, "crawl_total": result.get("total_raw"), "crawl_done": result.get("raw_loaded", 0), "queue": states, "current_chapters": [row.get("chapter_number") for row in current[:3]], "display_status": display_status, "updated_display": _gmt7(job.get("updated_at"))})
         cards.append(job)
     return cards
 
@@ -666,8 +667,10 @@ def control_workers(target: str, action: str, request: Request):
 
 
 @app.post("/jobs/crawler/search")
-async def jobs_crawler_search(request: Request, query: str = Form(...)):
+async def jobs_crawler_search(request: Request, query: str = Form(...), source_type: str = Form("zh")):
     query = " ".join(query.split())
+    if source_type not in {"zh", "vi"}:
+        raise HTTPException(status_code=400, detail="Loại nguồn không hợp lệ.")
     if not query:
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Hãy nhập tên truyện hoặc URL nguồn để tìm.", "error": True}, status_code=400)
     try:
@@ -676,8 +679,10 @@ async def jobs_crawler_search(request: Request, query: str = Form(...)):
             # Fetching the source here makes Vercel wait on a third-party site
             # and leaves the reader with only a spinner when that request stalls.
             # The PC worker owns the outbound crawl and reports its own outcome.
-            registry.get_for_url(query)
-            job = enqueue_remote_crawl(query)
+            crawler = registry.get_for_url(query)
+            if getattr(crawler, "source_type", "zh") != source_type:
+                return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Loại nguồn đã chọn không khớp website này.", "error": True}, status_code=400)
+            job = enqueue_remote_crawl(query, source_type=source_type)
             request.state.crawl_job_id = str(job["id"])
             response = templates.TemplateResponse(
                 request=request,

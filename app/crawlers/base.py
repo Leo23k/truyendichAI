@@ -140,6 +140,7 @@ class BookInfo:
     description: str | None
     cover_url: str | None
     chapter_count: int | None = None
+    genres: list[str] | None = None
 
 
 @dataclass
