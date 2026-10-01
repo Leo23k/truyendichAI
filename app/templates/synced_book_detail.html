@@ -1,23 +1,22 @@
 {% extends "base.html" %}
 {% block title %}{{ novel.title }} | Leo Truyen{% endblock %}
-{% block header %}{% endblock %}
-{% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
+{% block main_class %}min-h-screen px-4 py-8 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
-<section data-offline-book data-book-id="{{ novel.slug }}" data-book-title="{{ novel.title }}" data-offline-chapters-url="/truyen/{{ novel.slug }}/offline-chapters" class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
+<section data-offline-book data-book-id="{{ novel.slug }}" data-book-title="{{ novel.title }}" data-offline-chapters-url="/truyen/{{ novel.slug }}/offline-chapters" class="site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
   <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện"><i data-lucide="arrow-left" class="h-5 w-5"></i></a>
-  <div class="mt-6 grid gap-8 lg:grid-cols-[260px_1fr] lg:items-start">
-    <div class="min-w-0 lg:order-2">
+  <div class="book-hero mt-6">
+    <div class="book-copy min-w-0 lg:order-2">
       <p class="text-sm font-medium text-teal-700">{{ novel.source_name or 'Supabase' }}</p>
       <h1 class="mt-2 text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">{{ novel.title }}</h1>
       <p class="mt-2 text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
       <p class="mt-4 text-sm text-stone-500">Tổng chương: {{ chapter_total }}</p>
       {% if chapters %}<div class="mt-5 flex flex-wrap gap-2">
-        <button type="button" data-offline-download class="inline-flex h-11 items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-4 text-sm font-medium text-teal-800 hover:bg-teal-100"><i data-lucide="download" class="h-4 w-4"></i><span>Tải để đọc offline</span></button>
+        <button type="button" data-offline-download class="book-action inline-flex h-11 items-center gap-2 px-4 text-sm font-medium"><i data-lucide="download" class="h-4 w-4"></i><span>Tải để đọc offline</span></button>
         <button type="button" data-offline-update hidden class="inline-flex h-11 items-center gap-2 rounded-md border border-stone-200 bg-white px-4 text-sm font-medium hover:bg-stone-50"><i data-lucide="refresh-cw" class="h-4 w-4"></i><span>Cập nhật</span></button>
         <button type="button" data-offline-delete hidden class="inline-flex h-11 items-center gap-2 rounded-md border border-red-200 bg-white px-4 text-sm font-medium text-red-700 hover:bg-red-50"><i data-lucide="trash-2" class="h-4 w-4"></i><span>Xóa bản offline</span></button>
       </div><p data-offline-status class="mt-2 text-sm text-stone-500" aria-live="polite"></p>{% endif %}
     </div>
-    {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" class="aspect-[3/4] w-28 rounded-md border border-stone-200 object-cover">{% endif %}
+    {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" width="260" height="390" class="book-cover aspect-[2/3] w-full max-w-[220px] object-cover">{% endif %}
   </div>
   {% include "partials/synced_chapter_items.html" %}
 </section>

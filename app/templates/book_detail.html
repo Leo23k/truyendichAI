@@ -1,11 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ book.translated_title or book.title }} | Leo Truyen{% endblock %}
-{% block header %}{% endblock %}
-{% block main_class %}min-h-screen bg-stone-100 px-4 py-5 sm:px-6 lg:px-8{% endblock %}
+{% block main_class %}min-h-screen px-4 py-8 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
 {% set first_chapter = book.chapters[0] if book.chapters else none %}
 {% set is_deleted = book.deleted_at %}
-<section data-offline-book data-book-id="{{ book.id }}" data-book-title="{{ book.translated_title or book.title }}" class="app-shell mx-auto min-h-[calc(100vh-2.5rem)] max-w-7xl p-5 sm:p-7 lg:p-8">
+<section data-offline-book data-book-id="{{ book.id }}" data-book-title="{{ book.translated_title or book.title }}" class="site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
   <div class="flex items-center justify-between">
     <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện">
       <i data-lucide="arrow-left" class="h-5 w-5"></i>
@@ -46,9 +45,9 @@
     <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </div>
 
-  <section class="mt-6 grid gap-7 rounded-xl border border-stone-200 bg-stone-50/70 p-5 lg:grid-cols-[190px_1fr] lg:items-start lg:p-7">
+  <section class="book-hero mt-6">
     <div class="mx-auto w-full max-w-[190px]">
-      <div class="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
+      <div class="book-cover overflow-hidden">
         {% if book.cover_url %}
         <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" class="aspect-[3/4] w-full object-cover">
         {% else %}
@@ -57,7 +56,7 @@
       </div>
     </div>
 
-    <div class="min-w-0">
+    <div class="book-copy min-w-0">
       <p class="text-sm font-medium text-teal-700">{{ book.source_name }}</p>
       <div class="mt-2 flex flex-wrap items-center gap-2">
         <h1 class="max-w-4xl text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">{{ book.translated_title or book.title }}</h1>
@@ -90,7 +89,7 @@
     </div>
   </section>
 
-  <section data-translation-progress x-data="{ order: 'asc' }" class="mt-10 rounded-lg border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
+  <section data-translation-progress x-data="{ order: 'asc' }" class="chapter-directory mt-10 rounded-lg p-4 sm:p-5">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h2 class="text-xl font-semibold text-stone-950">Mục lục</h2>
