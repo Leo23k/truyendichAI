@@ -179,6 +179,7 @@
     data-reader-player
     data-chapter-id="{{ chapter.id }}"
     data-book-id="{{ chapter.book_id }}"
+    data-chapter-number="{{ chapter.chapter_number }}"
     data-replacement-book-id="{{ replacement_book_id or chapter.book_id }}"
     data-replacement-authenticated="{% if request.state.user %}true{% else %}false{% endif %}"
     data-source-url="{{ chapter.source_url or chapter.url or '' }}"
@@ -310,10 +311,41 @@
         const readableHeight = Math.max(1, readerContent.offsetHeight - window.innerHeight * .55);
         const percent = Math.max(0, Math.min(100, Math.round((window.scrollY - top + window.innerHeight * .45) / readableHeight * 100)));
         readingProgress.querySelector(".reader-progress-number").textContent = `${percent}%`;
+        return percent;
       };
-      window.addEventListener("scroll", updateReadingProgress, { passive: true });
+      const syncedReader = Boolean(player.dataset.syncedSlug);
+      const chapterNumber = Number(player.dataset.chapterNumber || 0);
+      let lastProgressSave = 0;
+      let remoteProgressLoaded = !syncedReader;
+      const saveRemoteProgress = (force = false) => {
+        if (!syncedReader || !remoteProgressLoaded || !readerBookKey || !chapterNumber) return;
+        const now = Date.now();
+        if (!force && now - lastProgressSave < 8000) return;
+        lastProgressSave = now;
+        fetch("/api/reading-progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          keepalive: true,
+          body: JSON.stringify({ book_id: readerBookKey, chapter_number: chapterNumber, scroll_position: updateReadingProgress() || 0 }),
+        }).catch(() => {});
+      };
+      const restoreRemoteProgress = async () => {
+        if (!syncedReader || !readerBookKey) return;
+        try {
+          const response = await fetch(`/api/reading-progress?book_id=${encodeURIComponent(readerBookKey)}`, { cache: "no-store" });
+          const item = (await response.json()).items?.[0];
+          if (!response.ok || !item || Number(item.chapter_number) !== chapterNumber || !readerContent) return;
+          const readableHeight = Math.max(1, readerContent.offsetHeight - window.innerHeight * .55);
+          const top = readerContent.offsetTop - window.innerHeight * .45 + readableHeight * (Number(item.scroll_position) || 0) / 100;
+          window.setTimeout(() => window.scrollTo({ top: Math.max(0, top), behavior: "auto" }), 0);
+        } catch (_) {} finally {
+          remoteProgressLoaded = true;
+        }
+      };
+      window.addEventListener("scroll", () => { updateReadingProgress(); saveRemoteProgress(); }, { passive: true });
       window.addEventListener("resize", updateReadingProgress);
-      window.setTimeout(updateReadingProgress, 0);
+      window.addEventListener("pagehide", () => saveRemoteProgress(true));
+      window.setTimeout(() => { updateReadingProgress(); restoreRemoteProgress(); }, 0);
       const replacementButton = document.querySelector("[data-selection-replacement]");
       const replacementDialog = document.querySelector("[data-replacement-dialog]");
       const replacementForm = document.querySelector("[data-replacement-form]");

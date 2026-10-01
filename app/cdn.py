@@ -490,6 +490,40 @@ def load_translation_progress(chapter_id: int) -> dict | None:
     return {**queues[0], "chunks": chunks}
 
 
+def load_user_reading_progress(user_id: str, book_id: str | None = None) -> list[dict]:
+    params = {"select": "novel_id,chapter_number,scroll_position,updated_at", "user_id": f"eq.{user_id}", "order": "updated_at.desc"}
+    rows = _service_rows("reading_progress", params)
+    if not rows:
+        return []
+    novel_ids = sorted({int(row["novel_id"]) for row in rows})
+    novels = _service_rows("novels", {"select": "id,slug", "id": f"in.({','.join(str(novel_id) for novel_id in novel_ids)})"})
+    slugs = {int(novel["id"]): str(novel["slug"]) for novel in novels}
+    return [{**row, "book_id": slugs[int(row["novel_id"])]} for row in rows if slugs.get(int(row["novel_id"])) and (book_id is None or slugs[int(row["novel_id"])] == book_id)]
+
+
+def save_user_reading_progress(user_id: str, book_id: str, chapter_number: int, scroll_position: float) -> None:
+    novels = _service_rows("novels", {"select": "id", "slug": f"eq.{book_id}", "limit": "1"})
+    if not novels:
+        raise CdnDataError("Novel was not found")
+    payload = {
+        "user_id": user_id,
+        "novel_id": int(novels[0]["id"]),
+        "chapter_number": chapter_number,
+        "scroll_position": max(0, min(100, scroll_position)),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        with httpx.Client(timeout=15, trust_env=False) as client:
+            response = client.post(
+                f"{SUPABASE_URL}/rest/v1/reading_progress?on_conflict=user_id,novel_id",
+                json=payload,
+                headers={**_service_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise CdnDataError("Could not save reading progress") from exc
+
+
 def load_cdn_json(path: str) -> dict:
     relative = _safe_path(path)
     if relative.as_posix() == "metadata.json":

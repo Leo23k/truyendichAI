@@ -39,11 +39,13 @@ from app.cdn import (
     load_admin_novels,
     load_synced_novel,
     load_replacement_rules,
+    load_user_reading_progress,
     load_translation_progress,
     load_translation_memory,
     publish_translated_chapter,
     save_translation_memory,
     save_replacement_rule,
+    save_user_reading_progress,
     set_synced_novel_deletion,
     update_admin_novel,
     update_admin_novel_source,
@@ -127,7 +129,8 @@ async def auth_guard(request: Request, call_next):
         if request.headers.get("HX-Request") == "true":
             return HTMLResponse(status_code=401)
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
-    admin = path.startswith(("/admin", "/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and path not in {"/api/tts"})
+    user_mutation = path in {"/api/tts", "/api/reading-progress"} or path.startswith("/api/books/")
+    admin = path.startswith(("/admin", "/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and not user_mutation)
     if admin and request.state.user.role != "admin":
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
     response = await call_next(request)
@@ -189,7 +192,7 @@ def logout(request: Request):
     if token and AUTH_URL and ANON:
         try:
             with httpx.Client(timeout=10, trust_env=False) as client:
-                client.post(f"{AUTH_URL}/auth/v1/logout", headers={"apikey": ANON, "Authorization": f"Bearer {token}"})
+                client.post(f"{AUTH_URL}/auth/v1/logout?scope=local", headers={"apikey": ANON, "Authorization": f"Bearer {token}"})
         except httpx.HTTPError:
             pass
     response = RedirectResponse("/login", status_code=303)
@@ -208,6 +211,12 @@ class ReplacementRuleRequest(BaseModel):
     source_text: str = Field(min_length=1, max_length=300)
     replacement_text: str = Field(default="", max_length=300)
     rule_id: int | None = Field(default=None, ge=1)
+
+
+class ReadingProgressRequest(BaseModel):
+    book_id: str = Field(min_length=1, max_length=200)
+    chapter_number: int = Field(ge=1)
+    scroll_position: float = Field(default=0, ge=0, le=100)
 
 
 def _replacement_context(request: Request, book_id: str) -> tuple[list[dict], str]:
@@ -256,6 +265,25 @@ def remove_reader_replacement_rule(book_id: str, rule_id: int, request: Request)
         return {"rules": load_replacement_rules(user.id, book_id)}
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail="Không thể xóa quy tắc thay thế.") from exc
+
+
+@app.get("/api/reading-progress")
+def get_reader_progress(request: Request, book_id: str | None = None) -> dict:
+    user = require_authenticated(request)
+    try:
+        return {"items": load_user_reading_progress(user.id, book_id)}
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail="Could not load reading progress") from exc
+
+
+@app.post("/api/reading-progress")
+def save_reader_progress(payload: ReadingProgressRequest, request: Request) -> dict[str, bool]:
+    user = require_authenticated(request)
+    try:
+        save_user_reading_progress(user.id, payload.book_id, payload.chapter_number, payload.scroll_position)
+        return {"saved": True}
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail="Could not save reading progress") from exc
 
 
 @app.post("/api/translation-priority/{chapter_id}")

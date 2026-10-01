@@ -162,6 +162,7 @@
       setItem: (key, value) => window.localStorage.setItem(`${readerStoragePrefix}library.${key}`, value),
     };
     const latestUrl = progressStorage.getItem("lastUrl");
+    const remoteProgress = new Map();
     let recentlyReadCard = null;
     document.querySelectorAll("[data-library-book]").forEach((card) => {
       const url = progressStorage.getItem(`lastUrl.book.${card.dataset.bookKey}`);
@@ -211,8 +212,10 @@
       let visibleCount = 0;
       document.querySelectorAll("[data-library-book]").forEach((card) => {
         const key = card.dataset.bookKey;
-        const isReading = Boolean(progressStorage.getItem(`lastUrl.book.${key}`));
-        const isCompleted = progressStorage.getItem(`completed.book.${key}`) === "true";
+        const remote = remoteProgress.get(key);
+        const total = Number(card.querySelector("[data-library-progress]")?.dataset.totalChapters || 0);
+        const isReading = Boolean(remote || progressStorage.getItem(`lastUrl.book.${key}`));
+        const isCompleted = remote ? (total > 0 && Number(remote.chapter_number) >= total) : progressStorage.getItem(`completed.book.${key}`) === "true";
         const matchesStatus = activeLibraryFilter === "reading"
           ? isReading && !isCompleted
           : activeLibraryFilter === "completed" ? isCompleted : true;
@@ -245,6 +248,35 @@
     document.querySelectorAll("[data-library-view]").forEach((button) => button.addEventListener("click", () => setLibraryView(button.dataset.libraryView)));
     setLibraryFilter(libraryStateStorage.getItem("filter") || "all");
     setLibraryView(libraryStateStorage.getItem("view") || "grid");
+    fetch("/api/reading-progress", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : { items: [] })
+      .then(({ items = [] }) => {
+        const cards = new Map([...document.querySelectorAll("[data-library-book]")].map((card) => [card.dataset.bookKey, card]));
+        const recentCards = [];
+        for (const item of items) {
+          const card = cards.get(String(item.book_id));
+          if (!card) continue;
+          remoteProgress.set(String(item.book_id), item);
+          const chapterNumber = Number(item.chapter_number || 0);
+          const startLink = card.querySelector("[data-book-start]");
+          if (startLink && chapterNumber) {
+            startLink.href = `${card.dataset.detailUrl}/${chapterNumber}`;
+            const label = startLink.querySelector("[data-book-start-label]");
+            if (label) label.textContent = "Đọc tiếp";
+          }
+          const progress = card.querySelector("[data-library-progress]");
+          const total = Number(progress?.dataset.totalChapters || 0);
+          if (progress && total && chapterNumber) {
+            const completed = Math.min(total, chapterNumber);
+            progress.querySelector("[data-library-progress-label]").textContent = `${completed}/${total}`;
+            progress.querySelector("[data-library-progress-bar]").style.width = `${Math.max(2, Math.round(completed / total * 100))}%`;
+          }
+          recentCards.push({ card, updatedAt: Date.parse(item.updated_at || "") || 0 });
+        }
+        if (libraryGrid) recentCards.sort((a, b) => a.updatedAt - b.updatedAt).forEach(({ card }) => libraryGrid.prepend(card));
+        applyLibraryFilters();
+      })
+      .catch(() => {});
     const searchForm = document.querySelector("[data-library-search]");
     const searchInput = document.querySelector("#source-query");
     const clearSearch = document.querySelector("[data-clear-search]");
