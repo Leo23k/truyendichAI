@@ -134,10 +134,6 @@
     {% if following %}<a href="{{ following_url or '/chapters/' ~ following.id }}" class="reader-nav-card justify-end text-right"><span class="min-w-0"><small class="opacity-60">CHƯƠNG SAU</small><strong>{{ following.translated_title or following.title or 'Chương sau' }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% else %}<span></span>{% endif %}
   </div>
   <article class="reader-content mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-12" lang="vi" itemscope itemtype="https://schema.org/Article" :style="`font-size: ${size}px; line-height: ${lineHeight}; font-family: ${font}`">
-    <header class="mb-14 text-center">
-      <h2 itemprop="headline" class="text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#242522]'">{{ display_title }}</h2>
-      <div class="mx-auto mt-7 h-1 w-20 rounded-full bg-teal-500/60"></div>
-    </header>
     <div itemprop="articleBody" data-reader-content class="reader-prose">
       {% for line in display_content.replace('\r', '').split('\n') %}{% if line.strip() %}<p class="mb-5">{{ line }}</p>{% endif %}{% endfor %}
     </div>
