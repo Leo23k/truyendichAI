@@ -38,10 +38,10 @@ def user_from_token(token: str) -> CurrentUser | None:
     raw = r.json(); meta = raw.get("user_metadata") or {}; email = str(raw.get("email") or "")
     role = "admin" if email.lower() in {x.strip().lower() for x in os.getenv("ADMIN_EMAILS", "").split(",") if x.strip()} else "user"
     if SERVICE:
-        payload = {"id": raw["id"], "email": email, "display_name": meta.get("full_name") or meta.get("name") or email, "avatar_url": meta.get("avatar_url"), "role": role}
+        payload = {"id": raw["id"], "email": email, "display_name": meta.get("full_name") or meta.get("name") or email, "avatar_url": meta.get("avatar_url") or meta.get("picture"), "role": role}
         with httpx.Client(timeout=10, trust_env=False) as c:
             c.post(f"{URL}/rest/v1/profiles?on_conflict=id", headers={**_headers(SERVICE), "Prefer":"resolution=merge-duplicates,return=representation"}, json=payload)
-    return CurrentUser(raw["id"], email, str(meta.get("full_name") or meta.get("name") or email), meta.get("avatar_url"), role)
+    return CurrentUser(raw["id"], email, str(meta.get("full_name") or meta.get("name") or email), meta.get("avatar_url") or meta.get("picture"), role)
 
 
 def refresh_session(refresh_token: str) -> tuple[str, str] | None:

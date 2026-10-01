@@ -22,8 +22,8 @@
   </style>
   <div class="relative flex flex-col gap-4">
     <div class="pr-12 sm:pr-64">
-      <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện của bạn</h1></div>
-      <p class="site-muted mt-1">Chào mừng trở lại! Bạn đang có {{ (books|length) if books else (synced_novels|length) }} cuốn sách.</p>
+      <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện</h1></div>
+      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có {{ (books|length) if books else (synced_novels|length) }} cuốn sách.</p>
     </div>
     <div x-data="{ open: false }" @click.outside="open = false" class="hidden">
       <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex min-h-11 items-center gap-2 rounded-xl px-1.5 text-left hover:bg-stone-50" aria-label="Mở menu tài khoản">
@@ -151,10 +151,13 @@
 <script>
   (() => {
     const libraryGrid = document.querySelector("#library-grid");
-    const latestUrl = window.localStorage.getItem("reader.lastUrl");
+    const progressStorage = {
+      getItem: (key) => window.localStorage.getItem(`reader.${document.body.dataset.userId || "anonymous"}.${key}`),
+    };
+    const latestUrl = progressStorage.getItem("lastUrl");
     let recentlyReadCard = null;
     document.querySelectorAll("[data-library-book]").forEach((card) => {
-      const url = window.localStorage.getItem(`reader.lastUrl.book.${card.dataset.bookKey}`);
+      const url = progressStorage.getItem(`lastUrl.book.${card.dataset.bookKey}`);
       card.addEventListener("click", (event) => { if (!event.target.closest("a,button,form")) window.location.href = card.dataset.detailUrl; });
       card.addEventListener("keydown", (event) => { if ((event.key === "Enter" || event.key === " ") && !event.target.closest("a,button,form")) { event.preventDefault(); window.location.href = card.dataset.detailUrl; } });
       if (url) {
@@ -194,8 +197,8 @@
       let visibleCount = 0;
       document.querySelectorAll("[data-library-book]").forEach((card) => {
         const key = card.dataset.bookKey;
-        const isReading = Boolean(window.localStorage.getItem(`reader.lastUrl.book.${key}`));
-        const isCompleted = window.localStorage.getItem(`reader.completed.book.${key}`) === "true";
+        const isReading = Boolean(progressStorage.getItem(`lastUrl.book.${key}`));
+        const isCompleted = progressStorage.getItem(`completed.book.${key}`) === "true";
         const matchesStatus = activeLibraryFilter === "reading"
           ? isReading && !isCompleted
           : activeLibraryFilter === "completed" ? isCompleted : true;

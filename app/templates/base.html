@@ -146,7 +146,7 @@
     })();
   </script>
 </head>
-<body class="site-body min-h-screen">
+<body class="site-body min-h-screen" data-user-id="{{ request.state.user.id if request.state.user else '' }}">
   {% block header %}
   <header class="site-header sticky top-0 z-40">
     <div class="mx-auto flex h-[68px] max-w-[1380px] items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -156,7 +156,7 @@
         {% if request.url.path == '/' %}<button type="button" data-theme-toggle class="icon-button h-9 w-9" aria-label="Đổi giao diện sáng hoặc tối" title="Đổi giao diện"><i data-lucide="sun-moon" class="h-4 w-4"></i></button>{% endif %}
         <div x-data="{ open: false }" @click.outside="open = false" class="relative ml-1 border-l border-[var(--line)] pl-3">
           <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex items-center gap-2 text-[var(--text)]" aria-label="Mở menu tài khoản">
-            <span class="grid h-8 w-8 place-items-center rounded-full bg-orange-500 font-semibold text-white">{{ request.state.user.display_name[:1]|upper }}</span>
+            <span class="relative grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-orange-500 font-semibold text-white"><span>{{ request.state.user.display_name[:1]|upper }}</span>{% if request.state.user.avatar_url %}<img src="{{ request.state.user.avatar_url }}" alt="" class="absolute inset-0 h-full w-full object-cover" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}</span>
             <span class="desktop-only max-w-28 truncate font-medium">{{ request.state.user.display_name }}</span>
           </button>
           <div x-cloak x-show="open" x-transition.origin.top.right class="absolute right-0 mt-3 w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface)] p-1 shadow-xl">

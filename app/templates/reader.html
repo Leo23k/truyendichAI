@@ -284,7 +284,12 @@
 
       const readerChapterKey = player.dataset.chapterId || "";
       const readerBookKey = player.dataset.bookId || "";
-      const storage = window.localStorage;
+      const storagePrefix = `reader.${document.body.dataset.userId || "anonymous"}.`;
+      const storage = {
+        getItem: (key) => window.localStorage.getItem(`${storagePrefix}${key}`),
+        setItem: (key, value) => window.localStorage.setItem(`${storagePrefix}${key}`, value),
+        removeItem: (key) => window.localStorage.removeItem(`${storagePrefix}${key}`),
+      };
       storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
       storage.setItem("reader.lastTitle", document.title);
       if (readerBookKey) storage.setItem(`reader.lastUrl.book.${readerBookKey}`, window.location.pathname + window.location.search);
