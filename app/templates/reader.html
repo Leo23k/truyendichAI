@@ -22,6 +22,11 @@
   .reader-nav-card strong{display:block;margin-top:.2rem;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .reader-player-shell{border-color:rgba(140,145,142,.32)!important;border-radius:1rem!important;background:rgba(255,255,255,.96)!important;box-shadow:0 22px 55px rgba(0,0,0,.28)!important}
   .reader-player-shell [data-play-toggle]{width:3.25rem;height:3.25rem;background:#159c91;box-shadow:0 8px 22px rgba(21,156,145,.32)}
+  .reader-reading-footer{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(0,13rem);align-items:center;gap:1rem;border-top:1px solid rgba(130,140,135,.28);padding-top:1.8rem}
+  .reader-reading-footer .reader-nav-card{min-height:3.25rem}
+  .reader-progress-number{color:#35aaa0;font-size:1.25rem;font-weight:700}.reader-progress-label{display:block;margin-top:.1rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;opacity:.65}
+  .reader-player-status{display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;color:#697078}
+  @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer [data-reader-reading-progress]{grid-column:1/-1;grid-row:1}.reader-reading-footer .reader-nav-card{grid-row:2}.reader-player-status{display:none}}
   @media(max-width:639px){.reader-page-nav{grid-template-columns:1fr 1fr}.reader-page-nav>span{display:none}.reader-nav-card{min-width:0}.reader-nav-card strong{max-width:8rem}}
   [data-replacement-dialog]:not([hidden]){display:flex}
 </style>
@@ -137,6 +142,12 @@
     </div>
   </article>
 
+  <nav class="reader-reading-footer mx-auto mb-40 max-w-4xl px-5 sm:px-8" aria-label="Chuyển chương và tiến trình đọc">
+    {% if previous %}<a href="{{ previous_url or '/chapters/' ~ previous.id }}" class="reader-nav-card"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="opacity-60">CHƯƠNG TRƯỚC</small><strong>{{ previous.translated_title or previous.title or 'Chương trước' }}</strong></span></a>{% else %}<span></span>{% endif %}
+    <span data-reader-reading-progress class="text-center"><span class="reader-progress-number">0%</span><span class="reader-progress-label">TIẾN TRÌNH ĐỌC</span></span>
+    {% if following %}<a href="{{ following_url or '/chapters/' ~ following.id }}" class="reader-nav-card justify-end text-right"><span class="min-w-0"><small class="opacity-60">CHƯƠNG SAU</small><strong>{{ following.translated_title or following.title or 'Chương sau' }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% else %}<span></span>{% endif %}
+  </nav>
+
   <button type="button" data-selection-replacement hidden class="fixed z-50 rounded-full bg-teal-700 px-3 py-2 text-xs font-semibold text-white shadow-lg hover:bg-teal-800">Thay thế</button>
   <section data-replacement-dialog hidden class="fixed inset-0 z-[60] items-end justify-center bg-stone-950/35 p-3 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="replacement-title">
     <div class="w-full max-w-lg rounded-xl bg-white p-4 text-stone-900 shadow-2xl">
@@ -178,6 +189,7 @@
     {% if showing_translation and chapter.translated_content %}
     <audio data-reader-audio preload="metadata"></audio>
     {% endif %}
+    <div class="reader-player-status"><span>ĐANG PHÁT ÂM THANH</span><span data-rate-status>1.0x</span></div>
     <div class="grid grid-cols-[auto_auto_1fr_auto] items-center gap-2 sm:grid-cols-[auto_auto_auto_1fr_auto_auto] sm:gap-3">
       {% if previous %}
       <a href="{{ previous_url or '/chapters/' ~ previous.id }}" data-reader-prev class="inline-flex h-10 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-stone-100 sm:px-3" aria-label="Chương trước">
@@ -316,7 +328,19 @@
       storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
       storage.setItem("reader.lastTitle", document.title);
       if (readerBookKey) storage.setItem(`reader.lastUrl.book.${readerBookKey}`, window.location.pathname + window.location.search);
+      {% if not following %}if (readerBookKey) storage.setItem(`reader.completed.book.${readerBookKey}`, "true");{% else %}if (readerBookKey) storage.removeItem(`reader.completed.book.${readerBookKey}`);{% endif %}
       const readerContent = document.querySelector("[data-reader-content]");
+      const readingProgress = document.querySelector("[data-reader-reading-progress]");
+      const updateReadingProgress = () => {
+        if (!readerContent || !readingProgress) return;
+        const top = readerContent.offsetTop;
+        const readableHeight = Math.max(1, readerContent.offsetHeight - window.innerHeight * .55);
+        const percent = Math.max(0, Math.min(100, Math.round((window.scrollY - top + window.innerHeight * .45) / readableHeight * 100)));
+        readingProgress.querySelector(".reader-progress-number").textContent = `${percent}%`;
+      };
+      window.addEventListener("scroll", updateReadingProgress, { passive: true });
+      window.addEventListener("resize", updateReadingProgress);
+      window.setTimeout(updateReadingProgress, 0);
       const replacementButton = document.querySelector("[data-selection-replacement]");
       const replacementDialog = document.querySelector("[data-replacement-dialog]");
       const replacementForm = document.querySelector("[data-replacement-form]");
@@ -450,6 +474,7 @@
         return supportedVoices.has(voice) ? voice : defaultVoice;
       };
       const getRate = () => Number(storage.getItem("reader.rate") || 1);
+      const rateStatus = player.querySelector("[data-rate-status]");
       let playlist = [];
       let segmentStarts = [];
       let totalDuration = 0;
@@ -1032,6 +1057,7 @@
       } else {
         storage.setItem("reader.voice", getVoice());
         if (!storage.getItem("reader.rate")) storage.setItem("reader.rate", "1");
+        if (rateStatus) rateStatus.textContent = `${getRate().toFixed(1)}x`;
         audio.playbackRate = 1;
         audio.volume = Number(storage.getItem("reader.volume") || 0.9);
         rateControl.value = String(getRate());
@@ -1179,6 +1205,7 @@
           const wasPlaying = !audio.paused;
           const currentTime = getCurrentPosition();
           storage.setItem("reader.rate", String(Number(rateControl.value)));
+          if (rateStatus) rateStatus.textContent = `${Number(rateControl.value).toFixed(1)}x`;
           saveState();
           reloadAudio(currentTime, wasPlaying);
         });

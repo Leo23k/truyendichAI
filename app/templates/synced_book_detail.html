@@ -11,6 +11,10 @@
       <h1 class="mt-3 text-3xl font-extrabold tracking-tight text-stone-950 sm:text-5xl">{{ novel.title }}</h1>
       <p class="mt-2 text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
       <p class="mt-4 text-sm text-stone-500">Tổng chương: {{ chapter_total }}</p>
+      <section class="mt-6 max-w-3xl border-t border-[var(--line)] pt-5">
+        <h2 class="flex items-center gap-2 text-base font-semibold text-[var(--text)]"><i data-lucide="info" class="h-4 w-4 text-teal-500"></i>Giới thiệu</h2>
+        <p class="mt-3 whitespace-pre-line text-sm leading-7 text-[var(--muted)]">{{ novel.description or 'Chưa có phần giới thiệu cho truyện này.' }}</p>
+      </section>
       {% if chapters %}<div class="book-actions mt-7 flex flex-wrap gap-3">
         <a href="/truyen/{{ novel.slug }}/{{ first_chapter.chapter_number }}" class="book-action primary"><i data-lucide="play" class="h-4 w-4"></i><span>Đọc ngay</span></a>
         <button type="button" data-offline-download class="book-action inline-flex h-11 items-center gap-2 px-4 text-sm font-medium"><i data-lucide="download" class="h-4 w-4"></i><span>Tải để đọc offline</span></button>

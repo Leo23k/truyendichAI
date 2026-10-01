@@ -3,6 +3,15 @@
 {% block main_class %}min-h-screen px-4 py-8 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
 <section class="site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
+  <style>
+    [id="library-grid"].is-list{grid-template-columns:1fr}
+    [id="library-grid"].is-list .library-card{display:grid;grid-template-columns:96px minmax(0,1fr)}
+    [id="library-grid"].is-list .library-card>a{grid-row:1}
+    [id="library-grid"].is-list .library-card .aspect-\[2\/3\]{aspect-ratio:auto;height:100%}
+    [id="library-grid"].is-list .library-card .p-4{display:flex;min-width:0;flex-direction:column;justify-content:center}
+    [id="library-grid"].is-list .library-card h2{min-height:0}
+    @media(max-width:639px){[id="library-grid"].is-list .library-card{grid-template-columns:76px minmax(0,1fr)}}
+  </style>
   <div class="relative flex flex-col gap-4">
     <div class="pr-12 sm:pr-64">
       <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện của bạn</h1><button type="button" data-theme-toggle class="site-nav-button ml-auto sm:hidden"><i data-lucide="sun-moon" class="h-4 w-4"></i>Giao diện</button></div>
@@ -19,7 +28,15 @@
         <a href="/logout" class="flex min-h-11 items-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
       </div>
     </div>
-    <div x-data="{ query: '' }" class="library-toolbar mt-6 w-full sm:ml-auto sm:max-w-md">
+    <div x-data="{ query: '' }" class="library-toolbar mt-6 w-full">
+      <div class="flex flex-wrap items-center gap-2" role="tablist" aria-label="Lọc thư viện">
+        <button type="button" data-library-filter="all" class="site-nav-button accent" role="tab" aria-selected="true">Tất cả</button>
+        <button type="button" data-library-filter="reading" class="site-nav-button" role="tab" aria-selected="false">Đang đọc</button>
+        <button type="button" data-library-filter="completed" class="site-nav-button" role="tab" aria-selected="false">Đã xong</button>
+        <span class="hidden h-7 border-l border-[var(--line)] sm:block"></span>
+        <button type="button" data-library-view="grid" class="icon-button bg-[var(--surface-3)]" aria-label="Hiển thị dạng lưới" title="Dạng lưới"><i data-lucide="grid-2x2" class="h-4 w-4"></i></button>
+        <button type="button" data-library-view="list" class="icon-button" aria-label="Hiển thị dạng danh sách" title="Dạng danh sách"><i data-lucide="list" class="h-4 w-4"></i></button>
+      </div>
       <form
         action="/search"
         method="get"
@@ -29,7 +46,7 @@
         hx-trigger="input changed delay:300ms, submit"
         hx-sync="this:replace"
         data-library-search
-        class="library-search flex w-full items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500"
+        class="library-search flex w-full max-w-md items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500 sm:ml-auto"
       >
         <span class="sr-only">Tìm trong thư viện</span>
         <label for="source-query" class="sr-only">Tìm truyện hoặc tác giả</label>
@@ -154,6 +171,30 @@
     if (recentlyReadCard && libraryGrid) {
       libraryGrid.prepend(recentlyReadCard);
     }
+    const setLibraryFilter = (filter) => {
+      document.querySelectorAll("[data-library-filter]").forEach((button) => {
+        const selected = button.dataset.libraryFilter === filter;
+        button.classList.toggle("accent", selected);
+        button.setAttribute("aria-selected", String(selected));
+      });
+      document.querySelectorAll("[data-library-book]").forEach((card) => {
+        const key = card.dataset.bookKey;
+        const isReading = Boolean(window.localStorage.getItem(`reader.lastUrl.book.${key}`));
+        const isCompleted = window.localStorage.getItem(`reader.completed.book.${key}`) === "true";
+        card.hidden = filter === "reading" ? !isReading || isCompleted : filter === "completed" ? !isCompleted : false;
+      });
+      window.localStorage.setItem("library.filter", filter);
+    };
+    const setLibraryView = (view) => {
+      if (!libraryGrid) return;
+      libraryGrid.classList.toggle("is-list", view === "list");
+      document.querySelectorAll("[data-library-view]").forEach((button) => button.classList.toggle("bg-[var(--surface-3)]", button.dataset.libraryView === view));
+      window.localStorage.setItem("library.view", view);
+    };
+    document.querySelectorAll("[data-library-filter]").forEach((button) => button.addEventListener("click", () => setLibraryFilter(button.dataset.libraryFilter)));
+    document.querySelectorAll("[data-library-view]").forEach((button) => button.addEventListener("click", () => setLibraryView(button.dataset.libraryView)));
+    setLibraryFilter(window.localStorage.getItem("library.filter") || "all");
+    setLibraryView(window.localStorage.getItem("library.view") || "grid");
     const searchForm = document.querySelector("[data-library-search]");
     const searchInput = document.querySelector("#source-query");
     const searchResults = document.querySelector("#lookup-results");
