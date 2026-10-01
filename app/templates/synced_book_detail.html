@@ -37,4 +37,7 @@
   {% include "partials/synced_chapter_items.html" %}
 </section>
 <script src="/static/batch_translate.js" defer></script>
+<script>
+  (() => { const key = `reader.${document.body.dataset.userId || 'anonymous'}.reader.lastUrl.book.{{ novel.slug }}`, url = localStorage.getItem(key), link = document.querySelector('[data-offline-book] .book-action.primary'); if (url && link) { link.href = url; const label = link.querySelector('span'); if (label) label.textContent = 'Đọc tiếp'; } })();
+</script>
 {% endblock %}
