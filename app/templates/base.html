@@ -154,10 +154,15 @@
         {% if request.state.user.role == 'admin' %}<a href="/?restore=1" class="site-nav-button desktop-only"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Restore</a><a href="/retranslate" class="site-nav-button desktop-only"><i data-lucide="languages" class="h-4 w-4"></i>Dịch lại truyện</a>{% endif %}
         <a href="/jobs" class="site-nav-button accent"><i data-lucide="wrench" class="h-4 w-4"></i><span class="desktop-only">Tiến trình</span><span class="sm:hidden">Jobs</span></a>
         {% if request.url.path == '/' %}<button type="button" data-theme-toggle class="icon-button hidden sm:inline-flex" aria-label="Đổi giao diện sáng hoặc tối"><i data-lucide="sun-moon" class="h-4 w-4"></i></button>{% endif %}
-        <a href="/logout" class="ml-1 flex items-center gap-2 border-l border-[var(--line)] pl-3 text-[var(--text)]" title="Đăng xuất">
-          <span class="grid h-8 w-8 place-items-center rounded-full bg-orange-500 font-semibold text-white">{{ request.state.user.display_name[:1]|upper }}</span>
-          <span class="desktop-only max-w-28 truncate font-medium">{{ request.state.user.display_name }}</span>
-        </a>
+        <div x-data="{ open: false }" @click.outside="open = false" class="relative ml-1 border-l border-[var(--line)] pl-3">
+          <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex items-center gap-2 text-[var(--text)]" aria-label="Mở menu tài khoản">
+            <span class="grid h-8 w-8 place-items-center rounded-full bg-orange-500 font-semibold text-white">{{ request.state.user.display_name[:1]|upper }}</span>
+            <span class="desktop-only max-w-28 truncate font-medium">{{ request.state.user.display_name }}</span>
+          </button>
+          <div x-cloak x-show="open" x-transition.origin.top.right class="absolute right-0 mt-3 w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface)] p-1 shadow-xl">
+            <a href="/logout" class="flex min-h-10 items-center gap-2 rounded-md px-3 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface-3)]"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
+          </div>
+        </div>
       </nav>
     </div>
   </header>
