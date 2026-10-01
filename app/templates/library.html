@@ -23,7 +23,7 @@
   <div class="relative flex flex-col gap-4">
     <div class="pr-12 sm:pr-64">
       <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện</h1></div>
-      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có {{ (books|length) if books else (synced_novels|length) }} cuốn sách.</p>
+      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có {{ (books|length) if books else (synced_novels|length) }} truyện.</p>
     </div>
     <div x-data="{ open: false }" @click.outside="open = false" class="hidden">
       <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex min-h-11 items-center gap-2 rounded-xl px-1.5 text-left hover:bg-stone-50" aria-label="Mở menu tài khoản">
