@@ -5,7 +5,9 @@
 {% set first_chapter = (chapters|sort(attribute='chapter_number')|first) if chapters else none %}
 <style>
   @media(max-width:639px){
-    [data-offline-book] .book-hero{gap:1.5rem;margin-top:1.5rem;padding-bottom:1.75rem}
+    [data-offline-book] .book-hero{grid-template-columns:1fr;gap:1.5rem;margin-top:1.5rem;padding-bottom:1.75rem}
+    [data-offline-book] .book-cover{order:1;max-width:220px;margin:0 auto}
+    [data-offline-book] .book-copy{order:2;text-align:left}
     [data-offline-book] .book-copy h1{font-size:2rem;line-height:1.12}
     [data-offline-book] .book-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}
     [data-offline-book] .book-actions>*{min-width:0;padding:0 .7rem;font-size:.82rem;white-space:nowrap}
