@@ -82,6 +82,7 @@
     <article data-library-book data-book-key="{{ book.id }}" data-detail-url="/books/{{ book.id }}" tabindex="0" role="link" class="library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500">
       <a href="/books/{{ book.id }}" class="block">
         <div class="relative aspect-[2/3] w-full">
+        <span class="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] font-bold shadow-sm {% if book.reading_status == 'completed' %}bg-teal-500 text-[#062b28]{% else %}bg-amber-400 text-amber-950{% endif %}">{% if book.reading_status == 'completed' %}Hoàn thành{% else %}Đang ra{% endif %}</span>
         {% if book.cover_url %}
         <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" loading="lazy" width="320" height="480" class="h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">
         {% endif %}
@@ -125,6 +126,7 @@
     <article data-library-book data-book-key="{{ novel.slug }}" data-detail-url="/truyen/{{ novel.slug }}" tabindex="0" role="link" class="library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500">
       <a href="/truyen/{{ novel.slug }}" class="block">
       <div class="relative aspect-[2/3] w-full">
+        <span class="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] font-bold shadow-sm {% if novel.reading_status == 'completed' %}bg-teal-500 text-[#062b28]{% else %}bg-amber-400 text-amber-950{% endif %}">{% if novel.reading_status == 'completed' %}Hoàn thành{% else %}Đang ra{% endif %}</span>
         {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" loading="lazy" width="320" height="480" class="h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">{% endif %}
         <div class="book-cover-fallback {% if novel.cover %}hidden{% endif %} absolute inset-0 flex items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
       </div>

@@ -247,7 +247,7 @@ def load_novels() -> list[dict]:
             novels = _all_rows(
                 "novels",
                 {
-                    "select": "id,slug,title,author,cover_url,latest_chapter,updated_at,source_url",
+                    "select": "id,slug,title,author,reading_status,cover_url,latest_chapter,updated_at,source_url",
                     "deleted_at": "is.null",
                     "order": "updated_at.desc",
                 },
