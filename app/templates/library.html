@@ -10,6 +10,7 @@
     [id="library-grid"].is-list .library-card .aspect-\[2\/3\]{aspect-ratio:auto;height:100%}
     [id="library-grid"].is-list .library-card .p-4{display:flex;min-width:0;flex-direction:column;justify-content:center}
     [id="library-grid"].is-list .library-card h2{min-height:0}
+    .library-card .library-progress{margin-top:1rem}.library-card .library-progress-head{display:flex;align-items:center;justify-content:space-between;font-size:.66rem;font-weight:700;letter-spacing:.06em;color:var(--muted)}.library-card .library-progress-head strong{color:var(--accent);letter-spacing:0}.library-card .library-progress-track{margin-top:.4rem;height:.32rem;overflow:hidden;border-radius:999px;background:var(--surface-3)}.library-card .library-progress-track>span{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .2s ease}.library-card [data-book-start]{width:100%;justify-content:center;margin-top:.9rem;background:var(--accent)!important;color:var(--accent-ink)!important}.library-card [data-book-start] span{color:var(--accent-ink)!important}
     @media(max-width:639px){[id="library-grid"].is-list .library-card{grid-template-columns:76px minmax(0,1fr)}}
   </style>
   <div class="relative flex flex-col gap-4">
@@ -92,9 +93,9 @@
       <div class="p-4">
         <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ book.translated_title or book.title }}</h2>
         <p class="mt-2 text-sm text-stone-500">{{ book.translated_author or book.author or 'Chưa rõ tác giả' }}</p>
-        <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
-          <span class="text-xs font-medium text-stone-500">{{ book.chapters|length }} chương</span>
-          <div class="flex flex-wrap items-center justify-end gap-2">
+        <div class="library-progress" data-library-progress data-total-chapters="{{ book.chapters|length }}"><div class="library-progress-head"><span>TIẾN ĐỘ</span><strong data-library-progress-label>0/{{ book.chapters|length }}</strong></div><div class="library-progress-track"><span data-library-progress-bar></span></div></div>
+        <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
+          <div class="flex w-full flex-wrap items-center justify-end gap-2">
             <a
               data-book-start
               href="{% if first_chapter %}/chapters/{{ first_chapter.id }}{% else %}/books/{{ book.id }}{% endif %}"
@@ -133,9 +134,9 @@
       <div class="p-4">
         <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ novel.title }}</h2>
         <p class="mt-2 text-sm text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
-        <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
-          <span class="text-xs font-medium text-stone-500">{{ novel.total_chapters or 0 }} chương</span>
-          <div class="flex flex-wrap items-center justify-end gap-2">
+        <div class="library-progress" data-library-progress data-total-chapters="{{ novel.total_chapters or 0 }}"><div class="library-progress-head"><span>TIẾN ĐỘ</span><strong data-library-progress-label>0/{{ novel.total_chapters or 0 }}</strong></div><div class="library-progress-track"><span data-library-progress-bar></span></div></div>
+        <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
+          <div class="flex w-full flex-wrap items-center justify-end gap-2">
             <a data-book-start href="/truyen/{{ novel.slug }}" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="book-open" class="h-4 w-4"></i><span data-book-start-label>Đọc</span></a>
             {% if request.state.user.role == 'admin' %}<form action="/truyen/{{ novel.slug }}/update" method="post"><button type="submit" title="Cập nhật chương mới" class="icon-button h-9 w-9 text-stone-600 hover:bg-stone-100" aria-label="Cập nhật chương mới"><i data-lucide="refresh-cw" class="h-4 w-4"></i></button></form>
             <form action="/truyen/{{ novel.slug }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');"><button type="submit" title="Xóa truyện" class="icon-button h-9 w-9 text-red-600 hover:bg-red-50" aria-label="Xóa truyện"><i data-lucide="trash-2" class="h-4 w-4"></i></button></form>{% endif %}
@@ -164,6 +165,17 @@
           startLink.href = url;
           const label = startLink.querySelector("[data-book-start-label]");
           if (label) label.textContent = "Đọc tiếp";
+        }
+      }
+      const progress = card.querySelector("[data-library-progress]");
+      if (progress && url && url.includes("/truyen/")) {
+        const total = Number(progress.dataset.totalChapters || 0);
+        const match = url.match(/\/(\d+)(?:\?.*)?$/);
+        const chapterNumber = Number(match?.[1] || 0);
+        if (total && chapterNumber) {
+          const completed = Math.min(total, chapterNumber);
+          progress.querySelector("[data-library-progress-label]").textContent = `${completed}/${total}`;
+          progress.querySelector("[data-library-progress-bar]").style.width = `${Math.round(completed / total * 100)}%`;
         }
       }
       if (url && url === latestUrl) recentlyReadCard = card;
