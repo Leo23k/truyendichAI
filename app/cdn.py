@@ -314,6 +314,14 @@ def update_admin_novel(novel_id: int, *, slug: str, title: str, author: str, des
     })
 
 
+def update_admin_novel_source(novel_id: int, source_url: str) -> dict:
+    rows = _service_rows("novels", {"select": "id,title,source_type", "id": f"eq.{novel_id}", "limit": "1"})
+    if not rows:
+        raise CdnDataError("Novel was not found")
+    _service_patch("novels", {"id": f"eq.{novel_id}"}, {"source_url": source_url})
+    return rows[0]
+
+
 def load_synced_novel(slug: str) -> dict:
     if _configured():
         try:

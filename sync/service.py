@@ -344,7 +344,7 @@ def prioritize_translation(remote: SupabaseSync, chapter_id: int, priority: int)
     return bool(rows)
 
 
-def enqueue_remote_crawl(source_url: str, source_type: str = "zh") -> dict:
+def enqueue_remote_crawl(source_url: str, source_type: str = "zh", result: dict | None = None) -> dict:
     """Persist a production crawl request for the outbound-only PC worker."""
     remote = SupabaseSync()
     active = remote.rows(
@@ -360,7 +360,7 @@ def enqueue_remote_crawl(source_url: str, source_type: str = "zh") -> dict:
     if active:
         return active[0]
     try:
-        return remote.insert("remote_crawl_jobs", {"source_url": source_url, "source_type": source_type, "status": "queued"})
+        return remote.insert("remote_crawl_jobs", {"source_url": source_url, "source_type": source_type, "status": "queued", "result": result or {}})
     except SyncError:
         active = remote.rows(
             "remote_crawl_jobs",
@@ -852,7 +852,13 @@ def worker_process_lock():
         handle.close()
 
 
-async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | None = None, source_type: str = "zh") -> None:
+async def _crawl_and_translate_url(
+    url: str,
+    update_status,
+    crawl_job_id: str | None = None,
+    source_type: str = "zh",
+    source_update_novel_id: int | None = None,
+) -> None:
     """Crawl directly into Supabase; SQLite is never used in this path."""
     try:
         update_status(status="crawling")
@@ -863,7 +869,11 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
         info = await crawler.get_book_info(url)
         remote = SupabaseSync()
         logger.info("Bắt đầu crawl truyện: %s", info.title)
-        novels = remote.rows("novels", {"select": "id,slug,title,author", "source_url": f"eq.{info.source_url}", "limit": "1"})
+        novels = remote.rows(
+            "novels", {"select": "id,slug,title,author", "id": f"eq.{source_update_novel_id}", "limit": "1"},
+        ) if source_update_novel_id else remote.rows(
+            "novels", {"select": "id,slug,title,author", "source_url": f"eq.{info.source_url}", "limit": "1"},
+        )
         if novels:
             novel = novels[0]
             translated_title = str(novel.get("title") or info.title)
@@ -878,9 +888,22 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
         update_status(book_id=novel["id"], title=translated_title)
 
         incoming = await crawler.get_chapters(url)
-        existing = remote.all_rows("chapters", {"select": "id,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "source_url.asc"})
+        existing = remote.all_rows("chapters", {"select": "id,chapter_number,title,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "source_url.asc"})
         existing_urls = {row["source_url"] for row in existing}
-        new_rows = [{"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": is_vietnamese, "audio_available": False} for item in incoming if item.url not in existing_urls]
+        existing_by_number = {int(row["chapter_number"]): row for row in existing}
+        updated_source_ids: set[int] = set()
+        if source_update_novel_id:
+            for item in incoming:
+                current = existing_by_number.get(int(item.chapter_number))
+                if current:
+                    updated_source_ids.add(int(current["id"]))
+                    if current.get("source_url") != item.url or current.get("title") != item.title:
+                        remote.patch_rows("chapters", {"id": f"eq.{current['id']}"}, {"source_url": item.url, "title": item.title})
+        new_rows = [
+            {"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": is_vietnamese, "audio_available": False}
+            for item in incoming
+            if item.url not in existing_urls and (not source_update_novel_id or int(item.chapter_number) not in existing_by_number)
+        ]
         remote.insert_many_ignore("chapters", new_rows, "novel_id,source_url")
         chapters = remote.all_rows("chapters", {"select": "id,chapter_number,title,source_url,translated,content_path", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.asc"})
         new_source_urls = {row["source_url"] for row in new_rows}
@@ -896,10 +919,10 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
         pending = [
             row
             for row in chapters
-            if (is_vietnamese or not row["translated"])
-            and row["id"] not in queued
-            and row["id"] not in restored_chapter_ids
-            and not row.get("content_path")
+            if (is_vietnamese or not row["translated"] or int(row["id"]) in updated_source_ids)
+            and (source_update_novel_id or row["id"] not in queued)
+            and (source_update_novel_id or row["id"] not in restored_chapter_ids)
+            and (source_update_novel_id or not row.get("content_path"))
         ]
         total_raw = len(pending)
         logger.info(
@@ -953,6 +976,16 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
             if not original:
                 logger.warning("Bỏ qua chương %s vì không lấy được nội dung.", chapter["chapter_number"])
                 continue
+            previous_payload: dict = {}
+            content_path = str(chapter.get("content_path") or "")
+            if source_update_novel_id and content_path.startswith("chapters/"):
+                try:
+                    previous_payload = remote.download_json("chapters", content_path.removeprefix("chapters/"))
+                except SyncError:
+                    logger.warning("Could not read the prior raw content for chapter %s.", chapter["chapter_number"])
+            if source_update_novel_id and previous_payload and clean_chapter_text(str(previous_payload.get("original_content") or "")) == original:
+                update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
+                continue
             key = chapter_key(int(chapter["chapter_number"]))
             payload = json.dumps({"number": chapter["chapter_number"], "title": chapter["title"], "original_title": chapter["title"], "original_content": original, "translated_content": original if is_vietnamese else None, "content": original if is_vietnamese else None, "translated": is_vietnamese}, ensure_ascii=False).encode("utf-8")
             remote.upload_if_changed("chapters", f"{novel['slug']}/{key}.json", payload, "application/json")
@@ -960,6 +993,9 @@ async def _crawl_and_translate_url(url: str, update_status, crawl_job_id: str | 
             if is_vietnamese:
                 update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
                 continue
+            if source_update_novel_id:
+                remote.delete_rows("chapter_chunks", {"chapter_id": f"eq.{chapter['id']}"})
+                remote.delete_rows("translation_queue", {"chapter_id": f"eq.{chapter['id']}"})
             parts = chunk_text(original)
             if not parts:
                 logger.warning("Bỏ qua chương %s vì không lấy được nội dung.", chapter["chapter_number"])
@@ -1022,7 +1058,11 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
 
     try:
         logger.info("Bắt đầu job crawl: %s", job["source_url"])
-        asyncio.run(_crawl_and_translate_url(str(job["source_url"]), update_status, str(job["id"]), str(job.get("source_type") or "zh")))
+        source_update_novel_id = job_result.get("source_update_novel_id")
+        asyncio.run(_crawl_and_translate_url(
+            str(job["source_url"]), update_status, str(job["id"]), str(job.get("source_type") or "zh"),
+            int(source_update_novel_id) if source_update_novel_id else None,
+        ))
     except Exception as exc:
         logger.exception("Job crawl từ xa thất bại trước khi khởi chạy.")
         update_status(status="failed", error=str(exc))

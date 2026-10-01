@@ -45,6 +45,7 @@ from app.cdn import (
     save_replacement_rule,
     set_synced_novel_deletion,
     update_admin_novel,
+    update_admin_novel_source,
 )
 from app.database import SessionLocal, create_tables, get_db
 from app.crawlers.base import clean_chapter_text
@@ -556,6 +557,30 @@ def update_admin_novel_page(
     except CdnDataError as exc:
         return RedirectResponse(f"/admin/novels?toast={quote(str(exc))}&error=1", status_code=303)
     return RedirectResponse("/admin/novels?toast=Đã%20lưu%20thông%20tin%20truyện.", status_code=303)
+
+
+@app.post("/admin/novels/{novel_id}/source", include_in_schema=False)
+def update_admin_novel_source_page(novel_id: int, source_url: str = Form(...)):
+    source_url = source_url.strip()
+    try:
+        if not source_url:
+            raise CdnDataError("URL nguồn không được để trống.")
+        novel = next((item for item in load_admin_novels() if int(item["id"]) == novel_id), None)
+        if not novel:
+            raise CdnDataError("Không tìm thấy truyện.")
+        crawler = registry.get_for_url(source_url)
+        source_type = str(novel.get("source_type") or "zh")
+        if getattr(crawler, "source_type", "zh") != source_type:
+            raise CdnDataError("Loại nguồn không khớp với truyện này.")
+        update_admin_novel_source(novel_id, source_url)
+        enqueue_remote_crawl(
+            source_url,
+            source_type=source_type,
+            result={"source_update_novel_id": novel_id, "source_update": True},
+        )
+    except (CdnDataError, CrawlerError, SyncError) as exc:
+        return RedirectResponse(f"/admin/novels?toast={quote(str(exc))}&error=1", status_code=303)
+    return RedirectResponse("/admin/novels?toast=Đã%20cập%20nhật%20nguồn%20và%20đưa%20vào%20hàng%20đợi%20crawl.", status_code=303)
 
 
 def _worker_statuses() -> dict[str, dict[str, object]]:
