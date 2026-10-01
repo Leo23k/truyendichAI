@@ -134,7 +134,7 @@
     {% if following %}<a href="{{ following_url or '/chapters/' ~ following.id }}" class="reader-nav-card justify-end text-right"><span class="min-w-0"><small class="opacity-60">CHƯƠNG SAU</small><strong>{{ following.translated_title or following.title or 'Chương sau' }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% else %}<span></span>{% endif %}
   </div>
   <article class="reader-content mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-12" lang="vi" itemscope itemtype="https://schema.org/Article" :style="`font-size: ${size}px; line-height: ${lineHeight}; font-family: ${font}`">
-    <h2 data-reader-content-title data-title="{{ display_title }}" hidden class="mb-10 text-2xl font-semibold leading-snug sm:text-3xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#242522]'">{{ display_title }}</h2>
+    <h2 data-reader-content-title data-title="{{ display_title }}" class="mb-14 text-center text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#242522]'">{{ display_title }}<span class="mx-auto mt-6 block h-1 w-20 rounded-full bg-teal-500/60"></span></h2>
     <div itemprop="articleBody" data-reader-content class="reader-prose">
       {% for line in display_content.replace('\r', '').split('\n') %}{% if line.strip() %}<p class="mb-5">{{ line }}</p>{% endif %}{% endfor %}
     </div>
@@ -303,7 +303,7 @@
         if (!readerContentTitle) return;
         const chapterTitle = normalizeTitle(readerContentTitle.dataset.title);
         const openingLines = String(value || "").split(/\r?\n/).map((line) => normalizeTitle(line)).filter(Boolean).slice(0, 4);
-        readerContentTitle.hidden = !chapterTitle || openingLines.some((line) => line.includes(chapterTitle) || chapterTitle.includes(line));
+        readerContentTitle.hidden = !chapterTitle;
       };
       updateContentTitle(rawContent);
       let replacementRules = {{ (replacement_rules or [])|tojson }};
@@ -318,8 +318,11 @@
         const renderedContent = applyReplacementRules(rawContent);
         updateContentTitle(renderedContent);
         const fragment = document.createDocumentFragment();
-        renderedContent.replace(/\r/g, "").split("\n").forEach((line) => {
+        const chapterTitle = normalizeTitle(readerContentTitle?.dataset.title);
+        renderedContent.replace(/\r/g, "").split("\n").forEach((line, index) => {
           if (!line.trim()) return;
+          const normalizedLine = normalizeTitle(line);
+          if (index < 4 && chapterTitle && (normalizedLine.includes(chapterTitle) || chapterTitle.includes(normalizedLine))) return;
           const paragraph = document.createElement("p");
           paragraph.className = "mb-5";
           paragraph.textContent = line;
@@ -327,6 +330,7 @@
         });
         readerContent.replaceChildren(fragment);
       };
+      renderReaderContent();
       const showReplacementNotice = (message, error = false) => {
         replacementNotice.textContent = message;
         replacementNotice.className = `mt-3 rounded-md px-3 py-2 text-sm ${error ? "bg-red-50 text-red-700" : "bg-teal-50 text-teal-800"}`;
