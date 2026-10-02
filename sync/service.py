@@ -964,7 +964,7 @@ async def _crawl_and_translate_url(
             "Đã đọc %s chương; có %s chương mới cần crawl và đưa vào hàng đợi dịch.",
             len(incoming), total_raw,
         )
-        crawl_concurrency = 1 if crawler.source_name == "xsw" else CRAWL_CONCURRENCY
+        crawl_concurrency = 1 if crawler.source_name == "xsw" else (2 if crawler.source_name == "uukanshu" else CRAWL_CONCURRENCY)
         logger.info("Crawl song song tối đa %s chương cùng lúc.", crawl_concurrency)
         update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
         processed_job_ids = set(restored_chapter_ids)
@@ -984,9 +984,8 @@ async def _crawl_and_translate_url(
                         break
                     except (SourceRequestError, asyncio.TimeoutError) as exc:
                         if attempt == 3:
-                            if isinstance(exc, asyncio.TimeoutError):
-                                raise SourceRequestError("Không thể kết nối tới website nguồn.") from exc
-                            raise
+                            logger.warning("Bỏ qua chương %s từ nguồn %s sau %s lần thử: %s", chapter["chapter_number"], crawler.source_name, attempt, exc)
+                            return chapter, ""
                         delay = attempt * 3
                         logger.warning(
                             "Nguồn %s tạm thời không phản hồi chương %s; thử lại sau %s giây.",

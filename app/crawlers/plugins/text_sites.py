@@ -200,7 +200,11 @@ class UukanshuCrawler(HtmlNovelCrawler):
                 impersonate="chrome",
                 headers={"Accept-Language": "zh-CN,zh;q=0.9"},
                 trust_env=False,
-                curl_options={CurlOpt.PROXY: ""},
+                curl_options={
+                    CurlOpt.PROXY: "",
+                    CurlOpt.CONNECTTIMEOUT_MS: min(settings.crawler_timeout, 15) * 1000,
+                    CurlOpt.TIMEOUT_MS: (settings.crawler_timeout + 5) * 1000,
+                },
             ) as client:
                 response = await client.get(url, timeout=settings.crawler_timeout)
                 response.raise_for_status()
