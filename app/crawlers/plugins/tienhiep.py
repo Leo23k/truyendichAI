@@ -29,9 +29,9 @@ class TienHiepCrawler(BaseCrawler):
 
     @staticmethod
     def _book_id(url: str) -> str:
-        match = re.match(r"/books/(\d+)-", urlparse(url).path)
+        match = re.match(r"/books/([^/?#]+?)/?$", urlparse(url).path)
         if not match:
-            raise SourceParseError("URL Tiên Hiệp Lâu phải có dạng /books/<id>-<slug>.")
+            raise SourceParseError("URL Tiên Hiệp Lâu phải có dạng /books/<slug>.")
         return match.group(1)
 
     @staticmethod
