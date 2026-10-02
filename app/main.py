@@ -844,10 +844,10 @@ async def jobs_crawler_search(request: Request, query: str = Form(...), source_t
             crawler = registry.get_for_url(query)
             if getattr(crawler, "source_type", "zh") != source_type:
                 return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Loại nguồn đã chọn không khớp website này.", "error": True}, status_code=400)
-            # Validate the URL and source metadata before creating a remote
-            # job. This keeps malformed source errors in the Crawler card
-            # instead of creating a progress card that fails later.
-            await asyncio.wait_for(crawler.get_book_info(query), timeout=min(settings.crawler_timeout, 12))
+            # Do not fetch the source from Vercel before enqueueing. Some
+            # sources (notably UUKANSHU) are reachable from the PC worker but
+            # blocked or slow from the web runtime. The worker validates and
+            # reports the crawl outcome after the job is persisted.
             job = enqueue_remote_crawl(query, source_type=source_type)
             request.state.crawl_job_id = str(job["id"])
             response = templates.TemplateResponse(
