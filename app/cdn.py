@@ -408,6 +408,12 @@ def delete_admin_novel_chapter(novel_id: int, chapter_id: int) -> None:
     if not existing:
         raise CdnDataError("Không tìm thấy chương.")
     _service_delete("chapters", {"id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}"})
+    remaining = _service_all_rows("chapters", {
+        "select": "id,chapter_number", "novel_id": f"eq.{novel_id}", "order": "chapter_number.asc,id.asc",
+    })
+    for index, row in enumerate(remaining, start=1):
+        if int(row.get("chapter_number") or 0) != index:
+            _service_patch("chapters", {"id": f"eq.{row['id']}", "novel_id": f"eq.{novel_id}"}, {"chapter_number": index})
     _refresh_admin_novel_latest_chapter(novel_id)
 
 
@@ -665,14 +671,16 @@ def load_chapters_index(slug: str) -> list[dict]:
                 },
             )
             source_type = str(novels[0].get("source_type") or "zh")
-            return [{**chapter, "source_type": source_type} for chapter in chapters]
+            # Chapter IDs remain stable, while the public sequence is compact
+            # after an admin deletion (e.g. 1, 2, 4 becomes 1, 2, 3).
+            return [{**chapter, "chapter_number": index, "source_type": source_type} for index, chapter in enumerate(chapters, start=1)]
         except CdnDataError:
             pass
     payload = _fallback_json(f"novels/{slug}/chapters_index.json")
     chapters = payload.get("chapters", [])
     if not isinstance(chapters, list):
         raise CdnDataError(f"Invalid chapters index: {slug}")
-    return [chapter for chapter in chapters if isinstance(chapter, dict)]
+    return [{**chapter, "chapter_number": index} for index, chapter in enumerate((chapter for chapter in chapters if isinstance(chapter, dict)), start=1)]
 
 
 def load_chapters_page(slug: str, page: int = 1, sort: str = "asc", limit: int = 50) -> tuple[list[dict], int, int]:
@@ -688,7 +696,9 @@ def load_chapters_page(slug: str, page: int = 1, sort: str = "asc", limit: int =
             total = _rest_count("chapters", params)
             total_pages = max(1, (total + limit - 1) // limit)
             page = min(page, total_pages)
-            rows = _rest_rows("chapters", {"select": "id,chapter_number,title", **params, "order": f"chapter_number.{sort}", "limit": str(limit), "offset": str((page - 1) * limit)})
+            offset = (page - 1) * limit
+            rows = _rest_rows("chapters", {"select": "id,chapter_number,title", **params, "order": f"chapter_number.{sort}", "limit": str(limit), "offset": str(offset)})
+            rows = [{**row, "chapter_number": (offset + index if sort == "asc" else total - offset - index + 1)} for index, row in enumerate(rows, start=1)]
             return rows, total, page
         except CdnDataError:
             pass
@@ -698,7 +708,8 @@ def load_chapters_page(slug: str, page: int = 1, sort: str = "asc", limit: int =
     total_pages = max(1, (total + limit - 1) // limit)
     page = min(page, total_pages)
     offset = (page - 1) * limit
-    return chapters[offset : offset + limit], total, page
+    rows = chapters[offset : offset + limit]
+    return [{**row, "chapter_number": (offset + index if sort == "asc" else total - offset - index + 1)} for index, row in enumerate(rows, start=1)], total, page
 
 
 def publish_translated_chapter(
