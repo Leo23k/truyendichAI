@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Quản lý chương | Leo Truyen{% endblock %}
+{% block theme_override %}<script>document.documentElement.dataset.theme="light";</script>{% endblock %}
+{% block content %}
+<section class="site-page mx-auto max-w-5xl">
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div class="min-w-0"><p class="text-sm font-semibold text-teal-700">QUẢN LÝ CHƯƠNG</p><h1 class="site-title mt-1 truncate text-3xl">{{ novel.title }}</h1><p class="site-muted mt-1 text-sm">{{ chapters|length }} chương · /{{ novel.slug }}</p></div>
+    <div class="flex flex-wrap gap-2"><a href="/truyen/{{ novel.slug }}" class="site-nav-button"><i data-lucide="book-open" class="h-4 w-4"></i>Xem truyện</a><a href="/admin/novels" class="site-nav-button"><i data-lucide="arrow-left" class="h-4 w-4"></i>Danh sách truyện</a></div>
+  </div>
+  {% if toast %}<p class="mt-5 rounded-lg border {% if toast_error %}border-red-200 bg-red-50 text-red-800{% else %}border-teal-200 bg-teal-50 text-teal-800{% endif %} px-4 py-3 text-sm">{{ toast }}</p>{% endif %}
+
+  <section class="site-panel mt-7 flex flex-wrap items-center justify-between gap-4 p-5">
+    <div><h2 class="font-semibold text-stone-950">Danh sách chương</h2><p class="mt-1 text-sm text-stone-600">Chỉnh sửa số chương, tên và URL nguồn. Nội dung đã dịch không bị sửa từ màn hình này.</p></div>
+    <button type="button" class="site-nav-button accent" onclick="document.getElementById('create-chapter-dialog').showModal()"><i data-lucide="plus" class="h-4 w-4"></i>Thêm chương</button>
+  </section>
+
+  <div class="mt-4 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
+    {% for chapter in chapters %}
+    <article class="flex flex-wrap items-center gap-3 border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50">
+      <span class="flex h-9 w-11 shrink-0 items-center justify-center rounded-md bg-stone-100 text-sm font-semibold text-stone-600">#{{ chapter.chapter_number }}</span>
+      <div class="min-w-0 flex-1"><p class="truncate font-medium text-stone-900">{{ chapter.title }}</p><p class="mt-0.5 truncate text-xs text-stone-500">{{ chapter.source_url }}</p></div>
+      <div class="flex shrink-0 items-center gap-2"><span class="hidden rounded-full px-2 py-1 text-xs sm:inline-block {% if chapter.translated %}bg-teal-50 text-teal-700{% else %}bg-amber-50 text-amber-700{% endif %}">{{ 'Đã dịch' if chapter.translated else 'Chưa dịch' }}</span><button type="button" class="icon-button h-9 w-9 text-teal-700 hover:bg-teal-50" onclick="document.getElementById('edit-chapter-{{ chapter.id }}').showModal()" title="Sửa chương" aria-label="Sửa chương {{ chapter.chapter_number }}"><i data-lucide="pencil" class="h-4 w-4"></i></button><form action="/admin/novels/{{ novel.id }}/chapters/{{ chapter.id }}/delete" method="post"><button class="icon-button h-9 w-9 text-red-700 hover:bg-red-50" onclick="return confirm('Xóa chương {{ chapter.chapter_number }}? Hàng đợi dịch liên quan cũng sẽ bị xóa.');" title="Xóa chương" aria-label="Xóa chương {{ chapter.chapter_number }}"><i data-lucide="trash-2" class="h-4 w-4"></i></button></form></div>
+    </article>
+    <dialog id="edit-chapter-{{ chapter.id }}" class="w-[calc(100%-2rem)] max-w-xl rounded-xl border border-stone-200 bg-white p-0 text-stone-900 shadow-2xl backdrop:bg-stone-950/50">
+      <form action="/admin/novels/{{ novel.id }}/chapters/{{ chapter.id }}" method="post" class="space-y-4 p-5"><div><p class="text-xs font-bold uppercase tracking-wide text-teal-700">Chương {{ chapter.chapter_number }}</p><h2 class="mt-1 text-lg font-bold">Chỉnh sửa chương</h2></div><div class="grid gap-4 sm:grid-cols-[8rem_1fr]"><label class="text-sm font-medium text-stone-700">Số chương<input name="chapter_number" required min="1" type="number" value="{{ chapter.chapter_number }}" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label><label class="text-sm font-medium text-stone-700">Tiêu đề<input name="title" required value="{{ chapter.title }}" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label></div><label class="block text-sm font-medium text-stone-700">URL nguồn<input name="source_url" required type="url" value="{{ chapter.source_url }}" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label><div class="flex justify-end gap-2"><button type="button" class="site-nav-button" onclick="this.closest('dialog').close()">Hủy</button><button class="site-nav-button accent"><i data-lucide="save" class="h-4 w-4"></i>Lưu chương</button></div></form>
+    </dialog>
+    {% else %}<p class="p-10 text-center text-sm text-stone-500">Chưa có chương nào. Hãy thêm chương đầu tiên.</p>{% endfor %}
+  </div>
+</section>
+<dialog id="create-chapter-dialog" class="w-[calc(100%-2rem)] max-w-xl rounded-xl border border-stone-200 bg-white p-0 text-stone-900 shadow-2xl backdrop:bg-stone-950/50">
+  <form action="/admin/novels/{{ novel.id }}/chapters" method="post" class="space-y-4 p-5"><div><p class="text-xs font-bold uppercase tracking-wide text-teal-700">Chương mới</p><h2 class="mt-1 text-lg font-bold">Thêm chương vào truyện</h2><p class="mt-1 text-sm text-stone-600">Chương mới sẽ ở trạng thái chưa dịch.</p></div><div class="grid gap-4 sm:grid-cols-[8rem_1fr]"><label class="text-sm font-medium text-stone-700">Số chương<input name="chapter_number" required min="1" type="number" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label><label class="text-sm font-medium text-stone-700">Tiêu đề<input name="title" required class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label></div><label class="block text-sm font-medium text-stone-700">URL nguồn<input name="source_url" required type="url" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm"></label><div class="flex justify-end gap-2"><button type="button" class="site-nav-button" onclick="this.closest('dialog').close()">Hủy</button><button class="site-nav-button accent"><i data-lucide="plus" class="h-4 w-4"></i>Thêm chương</button></div></form>
+</dialog>
+{% endblock %}

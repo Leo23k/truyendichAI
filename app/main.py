@@ -37,6 +37,7 @@ from app.cdn import (
     load_deleted_synced_novels,
     load_novels,
     load_admin_novels,
+    load_admin_novel_chapters,
     load_synced_novel,
     load_replacement_rules,
     load_user_reading_progress,
@@ -49,6 +50,8 @@ from app.cdn import (
     set_synced_novel_deletion,
     update_admin_novel,
     update_admin_novel_source,
+    save_admin_novel_chapter,
+    delete_admin_novel_chapter,
 )
 from app.database import SessionLocal, create_tables, get_db
 from app.crawlers.base import clean_chapter_text
@@ -642,6 +645,51 @@ def update_admin_novel_source_page(novel_id: int, source_url: str = Form(...)):
     except (CdnDataError, CrawlerError, SyncError) as exc:
         return RedirectResponse(f"/admin/novels?toast={quote(str(exc))}&error=1", status_code=303)
     return RedirectResponse("/admin/novels?toast=Đã%20cập%20nhật%20nguồn%20và%20đưa%20vào%20hàng%20đợi%20crawl.", status_code=303)
+
+
+@app.get("/admin/novels/{novel_id}/chapters", include_in_schema=False)
+def admin_novel_chapters_page(novel_id: int, request: Request):
+    try:
+        novel, chapters = load_admin_novel_chapters(novel_id)
+    except CdnDataError as exc:
+        return RedirectResponse(f"/admin/novels?toast={quote(str(exc))}&error=1", status_code=303)
+    return templates.TemplateResponse(
+        request=request,
+        name="admin_chapters.html",
+        context={"novel": novel, "chapters": chapters, "toast": request.query_params.get("toast"), "toast_error": request.query_params.get("error") == "1"},
+    )
+
+
+def _admin_chapters_redirect(novel_id: int, message: str, error: bool = False) -> RedirectResponse:
+    suffix = "&error=1" if error else ""
+    return RedirectResponse(f"/admin/novels/{novel_id}/chapters?toast={quote(message)}{suffix}", status_code=303)
+
+
+@app.post("/admin/novels/{novel_id}/chapters", include_in_schema=False)
+def create_admin_novel_chapter(novel_id: int, chapter_number: int = Form(...), title: str = Form(...), source_url: str = Form(...)):
+    try:
+        save_admin_novel_chapter(novel_id, chapter_id=None, chapter_number=chapter_number, title=title.strip(), source_url=source_url.strip())
+    except CdnDataError as exc:
+        return _admin_chapters_redirect(novel_id, str(exc), error=True)
+    return _admin_chapters_redirect(novel_id, "Đã tạo chương mới.")
+
+
+@app.post("/admin/novels/{novel_id}/chapters/{chapter_id}", include_in_schema=False)
+def update_admin_novel_chapter_page(novel_id: int, chapter_id: int, chapter_number: int = Form(...), title: str = Form(...), source_url: str = Form(...)):
+    try:
+        save_admin_novel_chapter(novel_id, chapter_id=chapter_id, chapter_number=chapter_number, title=title.strip(), source_url=source_url.strip())
+    except CdnDataError as exc:
+        return _admin_chapters_redirect(novel_id, str(exc), error=True)
+    return _admin_chapters_redirect(novel_id, "Đã lưu thay đổi chương.")
+
+
+@app.post("/admin/novels/{novel_id}/chapters/{chapter_id}/delete", include_in_schema=False)
+def delete_admin_novel_chapter_page(novel_id: int, chapter_id: int):
+    try:
+        delete_admin_novel_chapter(novel_id, chapter_id)
+    except CdnDataError as exc:
+        return _admin_chapters_redirect(novel_id, str(exc), error=True)
+    return _admin_chapters_redirect(novel_id, "Đã xóa chương.")
 
 
 def _worker_statuses() -> dict[str, dict[str, object]]:

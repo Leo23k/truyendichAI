@@ -351,6 +351,66 @@ def update_admin_novel_source(novel_id: int, source_url: str) -> dict:
     return rows[0]
 
 
+def load_admin_novel_chapters(novel_id: int) -> tuple[dict, list[dict]]:
+    novels = _service_rows("novels", {"select": "id,slug,title", "id": f"eq.{novel_id}", "deleted_at": "is.null", "limit": "1"})
+    if not novels:
+        raise CdnDataError("Không tìm thấy truyện.")
+    chapters = _service_all_rows("chapters", {
+        "select": "id,chapter_number,title,source_url,translated,audio_available,content_path,updated_at",
+        "novel_id": f"eq.{novel_id}",
+        "order": "chapter_number.asc,id.asc",
+    })
+    return novels[0], chapters
+
+
+def _refresh_admin_novel_latest_chapter(novel_id: int) -> None:
+    chapters = _service_rows("chapters", {"select": "chapter_number", "novel_id": f"eq.{novel_id}", "order": "chapter_number.desc", "limit": "1"})
+    _service_patch("novels", {"id": f"eq.{novel_id}"}, {"latest_chapter": int(chapters[0]["chapter_number"]) if chapters else 0})
+
+
+def save_admin_novel_chapter(novel_id: int, *, chapter_id: int | None, chapter_number: int, title: str, source_url: str) -> None:
+    if chapter_number < 1 or not title or not source_url:
+        raise CdnDataError("Số chương, tiêu đề và URL nguồn là bắt buộc.")
+    parsed_url = urlparse(source_url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise CdnDataError("URL nguồn phải là một địa chỉ http hoặc https hợp lệ.")
+    novel, _ = load_admin_novel_chapters(novel_id)
+    duplicate_number = _service_rows("chapters", {
+        "select": "id", "novel_id": f"eq.{novel['id']}", "chapter_number": f"eq.{chapter_number}",
+        "id": f"neq.{chapter_id}" if chapter_id else "gt.0", "limit": "1",
+    })
+    if duplicate_number:
+        raise CdnDataError("Số chương này đã tồn tại trong truyện.")
+    duplicate_url = _service_rows("chapters", {
+        "select": "id", "novel_id": f"eq.{novel['id']}", "source_url": f"eq.{source_url}",
+        "id": f"neq.{chapter_id}" if chapter_id else "gt.0", "limit": "1",
+    })
+    if duplicate_url:
+        raise CdnDataError("URL nguồn này đã được dùng cho một chương khác.")
+    payload = {"chapter_number": chapter_number, "title": title, "source_url": source_url}
+    if chapter_id is None:
+        try:
+            with httpx.Client(timeout=30, trust_env=False) as client:
+                response = client.post(f"{SUPABASE_URL}/rest/v1/chapters", json={**payload, "novel_id": novel_id, "translated": False, "audio_available": False}, headers={**_service_headers(), "Prefer": "return=minimal"})
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise CdnDataError("Không thể tạo chương.") from exc
+    else:
+        existing = _service_rows("chapters", {"select": "id", "id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}", "limit": "1"})
+        if not existing:
+            raise CdnDataError("Không tìm thấy chương.")
+        _service_patch("chapters", {"id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}"}, payload)
+    _refresh_admin_novel_latest_chapter(novel_id)
+
+
+def delete_admin_novel_chapter(novel_id: int, chapter_id: int) -> None:
+    existing = _service_rows("chapters", {"select": "id", "id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}", "limit": "1"})
+    if not existing:
+        raise CdnDataError("Không tìm thấy chương.")
+    _service_delete("chapters", {"id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}"})
+    _refresh_admin_novel_latest_chapter(novel_id)
+
+
 def load_synced_novel(slug: str) -> dict:
     if _configured():
         try:
