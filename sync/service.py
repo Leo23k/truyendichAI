@@ -1058,21 +1058,16 @@ async def _crawl_and_translate_url(
             return
         logger.info("Đã tạo hoặc khôi phục hàng đợi dịch cho %s chương.", len(processed_job_ids))
         chapters_added = len(new_chapters)
-        update_status(status="translating", book_id=novel["id"], chapters_added=chapters_added, raw_loaded=total_raw, queued=len(processed_job_ids))
-        while True:
-            if crawl_job_id and not remote_job_is_running(remote, crawl_job_id):
-                return
-            queue_states = remote.rows(
-                "translation_queue",
-                {"select": "chapter_id,status", "chapter_id": f"in.({','.join(str(chapter_id) for chapter_id in processed_job_ids)})"},
-            ) if processed_job_ids else []
-            incomplete = [row for row in queue_states if row.get("status") != "completed"]
-            if not incomplete and len(queue_states) == len(processed_job_ids):
-                break
-            if any(row.get("status") == "failed" for row in incomplete):
-                raise SyncError("Translation failed for one or more newly crawled chapters.")
-            await asyncio.sleep(2)
-        update_status(status="completed", result={"book_id": novel["id"], "chapters_added": chapters_added, "raw_loaded": total_raw, "queued": len(processed_job_ids), "translated": len(processed_job_ids)})
+        result = {
+            "book_id": novel["id"],
+            "chapters_added": chapters_added,
+            "raw_loaded": total_raw,
+            "queued": len(processed_job_ids),
+        }
+        if processed_job_ids:
+            update_status(status="translating", **result)
+            return
+        update_status(status="completed", result={**result, "translated": 0})
     except Exception as exc:
         logger.exception("Worker crawl/dịch trên PC thất bại.")
         update_status(status="queued", error=str(exc))

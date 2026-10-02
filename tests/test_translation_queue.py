@@ -1,5 +1,80 @@
+import asyncio
+
+from app.crawlers.base import BookInfo, ChapterInfo
 from sync import service
 from sync.service import enqueue_untranslated_chapters, restore_stored_chapters
+
+
+def test_crawl_job_returns_while_its_translation_is_queued(monkeypatch) -> None:
+    class FakeCrawler:
+        source_name = "example"
+
+        async def get_book_info(self, url: str) -> BookInfo:
+            return BookInfo(url, self.source_name, "book-1", "Novel", None, None, None)
+
+        async def get_chapters(self, url: str) -> list[ChapterInfo]:
+            return [ChapterInfo(1, "chapter-1", "Chapter 1", f"{url}/chapter-1")]
+
+        async def get_chapter_content(self, _url: str) -> str:
+            return "A paragraph of original text. " * 200
+
+    class CrawlRemote:
+        def __init__(self) -> None:
+            self.chapters: list[dict] = []
+            self.queues: list[dict] = []
+
+        def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
+            if table == "novels":
+                return [{"id": 7, "slug": "novel", "title": "Novel", "author": None}]
+            if table == "translation_queue":
+                return []
+            if table == "remote_crawl_jobs":
+                return [{"id": "crawl-1"}]
+            raise AssertionError(f"Unexpected table: {table}")
+
+        def all_rows(self, table: str, _params: dict[str, str]) -> list[dict]:
+            if table == "chapters":
+                return self.chapters
+            if table == "translation_queue":
+                return self.queues
+            raise AssertionError(f"Unexpected table: {table}")
+
+        def patch_rows(self, table: str, params: dict[str, str], payload: dict) -> list[dict]:
+            if table == "chapters":
+                chapter_id = int(params["id"].removeprefix("eq."))
+                chapter = next(row for row in self.chapters if row["id"] == chapter_id)
+                chapter.update(payload)
+            return []
+
+        def insert_many_ignore(self, table: str, payloads: list[dict], _conflict: str) -> None:
+            if table == "chapters":
+                self.chapters.extend(
+                    {"id": 11 + index, **payload, "content_path": None}
+                    for index, payload in enumerate(payloads)
+                )
+            elif table == "translation_queue":
+                self.queues.extend(payloads)
+
+        def upload_if_changed(self, *_args) -> None:
+            return None
+
+    remote = CrawlRemote()
+    statuses: list[dict] = []
+    monkeypatch.setattr(service, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(service.registry, "get_for_url", lambda _url: FakeCrawler())
+
+    asyncio.run(
+        service._crawl_and_translate_url(
+            "https://example.com/novel",
+            lambda **values: statuses.append(values),
+            "crawl-1",
+        )
+    )
+
+    assert len(remote.queues) == 1
+    assert remote.queues[0]["crawl_job_id"] == "crawl-1"
+    assert statuses[-1]["status"] == "translating"
+    assert not any(status.get("status") == "completed" for status in statuses)
 
 
 class FakeRemote:
