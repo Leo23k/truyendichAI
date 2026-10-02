@@ -98,10 +98,10 @@
             <label class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 hover:bg-stone-50"><input type="checkbox" data-highlight-text checked> Highlight câu đang đọc</label>
             <button type="button" data-replacement-settings class="block w-full rounded-md px-3 py-2 text-left hover:bg-stone-50">Thay thế từ/câu</button>
             {% if synced_reader %}
-            {% if is_chinese_source and original_url %}<a href="{{ original_url }}" target="_blank" rel="noopener" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
+            {% if request.state.user and request.state.user.role == 'admin' and is_chinese_source and original_url %}<a href="{{ original_url }}" target="_blank" rel="noopener" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
             {% else %}
             {% if showing_translation %}
-            <a href="/chapters/{{ chapter.id }}?mode=original" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>
+            {% if request.state.user and request.state.user.role == 'admin' %}<a href="/chapters/{{ chapter.id }}?mode=original" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản gốc</a>{% endif %}
             {% elif chapter.translated_content %}
             <a href="/chapters/{{ chapter.id }}?mode=translated" class="block rounded-md px-3 py-2 hover:bg-stone-50">Xem bản dịch</a>
             {% endif %}
@@ -127,7 +127,7 @@
     <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </div>{% endif %}
   {% if translation_error %}
-  <div class="mx-auto mt-4 max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ translation_error }}{% if display_content %} Đang hiển thị bản gốc.{% endif %}{% if original_url %} <a href="{{ original_url }}" target="_blank" rel="noopener" class="ml-2 font-medium underline">Xem bản gốc</a>{% endif %}</div>
+  <div class="mx-auto mt-4 max-w-3xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ translation_error }}{% if display_content %} Đang hiển thị bản gốc.{% endif %}{% if request.state.user and request.state.user.role == 'admin' and original_url %} <a href="{{ original_url }}" target="_blank" rel="noopener" class="ml-2 font-medium underline">Xem bản gốc</a>{% endif %}</div>
   {% endif %}
   {% if translation_progress and translation_progress.status != 'completed' %}
   <div class="mx-auto mt-4 max-w-3xl rounded-md border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900" aria-live="polite">
