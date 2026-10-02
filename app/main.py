@@ -85,6 +85,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+AUTH_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
 
 
 def _chapter_pagination(current: int, total: int) -> list[int | None]:
@@ -140,7 +141,7 @@ async def auth_guard(request: Request, call_next):
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
     response = await call_next(request)
     if refreshed_session:
-        cookie_options = {"httponly": True, "secure": settings.app_url.startswith("https"), "samesite": "lax"}
+        cookie_options = {"httponly": True, "secure": settings.app_url.startswith("https"), "samesite": "lax", "max_age": AUTH_COOKIE_MAX_AGE}
         response.set_cookie("sb-access-token", refreshed_session[0], **cookie_options)
         response.set_cookie("sb-refresh-token", refreshed_session[1], **cookie_options)
     return response
@@ -186,7 +187,7 @@ def auth_callback(request: Request, code: str):
     if not isinstance(access_token, str) or not isinstance(refresh_token, str):
         raise HTTPException(401, "Supabase Auth did not return a valid session.")
     response = RedirectResponse("/", status_code=303)
-    cookie_options = {"httponly": True, "secure": settings.app_url.startswith("https"), "samesite": "lax"}
+    cookie_options = {"httponly": True, "secure": settings.app_url.startswith("https"), "samesite": "lax", "max_age": AUTH_COOKIE_MAX_AGE}
     response.set_cookie("sb-access-token", access_token, **cookie_options)
     response.set_cookie("sb-refresh-token", refresh_token, **cookie_options)
     response.delete_cookie("sb-pkce"); return response

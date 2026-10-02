@@ -42,7 +42,43 @@ def test_expired_access_token_is_refreshed(monkeypatch) -> None:
     assert response.status_code == 200
     assert "sb-access-token=fresh-access" in response.headers["set-cookie"]
     assert "sb-refresh-token=fresh-refresh" in response.headers["set-cookie"]
+    auth_cookies = [
+        cookie
+        for cookie in response.headers.get_list("set-cookie")
+        if cookie.startswith(("sb-access-token=", "sb-refresh-token="))
+    ]
+    assert len(auth_cookies) == 2
+    assert all("Max-Age=31536000" in cookie for cookie in auth_cookies)
 
+
+def test_login_callback_sets_persistent_auth_cookies(monkeypatch) -> None:
+    class Response:
+        is_success = True
+
+        def json(self) -> dict[str, str]:
+            return {"access_token": "access", "refresh_token": "refresh"}
+
+    class Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def post(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(main, "AUTH_URL", "https://auth.example")
+    monkeypatch.setattr(main, "ANON", "anon-key")
+    monkeypatch.setattr(main.httpx, "Client", lambda **_kwargs: Client())
+    with TestClient(app) as client:
+        client.cookies.set("sb-pkce", "verifier")
+        response = client.get("/auth/callback?code=auth-code", follow_redirects=False)
+
+    assert response.status_code == 303
+    cookies = response.headers.get_list("set-cookie")
+    assert any(cookie.startswith("sb-access-token=access;") and "Max-Age=31536000" in cookie for cookie in cookies)
+    assert any(cookie.startswith("sb-refresh-token=refresh;") and "Max-Age=31536000" in cookie for cookie in cookies)
 
 def test_refresh_session_reuses_a_recent_token_exchange(monkeypatch) -> None:
     auth._recent_refreshes.clear()
