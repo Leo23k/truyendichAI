@@ -1,134 +1,137 @@
 # LeoTruyen
 
-LeoTruyen can run locally, as Docker containers, or on an Oracle Cloud VM. It uses FastAPI, Jinja2, HTMX, SQLite, HachimiMT-60-QT, and Microsoft Edge TTS.
+Ứng dụng đọc, crawl và dịch tiểu thuyết Trung Quốc.
 
-## GitHub, jsDelivr, and Vercel
-
-Keep the application repository private. Publish only processed novel snapshots to the public `Leo23k/truyendichAI-data` repository. jsDelivr serves those snapshots from:
+## Kiến trúc hiện tại
 
 ```text
-https://cdn.jsdelivr.net/gh/Leo23k/truyendichAI-data@main/data/
+Browser → FastAPI web (app/main.py)
+             ├─ Reader/Jinja2/HTMX/Tailwind
+             ├─ Admin: truyện, chương, nội dung chương
+             ├─ Supabase: metadata, queue, trạng thái dịch
+             └─ Translator API + TTS API
+
+PC worker (sync/service.py)
+  ├─ nhận remote_crawl_jobs
+  ├─ crawler trong app/crawlers/
+  ├─ tạo translation_queue
+  └─ xuất JSON chương vào Supabase Storage
+
+Translator (infra/translator/service.py) ── HachimiMT-60-QT
+TTS (infra/tts/) ── Edge TTS/cache audio
 ```
 
-On the local PC, run a one-time sync after crawling, translating, and generating audio:
+Web có thể chạy trên Vercel, nhưng Vercel không chạy crawler hoặc worker local. Các job crawl/dịch cần một PC worker đang chạy và truy cập được Supabase. Supabase là nguồn dữ liệu production cho truyện, chương, queue và nội dung đã xuất bản.
 
-```powershell
-.venv\Scripts\python.exe sync\service.py sync
-```
+SQLite trong `data/` chỉ phục vụ dữ liệu/local flow tương thích; không dùng để thay thế queue production.
 
-Or keep it running while the PC is on:
-
-```powershell
-.venv\Scripts\python.exe sync\service.py watch --interval 60
-```
-
-Set `GITHUB_DATA_TOKEN` only when the sync service runs in Docker. The token needs repository contents read/write access to `Leo23k/truyendichAI-data`; do not commit it. Vercel only needs `JSDELIVR_DATA_BASE_URL` to read published chapters and MP3 files.
-
-## Docker
-
-```bash
-cp env.example .env
-docker compose up -d --build
-```
-
-Compose runs the FastAPI web app on port `8000`, a HachimiMT-60-QT CTranslate2 translator, and an Edge TTS service. The model is downloaded only once into `./models`; SQLite, covers, translations, and audio caches live in `./data`.
-
-## Vercel
-
-Push the repository to GitHub and import it in Vercel. Add these Environment Variables:
+## Cấu trúc chính
 
 ```text
-TRANSLATOR_API_URL=https://your-oracle-domain.example/translate
-TTS_API_URL=https://your-oracle-domain.example/tts
-DATABASE_PATH=/tmp/database.db
+app/main.py                 FastAPI routes, reader và admin
+app/templates/              Jinja2 UI
+app/crawlers/               Registry và plugin crawler
+app/translator/             Translator service client
+app/tts/                    TTS và audio playlist/cache
+sync/service.py             PC crawl/translation worker
+infra/translator/           HTTP API cho HachimiMT
+infra/tts/                  TTS service
+supabase/migrations/        Schema và RPC production
+data/                       SQLite local và cache audio
+models/                     Model cache
+tests/                      Pytest
 ```
 
-Vercel is appropriate for a UI demo. Its filesystem is temporary, so persistent reading history and SQLite data belong on Oracle.
+Crawler được đăng ký trong `app/crawlers/bootstrap.py`, gồm các plugin cho 69shuba, fanqie, piaotian, uukanshu, trxs, xsw, hjwzw và tienhiep.
 
-## Oracle
-
-On Ubuntu 24.04, after configuring SSH access to the private repository:
-
-```bash
-chmod +x infra/scripts/*.sh infra/ssl/*.sh
-./infra/scripts/setup-oracle.sh
-```
-
-The script installs Docker and Nginx, creates `.env` when needed, starts Compose, enables restart after reboot, and installs a daily backup timer. After DNS points at the VM, enable HTTPS:
-
-```bash
-./infra/ssl/request-cert.sh your-domain.example you@example.com
-```
-
-## Structure
-
-```text
-app/                 FastAPI, crawler, reader, translator, and TTS
-data/                SQLite, covers, translations, audio caches, backups
-models/              HachimiMT cache
-infra/               Docker services, Nginx, systemd, and Oracle scripts
-tests/               Project tests
-```
-
-Ứng dụng cá nhân để quản lý, đọc và dịch truyện Trung Quốc.
-
-## Chạy trên Windows
+## Chạy local trên Windows
 
 ```powershell
 python -m venv venv
-venv\Scripts\activate
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env
-
-.\scripts\dev.ps1
 ```
 
-Script dev mặc định chạy website ở `http://127.0.0.1:8002` và bật auto reload cho thư mục `app/`. Nếu cổng `8002` đang bận, đổi sang cổng trống khác:
+Terminal 1 — web:
 
 ```powershell
-.\scripts\dev.ps1 -Port 8003
+.\venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8002
 ```
 
-Tránh dùng mặc định `8000` khi trên máy đang có service khác giữ cổng này.
-
-Nếu PowerShell chặn chạy script, dùng:
+Terminal 2 — translator:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\dev.ps1
+.\venv\Scripts\uvicorn infra.translator.service:app --host 127.0.0.1 --port 7861
 ```
 
-Nếu auto reload gặp `PermissionError: [WinError 5] Access is denied` ở `multiprocessing.resource_sharer`, chạy không reload:
+Terminal 3 — PC worker:
 
 ```powershell
-.\scripts\dev.ps1 -Reload
-.\scripts\dev.ps1 -NoReload
+$env:SYNC_AUTOSTART="true"
+.\venv\Scripts\uvicorn sync.service:app --host 127.0.0.1 --port 7862
 ```
 
-Trước đó hãy chạy model service ở terminal riêng:
+Hoặc chạy script web có auto-reload:
 
 ```powershell
-cd C:\Users\khanh\Downloads\hachimimt-local\hachimimt
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r requirements-api.txt
-python src\api.py
+.\scripts\dev.ps1 -Port 8002
 ```
 
-Terminal 1 – Web
+## Docker Compose
 
-venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000
+```powershell
+Copy-Item .env.example .env
+docker compose up -d --build
+```
 
-Terminal 2 – Translator (HachimiMT)
+Compose gồm `web` (8000), `translator` (7861), `tts` (8002) và `sync` (8003). `sync` bật worker bằng `SYNC_AUTOSTART=true`.
 
-venv\Scripts\uvicorn infra.translator.service:app --host 127.0.0.1 --port 7861
+Khởi động lại worker và translator:
 
-Terminal 3 – PC Worker (đọc/ghi Supabase)
+```powershell
+docker compose restart translator sync
+```
 
-venv\Scripts\uvicorn sync.service:app --host 127.0.0.1 --port 7862
+## Luồng crawl và dịch
 
-Model service chạy tại `http://127.0.0.1:7861`; website chạy tại `http://127.0.0.1:8002` khi chạy theo lệnh Windows ở trên. Database nằm tại `data/app.db`, audio cache sẽ nằm tại `data/audio/`.
+1. Admin nhập URL nguồn trong `/admin`.
+2. Web tạo `remote_crawl_jobs` trên Supabase.
+3. PC worker crawl metadata/chương và lưu raw content.
+4. Worker tạo `translation_queue`; translator xử lý từng chương.
+5. Bản dịch hoàn tất được xuất thành JSON trong Supabase Storage và reader đọc từ đó.
 
-Model service dùng cố định `ngocdang83/HachimiMT-60-QT` bằng CTranslate2. Website chỉ gọi API qua `MODEL_SERVICE_URL`, không tự load PyTorch/Transformers. Nếu model service tắt, bản gốc vẫn được lưu và giao diện báo lỗi ở bước dịch.
+Nếu worker tắt, job vẫn nằm trong queue để xử lý sau. Trang `/jobs` hiển thị trạng thái crawl và dịch.
 
-Hãy sao lưu `data/app.db` và thư mục `data/audio/`. Plugin crawler đã triển khai: `69shuba.com`, `trxs.cc` và `m.xsw.tw`. Các nguồn `bookqq`, `fanqienovel`, `piaotian`, `uukanshu` chưa được đăng ký vì domain hoặc cấu trúc truy cập chưa đủ ổn định để xác minh an toàn.
+## Admin
+
+- `/admin/novels`: sửa metadata và nguồn crawl.
+- `/admin/novels/{id}/chapters`: CRUD chương.
+- `/admin/novels/{id}/chapters/{chapter_id}/content`: sửa bản dịch và bản gốc.
+- `/jobs`: theo dõi queue và worker.
+
+Nút xem bản gốc trong reader chỉ dành cho tài khoản có role `admin`.
+
+## Biến môi trường
+
+Xem `.env.example`. Các biến thường dùng:
+
+```text
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_KEY
+MODEL_SERVICE_URL=http://127.0.0.1:7861
+TTS_API_URL=http://127.0.0.1:8002
+SYNC_AUTOSTART=true
+SYNC_INTERVAL=60
+```
+
+Không commit `.env`, service key, model hoặc dữ liệu local.
+
+## Kiểm thử
+
+```powershell
+.\venv\Scripts\python.exe -m pytest -q
+```
+
+Thay đổi crawler nằm trong `app/crawlers/`; thay đổi translator nằm trong `app/translator/`. Reader chỉ gọi service translator/TTS, không chứa logic crawler.
