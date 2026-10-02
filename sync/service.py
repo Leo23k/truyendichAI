@@ -964,7 +964,7 @@ async def _crawl_and_translate_url(
             "Đã đọc %s chương; có %s chương mới cần crawl và đưa vào hàng đợi dịch.",
             len(incoming), total_raw,
         )
-        crawl_concurrency = 1 if crawler.source_name == "xsw" else (2 if crawler.source_name == "uukanshu" else CRAWL_CONCURRENCY)
+        crawl_concurrency = 1 if crawler.source_name == "xsw" else (3 if crawler.source_name == "uukanshu" else CRAWL_CONCURRENCY)
         logger.info("Crawl song song tối đa %s chương cùng lúc.", crawl_concurrency)
         update_status(status="crawling", raw_loaded=0, total_raw=total_raw)
         processed_job_ids = set(restored_chapter_ids)
@@ -975,7 +975,8 @@ async def _crawl_and_translate_url(
             async with semaphore:
                 if crawl_job_id and not remote_job_is_running(remote, crawl_job_id):
                     raise SyncError("Job đã được tạm dừng hoặc xóa.")
-                for attempt in range(1, 4):
+                max_attempts = 1 if crawler.source_name == "uukanshu" else 3
+                for attempt in range(1, max_attempts + 1):
                     try:
                         content = await asyncio.wait_for(
                             crawler.get_chapter_content(str(chapter["source_url"])),
@@ -983,7 +984,7 @@ async def _crawl_and_translate_url(
                         )
                         break
                     except (SourceRequestError, asyncio.TimeoutError) as exc:
-                        if attempt == 3:
+                        if attempt == max_attempts:
                             logger.warning("Bỏ qua chương %s từ nguồn %s sau %s lần thử: %s", chapter["chapter_number"], crawler.source_name, attempt, exc)
                             return chapter, ""
                         delay = attempt * 3
