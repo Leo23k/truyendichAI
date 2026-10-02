@@ -232,7 +232,15 @@ def _replacement_context(request: Request, book_id: str) -> tuple[list[dict], st
 
 def _replacement_text(request: Request, book_id: str, text: str | None) -> str:
     rules, _ = _replacement_context(request, book_id)
-    return apply_replacement_rules(text, rules)
+    return _remove_stray_translation_dots(apply_replacement_rules(text, rules))
+
+
+_STRAY_TRANSLATION_DOT_RE = re.compile(r"(?m)^[ \t]*\.[ \t]*(?:\n|$)")
+
+
+def _remove_stray_translation_dots(text: str | None) -> str:
+    """Hide legacy decoder artifacts without touching punctuation in sentences."""
+    return _STRAY_TRANSLATION_DOT_RE.sub("", text or "")
 
 
 class TranslateRequest(BaseModel):
@@ -942,7 +950,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             )
             replacement_rules, replacement_book_id = _replacement_context(request, slug)
             raw_display_content = chapter.translated_content if progressive else original_content
-            display_content = apply_replacement_rules(raw_display_content, replacement_rules)
+            display_content = _remove_stray_translation_dots(apply_replacement_rules(raw_display_content, replacement_rules))
             return templates.TemplateResponse(
                 request=request,
                 name="reader.html",
@@ -993,7 +1001,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
     )
     replacement_rules, replacement_book_id = _replacement_context(request, slug)
     raw_display_content = translated_content if showing_translation else original_content
-    display_content = apply_replacement_rules(raw_display_content, replacement_rules)
+    display_content = _remove_stray_translation_dots(apply_replacement_rules(raw_display_content, replacement_rules))
     return templates.TemplateResponse(
         request=request,
         name="reader.html",
@@ -1448,7 +1456,7 @@ async def read_chapter(chapter_id: int, request: Request, db: Session = Depends(
     showing_translation = mode != "original" and bool(chapter.translated_content)
     replacement_rules, replacement_book_id = _replacement_context(request, str(chapter.book_id))
     raw_display_content = chapter.translated_content if showing_translation else chapter.original_content
-    display_content = apply_replacement_rules(raw_display_content, replacement_rules)
+    display_content = _remove_stray_translation_dots(apply_replacement_rules(raw_display_content, replacement_rules))
     return templates.TemplateResponse(
         request=request,
         name="reader.html",
