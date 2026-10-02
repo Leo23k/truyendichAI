@@ -105,6 +105,18 @@ def test_translation_worker_concurrency_defaults_to_two_and_is_bounded(monkeypat
     assert service.translation_worker_concurrency() == 1
 
 
+def test_paused_crawl_stops_crawler_but_allows_translation(monkeypatch) -> None:
+    class StatusRemote:
+        def rows(self, _table: str, params: dict[str, str]) -> list[dict]:
+            status_filter = params["status"]
+            return [{"id": "crawl-1"}] if status_filter.endswith("paused)") or status_filter == "eq.paused" else []
+
+    remote = StatusRemote()
+    assert service.remote_crawl_is_running(remote, "crawl-1") is False
+    assert service.remote_job_is_running(remote, "crawl-1") is True
+    assert service.remote_crawl_is_paused(remote, "crawl-1") is True
+
+
 def test_all_rows_reads_past_postgrest_default_page_size() -> None:
     class PaginatedRemote:
         all_rows = service.SupabaseSync.all_rows
@@ -302,7 +314,7 @@ def test_completed_crawl_job_keeps_its_translation_worker_running() -> None:
     class CrawlRemote:
         def rows(self, table: str, params: dict[str, str]) -> list[dict]:
             assert table == "remote_crawl_jobs"
-            assert params["status"] == "in.(crawling,syncing,translating,completed)"
+            assert params["status"] == "in.(crawling,syncing,translating,completed,paused)"
             return [{"id": "crawl-1"}]
 
     assert service.remote_job_is_running(CrawlRemote(), "crawl-1") is True

@@ -80,6 +80,44 @@ def test_login_callback_sets_persistent_auth_cookies(monkeypatch) -> None:
     assert any(cookie.startswith("sb-access-token=access;") and "Max-Age=31536000" in cookie for cookie in cookies)
     assert any(cookie.startswith("sb-refresh-token=refresh;") and "Max-Age=31536000" in cookie for cookie in cookies)
 
+
+def test_pausing_crawl_does_not_pause_translation_queue(monkeypatch) -> None:
+    class Remote:
+        def __init__(self) -> None:
+            self.patches: list[tuple[str, dict, dict]] = []
+
+        def rows(self, table: str, _params: dict) -> list[dict]:
+            assert table == "remote_crawl_jobs"
+            return [{"id": "crawl-1", "status": "crawling", "result": {}}]
+
+        def patch_rows(self, table: str, params: dict, payload: dict) -> list[dict]:
+            self.patches.append((table, params, payload))
+            return []
+
+    class Response:
+        headers: dict[str, str] = {}
+
+    remote = Remote()
+    response = Response()
+    monkeypatch.setattr(main, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(main, "_jobs_page_context", lambda **_kwargs: {})
+    monkeypatch.setattr(main.templates, "TemplateResponse", lambda **_kwargs: response)
+
+    assert main.control_crawl_job("crawl-1", "pause", None) is response
+    assert remote.patches == [
+        (
+            "remote_crawl_jobs",
+            {"id": "eq.crawl-1", "status": "in.(queued,crawling,syncing,translating,completed)"},
+            {"status": "paused", "error": None},
+        ),
+        (
+            "translation_queue",
+            {"crawl_job_id": "eq.crawl-1", "status": "eq.paused"},
+            {"status": "queued"},
+        ),
+    ]
+
+
 def test_refresh_session_reuses_a_recent_token_exchange(monkeypatch) -> None:
     auth._recent_refreshes.clear()
     calls = []

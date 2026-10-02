@@ -949,8 +949,16 @@ def control_crawl_job(job_id: str, action: str, request: Request):
         remote.delete_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"})
         message = "Đã xóa tiến trình và dữ liệu truyện liên quan."
     elif action == "pause":
-        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}", "status": "in.(queued,crawling,syncing,translating,completed)"}, {"status": "paused"})
-        remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "eq.queued"}, {"status": "paused"})
+        remote.patch_rows(
+            "remote_crawl_jobs",
+            {"id": f"eq.{job_id}", "status": "in.(queued,crawling,syncing,translating,completed)"},
+            {"status": "paused", "error": None},
+        )
+        remote.patch_rows(
+            "translation_queue",
+            {"crawl_job_id": f"eq.{job_id}", "status": "eq.paused"},
+            {"status": "queued"},
+        )
         message = "Đã tạm dừng tiến trình."
     else:
         target = "queued" if action in {"resume", "retry"} else "queued"

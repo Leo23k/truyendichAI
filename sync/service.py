@@ -406,10 +406,16 @@ def claim_remote_crawl_job(remote: SupabaseSync) -> dict | None:
 
 
 def remote_job_is_running(remote: SupabaseSync, job_id: str) -> bool:
-    # Crawling and translating are independent workers.  A crawl job may be
-    # complete while its associated translation queue still has work to do.
-    # Only an explicitly paused/deleted/failed job must stop its translator.
-    return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "in.(crawling,syncing,translating,completed)", "limit": "1"}))
+    # Pausing a crawl must not interrupt translation work already in its queue.
+    return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "in.(crawling,syncing,translating,completed,paused)", "limit": "1"}))
+
+
+def remote_crawl_is_running(remote: SupabaseSync, job_id: str) -> bool:
+    return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "in.(crawling,syncing)", "limit": "1"}))
+
+
+def remote_crawl_is_paused(remote: SupabaseSync, job_id: str) -> bool:
+    return bool(remote.rows("remote_crawl_jobs", {"select": "id", "id": f"eq.{job_id}", "status": "eq.paused", "limit": "1"}))
 
 
 AUTO_GLOSSARY_MIN_CHAPTERS = 2
@@ -973,8 +979,8 @@ async def _crawl_and_translate_url(
 
         async def crawl_chapter(chapter: dict) -> tuple[dict, str]:
             async with semaphore:
-                if crawl_job_id and not remote_job_is_running(remote, crawl_job_id):
-                    raise SyncError("Job đã được tạm dừng hoặc xóa.")
+                if crawl_job_id and not remote_crawl_is_running(remote, crawl_job_id):
+                    return chapter, ""
                 max_attempts = 1 if crawler.source_name == "uukanshu" else 3
                 for attempt in range(1, max_attempts + 1):
                     try:
@@ -1003,11 +1009,15 @@ async def _crawl_and_translate_url(
 
         tasks = [asyncio.create_task(crawl_chapter(chapter)) for chapter in pending]
         for completed, task in enumerate(asyncio.as_completed(tasks), start=1):
-            if crawl_job_id and not remote_job_is_running(remote, crawl_job_id):
+            if crawl_job_id and not remote_crawl_is_running(remote, crawl_job_id):
                 for pending_task in tasks:
                     pending_task.cancel()
                 return
             chapter, original = await task
+            if crawl_job_id and not remote_crawl_is_running(remote, crawl_job_id):
+                for pending_task in tasks:
+                    pending_task.cancel()
+                return
             if not original:
                 logger.warning("Bỏ qua chương %s vì không lấy được nội dung.", chapter["chapter_number"])
                 continue
@@ -1069,6 +1079,9 @@ async def _crawl_and_translate_url(
             return
         update_status(status="completed", result={**result, "translated": 0})
     except Exception as exc:
+        if crawl_job_id and remote_crawl_is_paused(remote, crawl_job_id):
+            logger.info("Job crawl %s đã được tạm dừng.", crawl_job_id)
+            return
         logger.exception("Worker crawl/dịch trên PC thất bại.")
         update_status(status="queued", error=str(exc))
 
@@ -1094,7 +1107,10 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
         if job_result:
             payload["result"] = job_result
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
-        remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job['id']}"}, payload)
+        params = {"id": f"eq.{job['id']}"}
+        if payload.get("status") in {"crawling", "syncing", "translating", "completed", "queued"}:
+            params["status"] = "eq.crawling"
+        remote.patch_rows("remote_crawl_jobs", params, payload)
 
     try:
         logger.info("Bắt đầu job crawl: %s", job["source_url"])
