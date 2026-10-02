@@ -904,7 +904,10 @@ async def _crawl_and_translate_url(
             novel = novels[0]
             translated_title = str(novel.get("title") or info.title)
             translated_author = novel.get("author") or info.author
-            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"cover_url": info.cover_url, "genres": info.genres or [], "source_type": source_type, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()})
+            novel_patch = {"genres": info.genres or [], "source_type": source_type, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()}
+            if not source_update_novel_id:
+                novel_patch["cover_url"] = info.cover_url
+            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, novel_patch)
         else:
             translated_title = info.title if is_vietnamese else translator.translate_metadata(info.title)
             translated_author = info.author if is_vietnamese else (translator.translate_metadata(info.author) if info.author else None)
@@ -929,8 +932,8 @@ async def _crawl_and_translate_url(
                 current = existing_by_number.get(int(item.chapter_number))
                 if current:
                     updated_source_ids.add(int(current["id"]))
-                    if current.get("source_url") != item.url or current.get("title") != item.title:
-                        remote.patch_rows("chapters", {"id": f"eq.{current['id']}"}, {"source_url": item.url, "title": item.title})
+                    if current.get("source_url") != item.url:
+                        remote.patch_rows("chapters", {"id": f"eq.{current['id']}"}, {"source_url": item.url})
         new_rows = [
             {"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": is_vietnamese, "audio_available": False}
             for item in incoming
@@ -1016,6 +1019,16 @@ async def _crawl_and_translate_url(
                 except SyncError:
                     logger.warning("Could not read the prior raw content for chapter %s.", chapter["chapter_number"])
             if source_update_novel_id and previous_payload and clean_chapter_text(str(previous_payload.get("original_content") or "")) == original:
+                if str(previous_payload.get("original_title") or "") != str(chapter["title"]):
+                    translated_title = translator.translate(str(chapter["title"]))
+                    previous_payload.update({"number": chapter["chapter_number"], "title": translated_title, "original_title": chapter["title"]})
+                    remote.upload_if_changed(
+                        "chapters",
+                        f"{novel['slug']}/{chapter_key(int(chapter['chapter_number']))}.json",
+                        json.dumps(previous_payload, ensure_ascii=False).encode("utf-8"),
+                        "application/json",
+                    )
+                    remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {"title": translated_title})
                 update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
                 continue
             key = chapter_key(int(chapter["chapter_number"]))
