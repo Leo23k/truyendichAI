@@ -867,7 +867,11 @@ def control_crawl_job(job_id: str, action: str, request: Request):
         remote.patch_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"}, {"status": "deleting"})
         remote.patch_rows("translation_queue", {"crawl_job_id": f"eq.{job_id}", "status": "in.(queued,translating,paused)"}, {"status": "paused"})
         book_id = result.get("book_id")
-        if book_id:
+        # An update-source job points at an existing novel. Removing the job
+        # must never remove that novel (or its chapters); only a standalone
+        # crawl job is allowed to clean up the book it created.
+        is_source_update = bool(result.get("source_update_novel_id") or result.get("source_update"))
+        if book_id and not is_source_update:
             delete_synced_novel_permanently_by_id(int(book_id))
         remote.delete_rows("remote_crawl_jobs", {"id": f"eq.{job_id}"})
         message = "Đã xóa tiến trình và dữ liệu truyện liên quan."
