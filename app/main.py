@@ -38,6 +38,7 @@ from app.cdn import (
     load_novels,
     load_admin_novels,
     load_admin_novel_chapters,
+    load_admin_chapter_content,
     load_synced_novel,
     load_replacement_rules,
     load_user_reading_progress,
@@ -52,6 +53,7 @@ from app.cdn import (
     update_admin_novel_source,
     save_admin_novel_chapter,
     delete_admin_novel_chapter,
+    save_admin_chapter_content,
 )
 from app.database import SessionLocal, create_tables, get_db
 from app.crawlers.base import clean_chapter_text
@@ -690,6 +692,24 @@ def delete_admin_novel_chapter_page(novel_id: int, chapter_id: int):
     except CdnDataError as exc:
         return _admin_chapters_redirect(novel_id, str(exc), error=True)
     return _admin_chapters_redirect(novel_id, "Đã xóa chương.")
+
+
+@app.get("/admin/novels/{novel_id}/chapters/{chapter_id}/content", include_in_schema=False)
+def admin_chapter_content_page(novel_id: int, chapter_id: int, request: Request):
+    try:
+        novel, chapter, content = load_admin_chapter_content(novel_id, chapter_id)
+    except CdnDataError as exc:
+        return _admin_chapters_redirect(novel_id, str(exc), error=True)
+    return templates.TemplateResponse(request=request, name="admin_chapter_content.html", context={"novel": novel, "chapter": chapter, "content": content, "toast": request.query_params.get("toast"), "toast_error": request.query_params.get("error") == "1"})
+
+
+@app.post("/admin/novels/{novel_id}/chapters/{chapter_id}/content", include_in_schema=False)
+def save_admin_chapter_content_page(novel_id: int, chapter_id: int, original_title: str = Form(...), translated_title: str = Form(""), original_content: str = Form(...), translated_content: str = Form("")):
+    try:
+        save_admin_chapter_content(novel_id, chapter_id, original_title=original_title.strip(), translated_title=translated_title.strip(), original_content=original_content.strip(), translated_content=translated_content.strip())
+    except CdnDataError as exc:
+        return RedirectResponse(f"/admin/novels/{novel_id}/chapters/{chapter_id}/content?toast={quote(str(exc))}&error=1", status_code=303)
+    return RedirectResponse(f"/admin/novels/{novel_id}/chapters/{chapter_id}/content?toast={quote('Đã lưu nội dung chương.')}", status_code=303)
 
 
 def _worker_statuses() -> dict[str, dict[str, object]]:

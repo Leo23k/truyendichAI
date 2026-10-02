@@ -411,6 +411,52 @@ def delete_admin_novel_chapter(novel_id: int, chapter_id: int) -> None:
     _refresh_admin_novel_latest_chapter(novel_id)
 
 
+def load_admin_chapter_content(novel_id: int, chapter_id: int) -> tuple[dict, dict, dict]:
+    novel, _ = load_admin_novel_chapters(novel_id)
+    chapters = _service_rows("chapters", {"select": "id,chapter_number,title,source_url,translated,content_path", "id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}", "limit": "1"})
+    if not chapters:
+        raise CdnDataError("Không tìm thấy chương.")
+    chapter = chapters[0]
+    payload: dict = {}
+    if chapter.get("content_path"):
+        try:
+            payload = load_cdn_json(str(chapter["content_path"]))
+        except CdnDataError:
+            pass
+    return novel, chapter, payload
+
+
+def save_admin_chapter_content(novel_id: int, chapter_id: int, *, original_title: str, translated_title: str, original_content: str, translated_content: str) -> None:
+    novel, chapter, _ = load_admin_chapter_content(novel_id, chapter_id)
+    if not original_title or not original_content:
+        raise CdnDataError("Tiêu đề và nội dung bản gốc là bắt buộc.")
+    translated = bool(translated_content.strip())
+    key = f"{int(chapter['chapter_number']):03d}.json"
+    storage_path = f"{novel['slug']}/{key}"
+    payload = json.dumps({
+        "number": chapter["chapter_number"], "title": translated_title or original_title,
+        "original_title": original_title, "original_content": original_content,
+        "translated_content": translated_content if translated else "",
+        "content": translated_content if translated else original_content,
+        "translated": translated, "audio": None,
+    }, ensure_ascii=False).encode("utf-8")
+    try:
+        with httpx.Client(timeout=60, trust_env=False) as client:
+            response = client.post(
+                f"{SUPABASE_URL}/storage/v1/object/chapters/{quote(storage_path, safe='/')}", content=payload,
+                headers={**_service_headers(), "x-upsert": "true", "Content-Type": "application/json"},
+            )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise CdnDataError("Không thể lưu nội dung chương.") from exc
+    _service_patch("chapters", {"id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}"}, {
+        "title": translated_title or original_title, "translated": translated, "audio_available": False,
+        "content_path": f"chapters/{storage_path}", "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    _service_delete("chapter_chunks", {"chapter_id": f"eq.{chapter_id}"})
+    _service_delete("translation_queue", {"chapter_id": f"eq.{chapter_id}"})
+
+
 def load_synced_novel(slug: str) -> dict:
     if _configured():
         try:
