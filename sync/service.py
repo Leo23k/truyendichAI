@@ -913,9 +913,15 @@ async def _crawl_and_translate_url(
 
         update_status(book_id=novel["id"], title=translated_title)
 
+        # Crawlers may expose the same logical chapter through multiple URLs.
+        # Keep one canonical source per number: storage and reader navigation
+        # use the number as identity, so accepting both would overwrite raw JSON.
         incoming = await crawler.get_chapters(url)
+        incoming_by_number = {}
+        for item in incoming:
+            incoming_by_number.setdefault(int(item.chapter_number), item)
+        incoming = list(incoming_by_number.values())
         existing = remote.all_rows("chapters", {"select": "id,chapter_number,title,source_url,translated", "novel_id": f"eq.{novel['id']}", "order": "source_url.asc"})
-        existing_urls = {row["source_url"] for row in existing}
         existing_by_number = {int(row["chapter_number"]): row for row in existing}
         updated_source_ids: set[int] = set()
         if source_update_novel_id:
@@ -928,7 +934,7 @@ async def _crawl_and_translate_url(
         new_rows = [
             {"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": is_vietnamese, "audio_available": False}
             for item in incoming
-            if item.url not in existing_urls and (not source_update_novel_id or int(item.chapter_number) not in existing_by_number)
+            if int(item.chapter_number) not in existing_by_number
         ]
         remote.insert_many_ignore("chapters", new_rows, "novel_id,source_url")
         chapters = remote.all_rows("chapters", {"select": "id,chapter_number,title,source_url,translated,content_path", "novel_id": f"eq.{novel['id']}", "order": "chapter_number.asc"})
