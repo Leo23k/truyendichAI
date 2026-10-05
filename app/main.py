@@ -465,7 +465,7 @@ def library(request: Request, page: int = 1, query: str = "", filter: str = "all
     except CdnDataError:
         synced_novels = []
     query = " ".join(query.split())
-    library_filter = filter if filter in {"all", "reading"} else "all"
+    library_filter = filter if filter in {"all", "reading", "followed"} else "all"
     page_size = 10
     total_novels = len(synced_novels)
     total_pages = max(1, (total_novels + page_size - 1) // page_size)
@@ -1067,12 +1067,37 @@ def synced_book(slug: str, request: Request, chapter_page: int = 1, chapter_sort
 
 @app.get("/followed")
 def followed_page(request: Request, q: str = "", filter: str = "all", page: int = 1):
+    require_authenticated(request)
+    params = ["filter=followed"]
+    if q.strip():
+        params.append(f"query={quote(q.strip())}")
+    if filter in {"new", "read"}:
+        params.append(f"follow_filter={filter}")
+    if page > 1:
+        params.append(f"page={max(1, page)}")
+    return RedirectResponse(f"/?{'&'.join(params)}", status_code=303)
+
+
+@app.get("/api/follows")
+def followed_novel_metadata(request: Request) -> dict:
     user = require_authenticated(request)
-    rows, total = list_followed_novels(user.id, query=q, filter_by=filter, page=page, page_size=20)
-    return templates.TemplateResponse(request=request, name="followed.html", context={
-        "items": rows, "query": q, "filter_by": filter, "page": max(1, page),
-        "pages": max(1, (total + 19) // 20), "total": total,
-    })
+    page_size = 50
+    page = 1
+    novels: list[dict] = []
+    total = 0
+    while True:
+        batch, total = list_followed_novels(user.id, page=page, page_size=page_size)
+        if not batch:
+            break
+        novels.extend(batch)
+        if len(novels) >= total:
+            break
+        page += 1
+    fields = (
+        "novel_id", "follow_created_at", "slug", "title", "author", "cover_url",
+        "latest_chapter", "last_read_chapter", "new_chapter_count", "updated_at",
+    )
+    return {"items": [{field: novel.get(field) for field in fields} for novel in novels]}
 
 
 @app.post("/api/follows/{novel_id}")

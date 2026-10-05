@@ -2,7 +2,7 @@
 {% block title %}Thư viện{% endblock %}
 {% block main_class %}min-h-screen px-4 py-8 sm:px-6 lg:px-8{% endblock %}
 {% block content %}
-<section class="site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
+<section class="library-page site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
   <style>
     [id="library-grid"]{grid-auto-rows:1fr}.library-card{display:flex;min-width:0;flex-direction:column}.library-card>a{display:block;overflow:hidden}.library-card .aspect-\[2\/3\]{aspect-ratio:3/4!important}.library-card .p-4{display:flex;min-height:0;flex:1;flex-direction:column;padding:1rem}.library-card h2{min-height:2.75rem;font-size:.95rem;line-height:1.35}.library-card p{margin-top:.35rem!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.library-card .library-progress{margin-top:auto;padding-top:.9rem}.library-card .library-progress-head{display:flex;align-items:center;justify-content:space-between;font-size:.66rem;font-weight:700;letter-spacing:.06em;color:var(--muted)}.library-card .library-progress-head strong{color:var(--accent);letter-spacing:0}.library-card .library-progress-track{margin-top:.4rem;height:.32rem;overflow:hidden;border-radius:999px;background:var(--surface-3)}.library-card .library-progress-track>span{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .2s ease}.library-card [data-book-start]{width:100%;justify-content:center;margin-top:.75rem;background:var(--accent)!important;color:var(--accent-ink)!important}.library-card [data-book-start] span{color:var(--accent-ink)!important}.library-pagination{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.45rem}.library-pagination a{display:inline-flex;min-height:2.35rem;min-width:2.35rem;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:.5rem;padding:0 .7rem;color:var(--text);font-size:.875rem;font-weight:700}.library-pagination a:hover{border-color:var(--accent);background:var(--surface-2)}.library-pagination a[aria-current="page"]{border-color:transparent;background:var(--accent);color:var(--accent-ink)}
     @media(max-width:639px){
@@ -11,11 +11,28 @@
       .library-search{max-width:none}
     }
   </style>
+  <style>
+    .library-toolbar--library{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.55rem;padding:.55rem}
+    .library-toolbar__controls{display:flex;min-width:0;align-items:center;gap:.4rem}
+    .library-toolbar__tabs{display:flex;min-width:0;align-items:center;gap:.35rem;overflow-x:auto}
+    .library-toolbar__tabs .site-nav-button{white-space:nowrap}
+    .library-sort{position:relative;margin-left:auto;flex:0 0 auto}
+    .library-sort-toggle{display:inline-flex;height:2.5rem;width:2.5rem;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:.5rem;color:var(--text)}
+    .library-sort-menu{position:absolute;right:0;top:calc(100% + .4rem);z-index:30;min-width:9rem;overflow:hidden;border:1px solid var(--line);border-radius:.65rem;background:var(--surface);padding:.3rem;box-shadow:var(--shadow)}
+    .library-sort-menu[hidden]{display:none}
+    .library-sort-choice{display:block;width:100%;border-radius:.4rem;padding:.55rem .65rem;text-align:left;font-size:.8rem;color:var(--text)}
+    .library-sort-choice:hover,.library-sort-choice[aria-checked="true"]{background:var(--surface-3)}
+    .follow-filter-row{display:none;gap:.35rem;overflow-x:auto}.follow-filter-row.is-visible{display:flex}
+    @media(max-width:639px){
+      .library-page{padding:.75rem .45rem 4rem}.library-heading{display:none}.library-toolbar--library{margin-top:.4rem!important;gap:.45rem;padding:.45rem;border-radius:.75rem}.library-toolbar__controls{gap:.25rem}.library-toolbar__tabs{flex:1}.library-toolbar__tabs .site-nav-button,.library-toolbar__controls>.site-nav-button{min-height:2.15rem;gap:.3rem;padding:0 .55rem;font-size:.72rem}.library-toolbar__controls>.site-nav-button{flex:0 0 auto}.library-sort-toggle{height:2.15rem;width:2.15rem}.library-search{height:2.35rem;max-width:none;padding:.15rem}.library-search input{height:2rem!important;font-size:.75rem!important}.library-search>i{margin-left:.45rem!important}.library-search [data-clear-search]{height:1.8rem;width:1.8rem}
+      #library-grid{gap:.45rem}.library-card{border-radius:.55rem}.library-card .p-4{padding:.55rem}.library-card h2{min-height:1.9rem;font-size:.7rem;line-height:1rem}.library-card p{margin-top:.2rem!important;font-size:.61rem;line-height:.9rem}.library-card .library-progress{padding-top:.4rem}.library-card .library-progress-head{font-size:.5rem}.library-card .library-progress-track{margin-top:.25rem;height:.22rem}.library-card [data-book-start]{height:1.55rem;margin-top:.4rem;gap:.3rem;padding:0 .35rem;font-size:.62rem}.library-card [data-book-start] i{height:.7rem;width:.7rem}.follow-filter-row button{min-height:1.8rem;padding:0 .5rem;font-size:.65rem}
+    }
+  </style>
   {% macro library_pagination() %}
     <div data-library-pagination class="mt-8"></div>
   {% endmacro %}
   <div class="relative flex flex-col gap-4">
-    <div class="pr-12 sm:pr-64">
+    <div class="library-heading pr-12 sm:pr-64">
       <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện</h1></div>
       <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có <span id="library-count">{{ library_total_novels }}</span> truyện.</p>
     </div>
@@ -30,15 +47,29 @@
         <a href="/logout" class="flex min-h-11 items-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
       </div>
     </div>
-    <div class="library-toolbar mt-6 flex w-full flex-wrap items-center gap-2">
-      <div class="flex flex-wrap items-center gap-2" role="tablist" aria-label="Lọc thư viện">
-        <button type="button" data-library-tab="all" class="site-nav-button {{ 'accent' if library_filter != 'reading' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter != 'reading' else 'false' }}">Tất cả</button>
+    <div class="library-toolbar library-toolbar--library mt-6 w-full">
+      <div class="library-toolbar__controls">
+       <div class="library-toolbar__tabs" role="tablist" aria-label="Lọc thư viện">
+        <button type="button" data-library-tab="all" class="site-nav-button {{ 'accent' if library_filter == 'all' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter == 'all' else 'false' }}">Tất cả</button>
         <button type="button" data-library-tab="reading" class="site-nav-button {{ 'accent' if library_filter == 'reading' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter == 'reading' else 'false' }}">Đang đọc</button>
+        <button type="button" data-library-tab="followed" class="site-nav-button {{ 'accent' if library_filter == 'followed' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter == 'followed' else 'false' }}">Theo dõi</button>
+       </div>
+       <div class="library-sort">
+        <button type="button" data-sort-toggle class="library-sort-toggle" aria-label="Sắp xếp truyện" aria-haspopup="menu" aria-expanded="false" title="Sắp xếp"><i data-lucide="list-filter" class="h-4 w-4"></i></button>
+        <div data-sort-menu class="library-sort-menu" role="menu" hidden>
+          <button type="button" data-sort-choice="newest" class="library-sort-choice" role="menuitemradio">Mới nhất</button>
+          <button type="button" data-sort-choice="oldest" class="library-sort-choice" role="menuitemradio">Cũ nhất</button>
+        </div>
+       </div>
       </div>
-      <a href="/followed" class="site-nav-button inline-flex items-center gap-1.5"><i data-lucide="heart" class="h-4 w-4"></i>Theo dõi</a>
+      <div data-follow-filter-row class="follow-filter-row" aria-label="Lọc truyện theo dõi">
+        <button type="button" data-follow-filter="all" class="site-nav-button">Tất cả</button>
+        <button type="button" data-follow-filter="new" class="site-nav-button">Có chương mới</button>
+        <button type="button" data-follow-filter="read" class="site-nav-button">Đã đọc</button>
+      </div>
       <form action="/" method="get" role="search"
         data-library-search
-        class="library-search flex w-full max-w-md items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500 sm:ml-auto"
+        class="library-search flex w-full items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500"
       >
         <span class="sr-only">Tìm trong thư viện</span>
         <label for="source-query" class="sr-only">Tìm truyện hoặc tác giả</label>
@@ -75,6 +106,9 @@
     const searchInput = document.querySelector("#source-query");
     const clearSearch = document.querySelector("[data-clear-search]");
     const searchStatus = document.querySelector("#lookup-results");
+    const sortToggle = document.querySelector("[data-sort-toggle]");
+    const sortMenu = document.querySelector("[data-sort-menu]");
+    const followFilterRow = document.querySelector("[data-follow-filter-row]");
     const readerStoragePrefix = `reader.${document.body.dataset.userId || "anonymous"}.`;
     const progressStorage = {
       getItem: (key) => window.localStorage.getItem(`${readerStoragePrefix}reader.${key}`),
@@ -89,10 +123,17 @@
     const initialUrl = new URL(window.location.href);
     const state = {
       allNovels: [],
+      novelsBySlug: new Map(),
       readingSlugs: new Set(),
       progressBySlug: new Map(),
+      oldestNovels: [],
+      followedNovels: [],
+      oldestFollowedNovels: [],
+      followedLoadState: "idle",
       searchQuery: normalize(searchInput?.value || ""),
-      activeTab: initialUrl.searchParams.get("filter") === "reading" ? "reading" : "all",
+      activeTab: ["reading", "followed"].includes(initialUrl.searchParams.get("filter")) ? initialUrl.searchParams.get("filter") : "all",
+      followFilter: ["new", "read"].includes(initialUrl.searchParams.get("follow_filter")) ? initialUrl.searchParams.get("follow_filter") : "all",
+      sort: initialUrl.searchParams.get("sort") === "oldest" ? "oldest" : "newest",
       currentPage: Math.max(1, Number(initialUrl.searchParams.get("page") || 1)),
       pageSize: 10,
       isLoading: true,
@@ -104,7 +145,12 @@
       if (rawQuery) url.searchParams.set("query", rawQuery);
       else url.searchParams.delete("query");
       if (state.activeTab === "reading") url.searchParams.set("filter", "reading");
+      else if (state.activeTab === "followed") url.searchParams.set("filter", "followed");
       else url.searchParams.delete("filter");
+      if (state.activeTab === "followed" && state.followFilter !== "all") url.searchParams.set("follow_filter", state.followFilter);
+      else url.searchParams.delete("follow_filter");
+      if (state.sort === "oldest") url.searchParams.set("sort", "oldest");
+      else url.searchParams.delete("sort");
       if (state.currentPage > 1) url.searchParams.set("page", String(state.currentPage));
       else url.searchParams.delete("page");
       url.searchParams.delete("return_page");
@@ -115,6 +161,9 @@
       const rawQuery = searchInput?.value.trim() || "";
       if (rawQuery) params.set("query", rawQuery);
       if (state.activeTab === "reading") params.set("filter", "reading");
+      else if (state.activeTab === "followed") params.set("filter", "followed");
+      if (state.activeTab === "followed" && state.followFilter !== "all") params.set("follow_filter", state.followFilter);
+      if (state.sort === "oldest") params.set("sort", "oldest");
       if (page > 1) params.set("page", String(page));
       return `/?${params.toString()}`;
     };
@@ -130,8 +179,8 @@
       const slug = String(novel.slug || "");
       const detailUrl = `/truyen/${encodeURIComponent(slug)}`;
       const progressItem = state.progressBySlug.get(slug);
-      const chapterNumber = Number(progressItem?.chapter_number || 0);
-      const total = Number(novel.total_chapters || 0);
+      const chapterNumber = Number(novel._isFollowed ? novel.last_read_chapter : progressItem?.chapter_number || 0);
+      const total = Number(novel._isFollowed ? novel.latest_chapter : novel.total_chapters || 0);
       const article = createElement("article", "library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500");
       article.dataset.libraryBook = "";
       article.dataset.bookKey = slug;
@@ -152,7 +201,10 @@
       coverLink.href = detailUrl;
       const coverFrame = createElement("div", "relative aspect-[2/3] w-full");
       const statusCompleted = novel.reading_status === "completed";
-      coverFrame.append(createElement("span", `absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] font-bold shadow-sm ${statusCompleted ? "bg-teal-500 text-[#062b28]" : "bg-amber-400 text-amber-950"}`, statusCompleted ? "Hoàn thành" : "Đang ra"));
+      const badgeText = novel._isFollowed
+        ? (Number(novel.new_chapter_count) > 0 ? `${novel.new_chapter_count} chương mới` : "Theo dõi")
+        : (statusCompleted ? "Hoàn thành" : "Đang ra");
+      coverFrame.append(createElement("span", `absolute right-2 top-2 z-10 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold shadow-sm ${statusCompleted && !novel._isFollowed ? "bg-teal-500 text-[#062b28]" : "bg-amber-400 text-amber-950"}`, badgeText));
       const fallback = createElement("div", "book-cover-fallback absolute inset-0 flex items-center justify-center text-sm font-medium text-stone-500", "Chưa có bìa");
       if (novel.cover) {
         const image = createElement("img", "h-full w-full object-cover");
@@ -242,15 +294,33 @@
         button.classList.toggle("accent", selected);
         button.setAttribute("aria-selected", String(selected));
       });
+      followFilterRow.classList.toggle("is-visible", state.activeTab === "followed");
+      document.querySelectorAll("[data-follow-filter]").forEach((button) => {
+        const selected = button.dataset.followFilter === state.followFilter;
+        button.classList.toggle("accent", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      });
+      document.querySelectorAll("[data-sort-choice]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.sortChoice === state.sort)));
       if (state.isLoading) {
         searchStatus.textContent = "Đang tải danh sách truyện...";
         return;
       }
+      if (state.activeTab === "followed" && state.followedLoadState !== "loaded") {
+        libraryGrid.replaceChildren();
+        renderPagination(1);
+        searchStatus.textContent = state.followedLoadState === "error" ? "Không tải được truyện theo dõi. Hãy thử tải lại trang." : "Đang tải truyện theo dõi...";
+        return;
+      }
       const terms = state.searchQuery.split(" ").filter(Boolean);
-      const filtered = state.allNovels
+      const sourceNovels = state.activeTab === "followed"
+        ? (state.sort === "oldest" ? state.oldestFollowedNovels : state.followedNovels)
+        : state.sort === "oldest" ? state.oldestNovels : state.allNovels;
+      const filtered = sourceNovels
         .filter((novel) => {
           const slug = String(novel.slug || "");
           if (state.activeTab === "reading" && !state.readingSlugs.has(slug)) return false;
+          if (state.activeTab === "followed" && state.followFilter === "new" && Number(novel.new_chapter_count) <= 0) return false;
+          if (state.activeTab === "followed" && state.followFilter === "read" && Number(novel.new_chapter_count) > 0) return false;
           return terms.every((term) => novel._searchText.includes(term));
         });
       const totalPages = Math.max(1, Math.ceil(filtered.length / state.pageSize));
@@ -258,7 +328,7 @@
       const start = (state.currentPage - 1) * state.pageSize;
       const pageItems = filtered.slice(start, start + state.pageSize);
       libraryGrid.replaceChildren(...pageItems.map(renderCard));
-      searchStatus.textContent = pageItems.length ? "" : (state.searchQuery ? "Không tìm thấy truyện phù hợp." : state.activeTab === "reading" ? "Bạn chưa có truyện đang đọc." : "Thư viện chưa có truyện.");
+      searchStatus.textContent = pageItems.length ? "" : (state.searchQuery ? "Không tìm thấy truyện phù hợp." : state.activeTab === "reading" ? "Bạn chưa có truyện đang đọc." : state.activeTab === "followed" ? "Bạn chưa theo dõi truyện nào phù hợp." : "Thư viện chưa có truyện.");
       renderPagination(totalPages);
       updateUrl();
       window.lucide?.createIcons?.();
@@ -267,8 +337,31 @@
     document.querySelectorAll("[data-library-tab]").forEach((button) => button.addEventListener("click", () => {
       state.activeTab = button.dataset.libraryTab;
       state.currentPage = 1;
+      if (state.activeTab === "followed" && !state.isLoading) loadFollowedNovels();
       render();
     }));
+    document.querySelectorAll("[data-follow-filter]").forEach((button) => button.addEventListener("click", () => {
+      state.followFilter = button.dataset.followFilter;
+      state.currentPage = 1;
+      render();
+    }));
+    sortToggle.addEventListener("click", () => {
+      sortMenu.hidden = !sortMenu.hidden;
+      sortToggle.setAttribute("aria-expanded", String(!sortMenu.hidden));
+    });
+    document.querySelectorAll("[data-sort-choice]").forEach((button) => button.addEventListener("click", () => {
+      state.sort = button.dataset.sortChoice;
+      state.currentPage = 1;
+      sortMenu.hidden = true;
+      sortToggle.setAttribute("aria-expanded", "false");
+      render();
+    }));
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".library-sort")) {
+        sortMenu.hidden = true;
+        sortToggle.setAttribute("aria-expanded", "false");
+      }
+    });
     searchForm.addEventListener("submit", (event) => event.preventDefault());
     searchInput.addEventListener("input", () => {
       state.searchQuery = normalize(searchInput.value);
@@ -288,12 +381,44 @@
       if (!response.ok) throw new Error(`Request failed: ${response.status}`);
       return response.json();
     };
+    const loadFollowedNovels = () => {
+      if (state.followedLoadState !== "idle") return;
+      state.followedLoadState = "loading";
+      fetchJson("/api/follows")
+        .then(({ items = [] }) => {
+          state.followedNovels = items.map((item) => {
+            const baseNovel = state.novelsBySlug.get(String(item.slug || "")) || {};
+            const novel = {
+              ...baseNovel,
+              ...item,
+              id: item.novel_id,
+              cover: item.cover_url || baseNovel.cover,
+              latest_chapter: item.latest_chapter ?? baseNovel.latest_chapter,
+              total_chapters: item.latest_chapter ?? baseNovel.total_chapters,
+              reading_status: baseNovel.reading_status || "ongoing",
+              _isFollowed: true,
+            };
+            novel._searchText = normalize(`${novel.title || ""} ${novel.author || ""} ${novel.slug || ""}`);
+            return novel;
+          });
+          state.followedNovels.sort((left, right) => (Date.parse(right.follow_created_at || "") || 0) - (Date.parse(left.follow_created_at || "") || 0));
+          state.oldestFollowedNovels = [...state.followedNovels].reverse();
+          state.followedLoadState = "loaded";
+          render();
+        })
+        .catch(() => {
+          state.followedLoadState = "error";
+          render();
+        });
+    };
     Promise.allSettled([fetchJson("/api/novels/metadata"), fetchJson("/api/reading-progress")])
       .then(([novelResult, progressResult]) => {
         if (novelResult.status !== "fulfilled") throw novelResult.reason;
         state.allNovels = (Array.isArray(novelResult.value.items) ? novelResult.value.items : [])
           .map((novel) => ({ ...novel, _searchText: normalize(`${novel.title || ""} ${novel.author || ""} ${novel.slug || ""}`) }))
           .sort((left, right) => (Date.parse(right.updated_at || "") || 0) - (Date.parse(left.updated_at || "") || 0));
+        state.novelsBySlug = new Map(state.allNovels.map((novel) => [String(novel.slug), novel]));
+        state.oldestNovels = [...state.allNovels].reverse();
         if (progressResult.status === "fulfilled") {
           for (const item of progressResult.value.items || []) {
             const slug = String(item.book_id || "");
@@ -307,6 +432,7 @@
           if (progressStorage.getItem(`lastUrl.book.${novel.slug}`)) state.readingSlugs.add(String(novel.slug));
         }
         state.isLoading = false;
+        if (state.activeTab === "followed") loadFollowedNovels();
         render();
       })
       .catch(() => {
