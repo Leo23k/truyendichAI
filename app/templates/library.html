@@ -12,15 +12,12 @@
     }
   </style>
   {% macro library_pagination() %}
-    {% if library_total_pages is defined and library_total_pages > 1 %}
-    {% set query_suffix = ('&query=' ~ (library_query|urlencode) ~ '&return_page=' ~ library_return_page if library_query else '') ~ ('&filter=reading' if library_filter == 'reading' else '') %}
-    <nav class="library-pagination mt-8" aria-label="Phân trang thư viện"><a href="/?page={{ library_page - 1 }}{{ query_suffix }}" {% if library_page == 1 %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang trước"><i data-lucide="chevron-left" class="h-4 w-4"></i></a>{% for item in range(1, library_total_pages + 1) %}<a href="/?page={{ item }}{{ query_suffix }}" {% if item == library_page %}aria-current="page"{% endif %}>{{ item }}</a>{% endfor %}<a href="/?page={{ library_page + 1 }}{{ query_suffix }}" {% if library_page == library_total_pages %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang sau"><i data-lucide="chevron-right" class="h-4 w-4"></i></a></nav>
-    {% endif %}
+    <div data-library-pagination class="mt-8"></div>
   {% endmacro %}
   <div class="relative flex flex-col gap-4">
     <div class="pr-12 sm:pr-64">
       <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện</h1></div>
-      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có {{ library_total_novels if library_total_novels is defined else ((books|length) if books else (synced_novels|length)) }} truyện.</p>
+      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có <span id="library-count">{{ library_total_novels }}</span> truyện.</p>
     </div>
     <div x-data="{ open: false }" @click.outside="open = false" class="hidden">
       <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex min-h-11 items-center gap-2 rounded-xl px-1.5 text-left hover:bg-stone-50" aria-label="Mở menu tài khoản">
@@ -33,18 +30,16 @@
         <a href="/logout" class="flex min-h-11 items-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
       </div>
     </div>
-    <div x-data="{ query: {{ (library_query or '')|tojson }} }" class="library-toolbar mt-6 flex w-full flex-wrap items-center gap-2">
+    <div class="library-toolbar mt-6 flex w-full flex-wrap items-center gap-2">
       <div class="flex flex-wrap items-center gap-2" role="tablist" aria-label="Lọc thư viện">
-        <a href="/?filter=all{% if library_query %}&amp;query={{ library_query|urlencode }}{% endif %}" class="site-nav-button {{ 'accent' if library_filter != 'reading' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter != 'reading' else 'false' }}">Tất cả</a>
-        <a href="/?filter=reading{% if library_query %}&amp;query={{ library_query|urlencode }}{% endif %}" class="site-nav-button {{ 'accent' if library_filter == 'reading' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter == 'reading' else 'false' }}">Đang đọc</a>
+        <button type="button" data-library-tab="all" class="site-nav-button {{ 'accent' if library_filter != 'reading' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter != 'reading' else 'false' }}">Tất cả</button>
+        <button type="button" data-library-tab="reading" class="site-nav-button {{ 'accent' if library_filter == 'reading' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter == 'reading' else 'false' }}">Đang đọc</button>
       </div>
       <a href="/followed" class="site-nav-button inline-flex items-center gap-1.5"><i data-lucide="heart" class="h-4 w-4"></i>Theo dõi</a>
-      <form action="/" method="get"
+      <form action="/" method="get" role="search"
         data-library-search
         class="library-search flex w-full max-w-md items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500 sm:ml-auto"
       >
-        <input type="hidden" name="return_page" value="{{ library_return_page }}">
-        <input type="hidden" name="filter" value="{{ library_filter }}">
         <span class="sr-only">Tìm trong thư viện</span>
         <label for="source-query" class="sr-only">Tìm truyện hoặc tác giả</label>
         <i data-lucide="search" class="ml-2 h-4 w-4 shrink-0 text-stone-400"></i>
@@ -53,217 +48,271 @@
           name="query"
           value="{{ library_query or '' }}"
           type="text"
-          x-ref="librarySearch"
-          x-model="query"
           autocomplete="off"
           placeholder="Tìm truyện hoặc tác giả..."
           class="h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-stone-900 outline-none placeholder:text-stone-400"
         >
-        <button type="button" data-clear-search x-cloak x-show="query" @click="query = ''; $refs.librarySearch.focus()" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700" aria-label="Xóa tìm kiếm">
+        <button type="button" data-clear-search class="hidden inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700" aria-label="Xóa tìm kiếm">
           <i data-lucide="x" class="h-4 w-4"></i>
         </button>
       </form>
     </div>
   </div>
 
-  <div id="lookup-results" class="mt-6" aria-live="polite"></div>
+  <div id="lookup-results" class="mt-6" aria-live="polite">Đang tải danh sách truyện...</div>
 
   {% if false %}
   <section class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4"><h2 class="font-semibold text-amber-950">Truyện đang chờ khôi phục</h2>{% for book in deleted_books %}<div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-white p-3"><span class="font-medium text-stone-900">{{ book.translated_title or book.title }}</span><div class="flex gap-2"><form action="/books/{{ book.id }}/restore" method="post"><button class="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white">Khôi phục</button></form><form action="/books/{{ book.id }}/delete-permanently" method="post" onsubmit="return confirm('Xóa vĩnh viễn truyện này?');"><button class="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700">Xóa vĩnh viễn</button></form></div></div>{% endfor %}{% for book in deleted_synced_novels %}<div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-white p-3"><span class="font-medium text-stone-900">{{ book.title }}</span><div class="flex gap-2"><form action="/truyen/{{ book.slug }}/restore" method="post"><button class="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white">Khôi phục</button></form><form action="/truyen/{{ book.slug }}/delete-permanently" method="post" onsubmit="return confirm('Xóa vĩnh viễn truyện này?');"><button class="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700">Xóa vĩnh viễn</button></form></div></div>{% endfor %}{% if not deleted_books and not deleted_synced_novels %}<p class="mt-2 text-sm text-amber-800">Không có truyện nào chờ khôi phục.</p>{% endif %}</section>
   {% endif %}
 
-  {% if books %}
-  <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
-    {% for book in books %}
-    {% set first_chapter = book.chapters[0] if book.chapters else none %}
-    <article data-library-book data-book-key="{{ book.id }}" data-chapter-ids="{{ book.chapters|map(attribute='id')|join(',') }}" data-detail-url="/books/{{ book.id }}" tabindex="0" role="link" class="library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500">
-      <a href="/books/{{ book.id }}" class="block">
-        <div class="relative aspect-[2/3] w-full">
-        <span class="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] font-bold shadow-sm {% if book.reading_status == 'completed' %}bg-teal-500 text-[#062b28]{% else %}bg-amber-400 text-amber-950{% endif %}">{% if book.reading_status == 'completed' %}Hoàn thành{% else %}Đang ra{% endif %}</span>
-        {% if book.cover_url %}
-        <img src="{{ book.cover_url }}" alt="Bìa {{ book.translated_title or book.title }}" loading="lazy" width="320" height="480" class="h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">
-        {% endif %}
-        <div class="book-cover-fallback {% if book.cover_url %}hidden{% endif %} absolute inset-0 flex items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
-        </div>
-      </a>
-      <div class="p-4">
-        <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ book.translated_title or book.title }}</h2>
-        <p class="mt-2 text-sm text-stone-500">{{ book.translated_author or book.author or 'Chưa rõ tác giả' }}</p>
-        <div class="library-progress" data-library-progress data-total-chapters="{{ book.chapters|length }}"><div class="library-progress-head"><span>TIẾN ĐỘ</span><strong data-library-progress-label>0/{{ book.chapters|length }}</strong></div><div class="library-progress-track"><span data-library-progress-bar></span></div></div>
-        <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
-          <div class="flex w-full flex-wrap items-center justify-end gap-2">
-            <a
-              data-book-start
-              href="{% if first_chapter %}/chapters/{{ first_chapter.id }}{% else %}/books/{{ book.id }}{% endif %}"
-              onclick="return startTranslationProgress(this)"
-              class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"
-            >
-              <i data-lucide="book-open" class="h-4 w-4"></i>
-              <span data-book-start-label>Đọc</span>
-            </a>
-            {% if false %}<form action="/books/{{ book.id }}/update" method="post">
-              <button type="submit" title="Cập nhật chương mới" class="icon-button h-9 w-9 text-stone-600 hover:bg-stone-100" aria-label="Cập nhật chương mới">
-                <i data-lucide="refresh-cw" class="h-4 w-4"></i>
-              </button>
-            </form>
-            <form action="/books/{{ book.id }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');">
-              <button type="submit" title="Xóa truyện" class="icon-button h-9 w-9 text-red-600 hover:bg-red-50" aria-label="Xóa truyện">
-                <i data-lucide="trash-2" class="h-4 w-4"></i>
-              </button>
-            </form>{% endif %}
-          </div>
-        </div>
-      </div>
-    </article>
-    {% endfor %}
-  </div>
+  <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5" aria-live="polite"></div>
   {{ library_pagination() }}
-  {% elif synced_novels %}
-  <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
-    {% for novel in synced_novels %}
-    <article data-library-book data-book-key="{{ novel.slug }}" data-detail-url="/truyen/{{ novel.slug }}" tabindex="0" role="link" class="library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500">
-      <a href="/truyen/{{ novel.slug }}" class="block">
-      <div class="relative aspect-[2/3] w-full">
-        <span class="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] font-bold shadow-sm {% if novel.reading_status == 'completed' %}bg-teal-500 text-[#062b28]{% else %}bg-amber-400 text-amber-950{% endif %}">{% if novel.reading_status == 'completed' %}Hoàn thành{% else %}Đang ra{% endif %}</span>
-        {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" loading="lazy" width="320" height="480" class="h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">{% endif %}
-        <div class="book-cover-fallback {% if novel.cover %}hidden{% endif %} absolute inset-0 flex items-center justify-center text-sm font-medium text-stone-500">Chưa có bìa</div>
-      </div>
-      </a>
-      <div class="p-4">
-        <h2 class="line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700">{{ novel.title }}</h2>
-        <p class="mt-2 text-sm text-stone-500">{{ novel.author or 'Chưa rõ tác giả' }}</p>
-        <div class="library-progress" data-library-progress data-total-chapters="{{ novel.total_chapters or 0 }}"><div class="library-progress-head"><span>TIẾN ĐỘ</span><strong data-library-progress-label>0/{{ novel.total_chapters or 0 }}</strong></div><div class="library-progress-track"><span data-library-progress-bar></span></div></div>
-        <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
-          <div class="flex w-full flex-wrap items-center justify-end gap-2">
-            <a data-book-start href="/truyen/{{ novel.slug }}" class="inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800"><i data-lucide="book-open" class="h-4 w-4"></i><span data-book-start-label>Đọc</span></a>
-            {% if false %}<form action="/truyen/{{ novel.slug }}/update" method="post"><button type="submit" title="Cập nhật chương mới" class="icon-button h-9 w-9 text-stone-600 hover:bg-stone-100" aria-label="Cập nhật chương mới"><i data-lucide="refresh-cw" class="h-4 w-4"></i></button></form>
-            <form action="/truyen/{{ novel.slug }}/delete" method="post" onsubmit="return confirm('Xóa truyện này khỏi thư viện? Bạn có thể khôi phục trong 3 ngày.');"><button type="submit" title="Xóa truyện" class="icon-button h-9 w-9 text-red-600 hover:bg-red-50" aria-label="Xóa truyện"><i data-lucide="trash-2" class="h-4 w-4"></i></button></form>{% endif %}
-          </div>
-        </div>
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-  {{ library_pagination() }}
-  {% else %}
-  <div class="mt-10 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-6 py-16 text-center text-stone-500">{{ 'Bạn chưa có truyện đang đọc.' if library_filter == 'reading' else 'Thư viện chưa có truyện.' }}</div>
-  {% endif %}
 </section>
 <script>
   (() => {
     const libraryGrid = document.querySelector("#library-grid");
+    const searchForm = document.querySelector("[data-library-search]");
+    const searchInput = document.querySelector("#source-query");
+    const clearSearch = document.querySelector("[data-clear-search]");
+    const searchStatus = document.querySelector("#lookup-results");
     const readerStoragePrefix = `reader.${document.body.dataset.userId || "anonymous"}.`;
     const progressStorage = {
       getItem: (key) => window.localStorage.getItem(`${readerStoragePrefix}reader.${key}`),
     };
-    const latestUrl = progressStorage.getItem("lastUrl");
-    let recentlyReadCard = null;
-    document.querySelectorAll("[data-library-book]").forEach((card) => {
-      const url = progressStorage.getItem(`lastUrl.book.${card.dataset.bookKey}`);
-      card.addEventListener("click", (event) => { if (!event.target.closest("a,button,form")) window.location.href = card.dataset.detailUrl; });
-      card.addEventListener("keydown", (event) => { if ((event.key === "Enter" || event.key === " ") && !event.target.closest("a,button,form")) { event.preventDefault(); window.location.href = card.dataset.detailUrl; } });
-      if (url) {
-        const startLink = card.querySelector("[data-book-start]");
-        if (startLink) {
-          startLink.href = url;
-          const label = startLink.querySelector("[data-book-start-label]");
-          if (label) label.textContent = "Đọc tiếp";
-        }
-      }
-      const progress = card.querySelector("[data-library-progress]");
-      if (progress && url) {
-        const total = Number(progress.dataset.totalChapters || 0);
-        const path = new URL(url, window.location.origin).pathname;
-        const syncedMatch = path.match(/^\/truyen\/[^/]+\/(\d+)$/);
-        const legacyMatch = path.match(/^\/chapters\/(\d+)$/);
-        const legacyChapterIndex = legacyMatch
-          ? (card.dataset.chapterIds || "").split(",").indexOf(legacyMatch[1])
-          : -1;
-        const chapterNumber = Number(syncedMatch?.[1] || 0);
-        const completed = chapterNumber
-          ? Math.min(total, chapterNumber)
-          : legacyChapterIndex >= 0 ? Math.min(total, legacyChapterIndex + 1) : 0;
-        if (total && completed) {
-          progress.querySelector("[data-library-progress-label]").textContent = `${completed}/${total}`;
-          progress.querySelector("[data-library-progress-bar]").style.width = `${Math.max(2, Math.round(completed / total * 100))}%`;
-        }
-      }
-      if (url && url === latestUrl) recentlyReadCard = card;
-    });
-    if (recentlyReadCard && libraryGrid) {
-      libraryGrid.prepend(recentlyReadCard);
-    }
-    let activeLibraryQuery = "";
-    const normalizeLibrarySearch = (value) => String(value || "")
+    const normalize = (value) => String(value || "")
       .toLocaleLowerCase("vi")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/đ/g, "d")
       .replace(/\s+/g, " ")
       .trim();
-    const applyLibraryFilters = () => {
-      let visibleCount = 0;
-      document.querySelectorAll("[data-library-book]").forEach((card) => {
-        const title = card.querySelector("h2")?.textContent || "";
-        const author = card.querySelector("p")?.textContent || "";
-        const matchesQuery = !activeLibraryQuery || normalizeLibrarySearch(`${title} ${author}`).includes(activeLibraryQuery);
-        card.hidden = !matchesQuery;
-        if (!card.hidden) visibleCount += 1;
-      });
-      const searchResults = document.querySelector("#lookup-results");
-      if (searchResults) searchResults.textContent = activeLibraryQuery && !visibleCount ? "Không tìm thấy truyện phù hợp." : "";
+    const initialUrl = new URL(window.location.href);
+    const state = {
+      allNovels: [],
+      readingSlugs: new Set(),
+      progressBySlug: new Map(),
+      searchQuery: normalize(searchInput?.value || ""),
+      activeTab: initialUrl.searchParams.get("filter") === "reading" ? "reading" : "all",
+      currentPage: Math.max(1, Number(initialUrl.searchParams.get("page") || 1)),
+      pageSize: 10,
+      isLoading: true,
     };
-    activeLibraryQuery = normalizeLibrarySearch(document.querySelector("#source-query")?.value || "");
-    applyLibraryFilters();
-    fetch("/api/reading-progress", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : { items: [] })
-      .then(({ items = [] }) => {
-        const cards = new Map([...document.querySelectorAll("[data-library-book]")].map((card) => [card.dataset.bookKey, card]));
-        const recentCards = [];
-        for (const item of items) {
-          const card = cards.get(String(item.book_id));
-          if (!card) continue;
-          const chapterNumber = Number(item.chapter_number || 0);
-          const startLink = card.querySelector("[data-book-start]");
-          if (startLink && chapterNumber) {
-            startLink.href = `${card.dataset.detailUrl}/${chapterNumber}`;
-            const label = startLink.querySelector("[data-book-start-label]");
-            if (label) label.textContent = "Đọc tiếp";
-          }
-          const progress = card.querySelector("[data-library-progress]");
-          const total = Number(progress?.dataset.totalChapters || 0);
-          if (progress && total && chapterNumber) {
-            const completed = Math.min(total, chapterNumber);
-            progress.querySelector("[data-library-progress-label]").textContent = `${completed}/${total}`;
-            progress.querySelector("[data-library-progress-bar]").style.width = `${Math.max(2, Math.round(completed / total * 100))}%`;
-          }
-          recentCards.push({ card, updatedAt: Date.parse(item.updated_at || "") || 0 });
+
+    const updateUrl = () => {
+      const url = new URL(window.location.href);
+      const rawQuery = searchInput?.value.trim() || "";
+      if (rawQuery) url.searchParams.set("query", rawQuery);
+      else url.searchParams.delete("query");
+      if (state.activeTab === "reading") url.searchParams.set("filter", "reading");
+      else url.searchParams.delete("filter");
+      if (state.currentPage > 1) url.searchParams.set("page", String(state.currentPage));
+      else url.searchParams.delete("page");
+      url.searchParams.delete("return_page");
+      window.history.replaceState({}, "", url);
+    };
+    const pageUrl = (page) => {
+      const params = new URLSearchParams();
+      const rawQuery = searchInput?.value.trim() || "";
+      if (rawQuery) params.set("query", rawQuery);
+      if (state.activeTab === "reading") params.set("filter", "reading");
+      if (page > 1) params.set("page", String(page));
+      return `/?${params.toString()}`;
+    };
+
+    const createElement = (tag, className, text) => {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text !== undefined) element.textContent = text;
+      return element;
+    };
+
+    const renderCard = (novel) => {
+      const slug = String(novel.slug || "");
+      const detailUrl = `/truyen/${encodeURIComponent(slug)}`;
+      const progressItem = state.progressBySlug.get(slug);
+      const chapterNumber = Number(progressItem?.chapter_number || 0);
+      const total = Number(novel.total_chapters || 0);
+      const article = createElement("article", "library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500");
+      article.dataset.libraryBook = "";
+      article.dataset.bookKey = slug;
+      article.dataset.detailUrl = detailUrl;
+      article.tabIndex = 0;
+      article.setAttribute("role", "link");
+      article.addEventListener("click", (event) => {
+        if (!event.target.closest("a,button,form")) window.location.href = detailUrl;
+      });
+      article.addEventListener("keydown", (event) => {
+        if ((event.key === "Enter" || event.key === " ") && !event.target.closest("a,button,form")) {
+          event.preventDefault();
+          window.location.href = detailUrl;
         }
-        if (libraryGrid) recentCards.sort((a, b) => a.updatedAt - b.updatedAt).forEach(({ card }) => libraryGrid.prepend(card));
-        applyLibraryFilters();
-      })
-      .catch(() => {});
-    const searchForm = document.querySelector("[data-library-search]");
-    const searchInput = document.querySelector("#source-query");
-    const clearSearch = document.querySelector("[data-clear-search]");
-    if (!searchForm || !searchInput) return;
-    let searchTimer;
-    searchInput.addEventListener("input", () => {
-      activeLibraryQuery = normalizeLibrarySearch(searchInput.value);
-      applyLibraryFilters();
-      clearTimeout(searchTimer);
-      if (!searchInput.value.trim()) {
-        const returnPage = searchForm.elements.return_page?.value || "1";
-        const filter = searchForm.elements.filter?.value || "all";
-        window.location.assign(`/?page=${encodeURIComponent(returnPage)}&filter=${encodeURIComponent(filter)}`);
+      });
+
+      const coverLink = createElement("a", "block");
+      coverLink.href = detailUrl;
+      const coverFrame = createElement("div", "relative aspect-[2/3] w-full");
+      const statusCompleted = novel.reading_status === "completed";
+      coverFrame.append(createElement("span", `absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] font-bold shadow-sm ${statusCompleted ? "bg-teal-500 text-[#062b28]" : "bg-amber-400 text-amber-950"}`, statusCompleted ? "Hoàn thành" : "Đang ra"));
+      const fallback = createElement("div", "book-cover-fallback absolute inset-0 flex items-center justify-center text-sm font-medium text-stone-500", "Chưa có bìa");
+      if (novel.cover) {
+        const image = createElement("img", "h-full w-full object-cover");
+        image.src = novel.cover;
+        image.alt = `Bìa ${novel.title || ""}`;
+        image.loading = "lazy";
+        image.width = 320;
+        image.height = 480;
+        fallback.classList.add("hidden");
+        image.addEventListener("error", () => { image.classList.add("hidden"); fallback.classList.remove("hidden"); }, { once: true });
+        coverFrame.append(image);
+      }
+      coverFrame.append(fallback);
+      coverLink.append(coverFrame);
+      article.append(coverLink);
+
+      const body = createElement("div", "p-4");
+      body.append(createElement("h2", "line-clamp-2 min-h-12 font-semibold leading-6 text-stone-950 group-hover:text-teal-700", novel.title || "Chưa có tiêu đề"));
+      body.append(createElement("p", "mt-2 text-sm text-stone-500", novel.author || "Chưa rõ tác giả"));
+      const progress = createElement("div", "library-progress");
+      progress.dataset.libraryProgress = "";
+      progress.dataset.totalChapters = String(total);
+      const progressHead = createElement("div", "library-progress-head");
+      progressHead.append(createElement("span", "", "TIẾN ĐỘ"));
+      const completed = Math.min(total, chapterNumber);
+      progressHead.append(createElement("strong", "", `${completed}/${total}`));
+      const progressTrack = createElement("div", "library-progress-track");
+      const progressBar = createElement("span");
+      progressBar.style.width = total && completed ? `${Math.max(2, Math.round(completed / total * 100))}%` : "0%";
+      progressTrack.append(progressBar);
+      progress.append(progressHead, progressTrack);
+      body.append(progress);
+      const actions = createElement("div", "mt-3 flex flex-wrap items-center justify-end gap-2");
+      const actionGroup = createElement("div", "flex w-full flex-wrap items-center justify-end gap-2");
+      const startLink = createElement("a", "inline-flex h-9 items-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-medium text-white hover:bg-teal-800");
+      startLink.dataset.bookStart = "";
+      startLink.href = chapterNumber ? `${detailUrl}/${chapterNumber}` : (progressStorage.getItem(`lastUrl.book.${slug}`) || detailUrl);
+      const icon = createElement("i", "h-4 w-4");
+      icon.dataset.lucide = "book-open";
+      startLink.append(icon, createElement("span", "", chapterNumber || progressStorage.getItem(`lastUrl.book.${slug}`) ? "Đọc tiếp" : "Đọc"));
+      actionGroup.append(startLink);
+      actions.append(actionGroup);
+      body.append(actions);
+      article.append(body);
+      return article;
+    };
+
+    const makePageLink = (label, page, current = false, disabled = false) => {
+      const link = createElement("a", disabled ? "pointer-events-none opacity-40" : "", label);
+      link.href = pageUrl(page);
+      link.setAttribute("aria-label", label === "‹" ? "Trang trước" : label === "›" ? "Trang sau" : `Trang ${label}`);
+      if (current) link.setAttribute("aria-current", "page");
+      if (disabled) link.setAttribute("aria-disabled", "true");
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (disabled) return;
+        state.currentPage = page;
+        render();
+      });
+      return link;
+    };
+
+    const renderPagination = (totalPages) => {
+      document.querySelectorAll("[data-library-pagination]").forEach((container) => {
+        container.replaceChildren();
+        if (totalPages <= 1) return;
+        const nav = createElement("nav", "library-pagination");
+        nav.setAttribute("aria-label", "Phân trang thư viện");
+        nav.append(makePageLink("‹", Math.max(1, state.currentPage - 1), false, state.currentPage <= 1));
+        const pages = [...new Set([1, state.currentPage - 1, state.currentPage, state.currentPage + 1, totalPages])]
+          .filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
+        let previous = 0;
+        for (const page of pages) {
+          if (page - previous > 1) nav.append(createElement("span", "px-1 text-[var(--muted)]", "…"));
+          nav.append(makePageLink(String(page), page, page === state.currentPage));
+          previous = page;
+        }
+        nav.append(makePageLink("›", Math.min(totalPages, state.currentPage + 1), false, state.currentPage >= totalPages));
+        container.append(nav);
+      });
+    };
+
+    const render = () => {
+      clearSearch.classList.toggle("hidden", !searchInput.value);
+      document.querySelectorAll("[data-library-tab]").forEach((button) => {
+        const selected = button.dataset.libraryTab === state.activeTab;
+        button.classList.toggle("accent", selected);
+        button.setAttribute("aria-selected", String(selected));
+      });
+      if (state.isLoading) {
+        searchStatus.textContent = "Đang tải danh sách truyện...";
         return;
       }
-      searchTimer = window.setTimeout(() => searchForm.requestSubmit(), 280);
+      const terms = state.searchQuery.split(" ").filter(Boolean);
+      const filtered = state.allNovels
+        .filter((novel) => {
+          const slug = String(novel.slug || "");
+          if (state.activeTab === "reading" && !state.readingSlugs.has(slug)) return false;
+          return terms.every((term) => novel._searchText.includes(term));
+        });
+      const totalPages = Math.max(1, Math.ceil(filtered.length / state.pageSize));
+      state.currentPage = Math.min(Math.max(1, state.currentPage), totalPages);
+      const start = (state.currentPage - 1) * state.pageSize;
+      const pageItems = filtered.slice(start, start + state.pageSize);
+      libraryGrid.replaceChildren(...pageItems.map(renderCard));
+      searchStatus.textContent = pageItems.length ? "" : (state.searchQuery ? "Không tìm thấy truyện phù hợp." : state.activeTab === "reading" ? "Bạn chưa có truyện đang đọc." : "Thư viện chưa có truyện.");
+      renderPagination(totalPages);
+      updateUrl();
+      window.lucide?.createIcons?.();
+    };
+
+    document.querySelectorAll("[data-library-tab]").forEach((button) => button.addEventListener("click", () => {
+      state.activeTab = button.dataset.libraryTab;
+      state.currentPage = 1;
+      render();
+    }));
+    searchForm.addEventListener("submit", (event) => event.preventDefault());
+    searchInput.addEventListener("input", () => {
+      state.searchQuery = normalize(searchInput.value);
+      state.currentPage = 1;
+      render();
     });
-    clearSearch?.addEventListener("click", () => {
+    clearSearch.addEventListener("click", () => {
       searchInput.value = "";
-      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+      state.searchQuery = "";
+      state.currentPage = 1;
+      searchInput.focus();
+      render();
     });
+
+    const fetchJson = async (url) => {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+      return response.json();
+    };
+    Promise.allSettled([fetchJson("/api/novels/metadata"), fetchJson("/api/reading-progress")])
+      .then(([novelResult, progressResult]) => {
+        if (novelResult.status !== "fulfilled") throw novelResult.reason;
+        state.allNovels = (Array.isArray(novelResult.value.items) ? novelResult.value.items : [])
+          .map((novel) => ({ ...novel, _searchText: normalize(`${novel.title || ""} ${novel.author || ""} ${novel.slug || ""}`) }))
+          .sort((left, right) => (Date.parse(right.updated_at || "") || 0) - (Date.parse(left.updated_at || "") || 0));
+        if (progressResult.status === "fulfilled") {
+          for (const item of progressResult.value.items || []) {
+            const slug = String(item.book_id || "");
+            if (slug && Number(item.chapter_number || 0) > 0) {
+              state.readingSlugs.add(slug);
+              state.progressBySlug.set(slug, item);
+            }
+          }
+        }
+        for (const novel of state.allNovels) {
+          if (progressStorage.getItem(`lastUrl.book.${novel.slug}`)) state.readingSlugs.add(String(novel.slug));
+        }
+        state.isLoading = false;
+        render();
+      })
+      .catch(() => {
+        state.isLoading = false;
+        searchStatus.textContent = "Không tải được danh sách truyện. Hãy thử tải lại trang.";
+      });
   })();
 </script>
 {% endblock %}

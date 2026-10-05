@@ -309,6 +309,18 @@ def get_reader_progress(request: Request, book_id: str | None = None) -> dict:
         raise HTTPException(status_code=503, detail="Could not load reading progress") from exc
 
 
+@app.get("/api/novels/metadata")
+def get_library_novel_metadata(request: Request) -> dict:
+    """Return only public novel metadata for client-side Library search."""
+    require_authenticated(request)
+    try:
+        novels = load_novels()
+    except CdnDataError as exc:
+        raise HTTPException(status_code=503, detail="Could not load novel metadata") from exc
+    fields = ("id", "slug", "title", "author", "reading_status", "cover", "latest_chapter", "updated_at", "total_chapters")
+    return {"items": [{field: novel.get(field) for field in fields} for novel in novels]}
+
+
 @app.post("/api/reading-progress")
 def save_reader_progress(payload: ReadingProgressRequest, request: Request) -> dict[str, bool]:
     user = require_authenticated(request)
@@ -453,32 +465,7 @@ def library(request: Request, page: int = 1, query: str = "", filter: str = "all
     except CdnDataError:
         synced_novels = []
     query = " ".join(query.split())
-    normalized_query = normalize_search_key(query)
-    if normalized_query:
-        query_tokens = normalized_query.split()
-        synced_novels = [
-            novel for novel in synced_novels
-            if normalized_query in normalize_search_key(
-                f"{novel.get('title') or ''} {novel.get('author') or ''} {novel.get('slug') or ''}"
-            )
-            or all(
-                token in normalize_search_key(
-                    f"{novel.get('title') or ''} {novel.get('author') or ''} {novel.get('slug') or ''}"
-                )
-                for token in query_tokens
-            )
-        ]
     library_filter = filter if filter in {"all", "reading"} else "all"
-    if library_filter == "reading":
-        try:
-            reading_slugs = {
-                str(item["book_id"])
-                for item in load_user_reading_progress(request.state.user.id)
-                if item.get("book_id") and int(item.get("chapter_number") or 0) > 0
-            }
-        except CdnDataError:
-            reading_slugs = set()
-        synced_novels = [novel for novel in synced_novels if str(novel.get("slug") or "") in reading_slugs]
     page_size = 10
     total_novels = len(synced_novels)
     total_pages = max(1, (total_novels + page_size - 1) // page_size)
