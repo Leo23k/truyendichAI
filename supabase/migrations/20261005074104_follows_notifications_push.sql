@@ -137,7 +137,7 @@ as $function$
       n.title,
       n.author,
       n.cover_url,
-      greatest(n.latest_chapter, coalesce(known.max_number, 0), coalesce(discoveries.max_number, 0))::integer as latest_chapter,
+      greatest(n.latest_chapter, coalesce(known.max_number, discoveries.max_number, 0))::integer as latest_chapter,
       coalesce(progress.chapter_number, 0)::integer as last_read_chapter,
       coalesce(discoveries.unread_count, 0)::bigint as new_chapter_count,
       n.updated_at
@@ -155,7 +155,7 @@ as $function$
         max(d.chapter_number) as max_number,
         count(*) filter (
           where d.discovered_at > f.created_at
-            and d.chapter_number > coalesce(progress.chapter_number, 0)
+            and (d.crawled_at is null or d.chapter_number > coalesce(progress.chapter_number, 0))
         ) as unread_count
       from public.chapter_discoveries d
       where d.novel_id = n.id

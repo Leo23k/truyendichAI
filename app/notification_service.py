@@ -328,12 +328,15 @@ def deliver_pending_push(limit: int = 20) -> int:
             })
             continue
         try:
+            push_host = (urlparse(str(subscription["endpoint"])).hostname or "").lower()
+            push_headers = {"X-WNS-Type": "wns/toast"} if push_host.endswith(".notify.windows.com") else None
             webpush(
                 subscription_info={"endpoint": subscription["endpoint"], "keys": {"p256dh": subscription["p256dh"], "auth": subscription["auth"]}},
                 data=json.dumps({**notification, "id": delivery["notification_id"]}),
                 vapid_private_key=private_key,
                 vapid_claims={"sub": subject},
                 ttl=86400,
+                headers=push_headers,
             )
             remote.patch_rows("push_deliveries", {"id": f"eq.{delivery['id']}"}, {
                 "sent_at": datetime.now(timezone.utc).isoformat(), "last_error": None,
