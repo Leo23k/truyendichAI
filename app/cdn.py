@@ -654,7 +654,7 @@ def load_cdn_json(path: str) -> dict:
     relative = _safe_path(path)
     if relative.as_posix() == "metadata.json":
         return {"novels": load_novels()}
-    if _configured() and (
+    if (_configured() or b2_configured()) and (
         (len(relative.parts) >= 4 and relative.parts[0] == "novels" and relative.parts[2] == "chapters")
         or (len(relative.parts) >= 3 and relative.parts[0] == "chapters")
     ):
