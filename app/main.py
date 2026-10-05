@@ -1108,6 +1108,13 @@ def notifications_unread_count(request: Request):
     return {"count": unread_notification_count(require_authenticated(request).id)}
 
 
+@app.get("/api/notifications/recent")
+def recent_notifications(request: Request):
+    user = require_authenticated(request)
+    items, _ = list_notifications(user.id, page=1, page_size=5)
+    return {"items": items, "unread": unread_notification_count(user.id)}
+
+
 @app.post("/api/notifications/{notification_id}/read")
 def read_notification(notification_id: str, request: Request):
     return {"updated": mark_notification_read(require_authenticated(request).id, notification_id)}

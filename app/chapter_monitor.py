@@ -24,11 +24,11 @@ def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
         "deleted_at": "is.null", "source_url": "not.is.null",
     })
     novels_by_id = {int(row["id"]): row for row in novels if row.get("id")}
-    states = remote.rows("chapter_monitor_state", {
+    all_states = remote.all_rows("chapter_monitor_state", {
         "select": "novel_id,last_checked_at", "order": "last_checked_at.asc.nullsfirst",
-        "limit": str(max(1, min(12, batch_size))),
     })
-    all_state_ids = {int(row["novel_id"]) for row in remote.all_rows("chapter_monitor_state", {"select": "novel_id"})}
+    all_state_ids = {int(row["novel_id"]) for row in all_states}
+    states_added = False
     for novel_id, novel in novels_by_id.items():
         if novel_id in all_state_ids:
             continue
@@ -56,11 +56,14 @@ def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
             "last_seen_source_url": latest_url,
             "last_seen_chapter_number": latest,
         }, "novel_id")
-    if not states:
-        states = remote.rows("chapter_monitor_state", {
+        states_added = True
+    if states_added:
+        all_states = remote.all_rows("chapter_monitor_state", {
             "select": "novel_id,last_checked_at", "order": "last_checked_at.asc.nullsfirst",
-            "limit": str(max(1, min(12, batch_size))),
         })
+    states = [row for row in all_states if int(row["novel_id"]) in novels_by_id][
+        :max(1, min(12, batch_size))
+    ]
     counts = {"checked": 0, "discovered": 0, "errors": 0, "push_sent": 0}
     for state in states:
         novel = novels_by_id.get(int(state["novel_id"]))

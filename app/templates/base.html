@@ -240,7 +240,15 @@
       <a href="/" class="flex items-center gap-2.5 font-semibold tracking-tight text-[var(--text)]"><span class="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)]"><i data-lucide="book-open" class="h-5 w-5"></i></span><span class="text-lg">Leo Truyện</span></a>
       <nav class="ml-auto flex items-center gap-2 text-sm">
         <a href="/followed" class="site-nav-button desktop-only"><i data-lucide="heart" class="h-4 w-4"></i><span>Theo dõi</span></a>
-        <a href="/notifications" class="icon-button relative" aria-label="Thông báo" title="Thông báo"><i data-lucide="bell" class="h-4 w-4"></i><span data-unread-badge class="absolute -right-1 -top-1 hidden min-w-4 rounded-full bg-rose-500 px-1 text-center text-[10px] font-bold text-white"></span></a>
+        <div x-data="{open:false,items:[],unread:0,async refresh(){try{const r=await fetch('/api/notifications/recent');if(r.ok){const d=await r.json();this.items=d.items;this.unread=d.unread}}catch{}}}" @click.outside="open=false" class="relative">
+          <button type="button" @click="open=!open;if(open)refresh()" class="icon-button relative" aria-label="Thông báo" title="Thông báo"><i data-lucide="bell" class="h-4 w-4"></i><span x-cloak x-show="unread>0" x-text="unread>99?'99+':unread" class="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-500 px-1 text-center text-[10px] font-bold text-white"></span></button>
+          <div x-cloak x-show="open" x-transition.origin.top.right class="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-xl sm:w-96">
+            <div class="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><strong>Thông báo</strong><button type="button" @click="fetch('/api/notifications/read-all',{method:'POST'}).then(()=>refresh())" class="text-xs text-[var(--accent)]">Đánh dấu đã đọc</button></div>
+            <template x-for="item in items" :key="item.id"><a :href="item.url" @click="fetch(`/api/notifications/${item.id}/read`,{method:'POST',keepalive:true})" class="block border-b border-[var(--line)] px-4 py-3 hover:bg-[var(--surface-2)]"><span class="block truncate text-sm font-semibold" x-text="item.title"></span><span class="mt-1 block truncate text-xs text-[var(--muted)]" x-text="item.message"></span></a></template>
+            <p x-show="items.length===0" class="px-4 py-6 text-center text-sm text-[var(--muted)]">Chưa có thông báo mới.</p>
+            <a href="/notifications" class="block px-4 py-3 text-center text-sm font-semibold text-[var(--accent)] hover:bg-[var(--surface-2)]">Xem tất cả</a>
+          </div>
+        </div>
         {% if request.state.user.role == 'admin' %}<a href="/admin" class="icon-button bg-[var(--accent)] text-[var(--accent-ink)]" aria-label="Mở Admin panel" title="Admin panel"><i data-lucide="shield-cog" class="h-4 w-4"></i></a>{% endif %}
         {% if request.url.path == '/' %}<button type="button" data-theme-toggle class="icon-button h-9 w-9" aria-label="Đổi giao diện sáng hoặc tối" title="Đổi giao diện"><i data-lucide="sun-moon" class="h-4 w-4"></i></button>{% endif %}
         <div x-data="{ open: false }" @click.outside="open = false" class="relative ml-1 border-l border-[var(--line)] pl-3">
@@ -273,14 +281,6 @@
         localStorage.setItem("app-theme", nextTheme);
       });
     });
-  </script>
-  <script>
-    fetch('/api/notifications/unread-count').then(r => r.ok ? r.json() : null).then(data => {
-      const badge = document.querySelector('[data-unread-badge]');
-      if (!badge || !data?.count) return;
-      badge.textContent = data.count > 99 ? '99+' : String(data.count);
-      badge.classList.remove('hidden');
-    }).catch(() => {});
   </script>
 </body>
 </html>
