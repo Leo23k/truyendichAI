@@ -110,6 +110,23 @@ class TrxsCrawler(BaseCrawler):
             raise SourceParseError("Không tìm thấy danh sách chương.")
         return dedupe_chapters(chapters)
 
+    async def get_latest_chapters(self, url: str, limit: int = 40) -> list[ChapterInfo]:
+        book_id = self._book_id(url)
+        if not book_id:
+            raise SourceParseError("URL truyện trxs.cc không hợp lệ.")
+        soup = BeautifulSoup(await self._get_html(url), "html.parser")
+        pattern = re.compile(rf"/tongren/{re.escape(book_id)}/(\d+)\.html$")
+        chapters: list[ChapterInfo] = []
+        for link in soup.select("a[href]"):
+            href = urljoin(url, link.get("href", ""))
+            match = pattern.search(urlparse(href).path)
+            if match:
+                number = int(match.group(1))
+                chapters.append(ChapterInfo(number, str(number), link.get_text(" ", strip=True) or f"第{number}节", href))
+        if not chapters:
+            raise SourceParseError("Không tìm thấy danh sách chương gần nhất.")
+        return dedupe_chapters(chapters)[-max(1, limit):]
+
     async def get_chapter_content(self, url: str) -> str:
         soup = BeautifulSoup(await self._get_html(url), "html.parser")
         for selector in (".read_chapterDetail", ".contentbox", ".content", ".read-content", ".novel-content", "#content"):

@@ -90,6 +90,38 @@ class TienHiepCrawler(BaseCrawler):
             raise SourceParseError("Không tìm thấy danh sách chương từ nguồn Truyện Việt.")
         return dedupe_chapters(chapters)
 
+    async def get_latest_chapters(self, url: str, limit: int = 40) -> list[ChapterInfo]:
+        book_id = self._book_id(url)
+        soup = BeautifulSoup(await self._get_html(url), "html.parser")
+        count = int(self._book_json(soup).get("numberOfPages") or 0)
+        last_page = max(0, (count - 1) // 100)
+        try:
+            payload = json.loads(await self._get_html(
+                f"https://tienhiep.vercel.app/api/books/{book_id}/chapters?page={last_page}"
+            ))
+            items = payload.get("chapters", [])
+            chapters = [
+                ChapterInfo(
+                    int(item.get("chapter_number") or 0),
+                    str(item.get("id") or item.get("chapter_number") or ""),
+                    str(item.get("title") or f"Chương {item.get('chapter_number')}"),
+                    f"{url.rstrip('/')}/chapters/{int(item.get('chapter_number') or 0)}",
+                )
+                for item in items if int(item.get("chapter_number") or 0) > 0
+            ]
+        except (json.JSONDecodeError, SourceRequestError, ValueError, AttributeError):
+            page_url = url if last_page == 0 else f"{url}?chaptersPage={last_page}"
+            page_soup = soup if last_page == 0 else BeautifulSoup(await self._get_html(page_url), "html.parser")
+            chapters = []
+            for link in page_soup.select("a[href]"):
+                href = urljoin(page_url, link.get("href", ""))
+                match = self._chapter_path.search(urlparse(href).path)
+                if match:
+                    chapters.append(ChapterInfo(int(match.group(2)), match.group(2), link.get_text(" ", strip=True), href))
+        if not chapters:
+            raise SourceParseError("Không tìm thấy danh sách chương gần nhất từ Truyện Việt.")
+        return dedupe_chapters(chapters)[-max(1, limit):]
+
     async def get_chapter_content(self, url: str) -> str:
         soup = BeautifulSoup(await self._get_html(url), "html.parser")
         for selector in ("article", "[class*='whitespace-pre-wrap']", ".chapter-content", ".prose"):
