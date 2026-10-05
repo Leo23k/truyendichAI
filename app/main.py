@@ -621,11 +621,20 @@ def admin_page(request: Request):
 
 
 @app.get("/admin/novels", include_in_schema=False)
-def admin_novels_page(request: Request):
+def admin_novels_page(request: Request, query: str = ""):
+    novels = load_admin_novels()
+    normalized_query = normalize_search_key(query)
+    if normalized_query:
+        novels = [
+            novel for novel in novels
+            if normalized_query in normalize_search_key(str(novel.get("title") or ""))
+            or normalized_query in normalize_search_key(str(novel.get("author") or ""))
+            or normalized_query in normalize_search_key(str(novel.get("slug") or ""))
+        ]
     return templates.TemplateResponse(
         request=request,
         name="admin_novels.html",
-        context={"novels": load_admin_novels(), "toast": request.query_params.get("toast"), "toast_error": request.query_params.get("error") == "1"},
+        context={"novels": novels, "query": query, "toast": request.query_params.get("toast"), "toast_error": request.query_params.get("error") == "1"},
     )
 
 

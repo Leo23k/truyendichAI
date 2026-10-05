@@ -5,7 +5,7 @@
 <section class="site-page mx-auto max-w-5xl">
   <div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-sm font-semibold text-teal-700">ADMIN</p><h1 class="site-title text-3xl">Quản lý truyện</h1><p class="site-muted mt-1 text-sm">Chỉnh sửa thông tin truyện mà không thay đổi ID, chapter hoặc dữ liệu người đọc.</p></div><a href="/admin" class="site-nav-button"><i data-lucide="arrow-left" class="h-4 w-4"></i>Admin Panel</a></div>
   {% if toast %}<p class="mt-5 rounded-lg border {% if toast_error %}border-red-200 bg-red-50 text-red-800{% else %}border-teal-200 bg-teal-50 text-teal-800{% endif %} px-4 py-3 text-sm">{{ toast }}</p>{% endif %}
-  <form data-admin-novels-search class="library-search mt-6 flex w-full items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500" role="search"><label for="admin-novels-query" class="sr-only">Tìm truyện quản lý</label><i data-lucide="search" class="ml-2 h-4 w-4 shrink-0 text-stone-400"></i><input id="admin-novels-query" type="search" autocomplete="off" placeholder="Tìm truyện, tác giả hoặc slug..." class="h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-stone-900 outline-none placeholder:text-stone-400"><button type="button" data-admin-novels-clear class="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700" aria-label="Xóa tìm kiếm"><i data-lucide="x" class="h-4 w-4"></i></button></form>
+  <form action="/admin/novels" method="get" data-admin-novels-search class="library-search mt-6 flex w-full items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500" role="search"><label for="admin-novels-query" class="sr-only">Tìm truyện quản lý</label><i data-lucide="search" class="ml-2 h-4 w-4 shrink-0 text-stone-400"></i><input id="admin-novels-query" name="query" value="{{ query or '' }}" type="search" autocomplete="off" placeholder="Tìm truyện, tác giả hoặc slug..." class="h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-stone-900 outline-none placeholder:text-stone-400"><button type="button" data-admin-novels-clear class="{% if query %}inline-flex{% else %}hidden{% endif %} h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700" aria-label="Xóa tìm kiếm"><i data-lucide="x" class="h-4 w-4"></i></button></form>
   <div class="mt-7 space-y-3">
     {% for novel in novels %}
     <details data-admin-novel class="site-panel group overflow-hidden">
@@ -59,9 +59,13 @@
       clear?.classList.toggle("inline-flex", Boolean(input.value));
       empty?.classList.toggle("hidden", !query || matches > 0);
     };
-    form.addEventListener("submit", (event) => event.preventDefault());
-    input.addEventListener("input", apply);
-    clear?.addEventListener("click", () => { input.value = ""; input.focus(); apply(); });
+    if (!input.value) {
+      form.addEventListener("submit", (event) => event.preventDefault());
+      input.addEventListener("input", apply);
+      clear?.addEventListener("click", () => { input.value = ""; input.focus(); apply(); });
+    } else {
+      clear?.addEventListener("click", () => { window.location.href = form.action; });
+    }
   })();
 </script>
 {% endblock %}
