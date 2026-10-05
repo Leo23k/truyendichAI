@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+import hmac
 import logging
 import os
 from pathlib import Path
@@ -84,6 +85,7 @@ from app.notification_service import (
     update_notification_settings,
     save_push_subscription, delete_push_subscription,
 )
+from app.chapter_monitor import run_chapter_monitor
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -129,7 +131,7 @@ def _synced_chapter_entry_and_payload(slug: str, chapter_number: int) -> tuple[d
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health", "/manifest.webmanifest", "/service-worker.js"}:
+    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health", "/manifest.webmanifest", "/service-worker.js", "/api/cron/check-sources"}:
         return await call_next(request)
     access_token = request.cookies.get("sb-access-token", "")
     request.state.user = user_from_token(access_token) if access_token else None
@@ -156,6 +158,16 @@ async def auth_guard(request: Request, call_next):
 @app.get("/manifest.webmanifest", include_in_schema=False)
 def pwa_manifest():
     return FileResponse(BASE_DIR.parent / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.post("/api/cron/check-sources", include_in_schema=False)
+def cloud_chapter_monitor(request: Request):
+    expected = os.getenv("CRON_SECRET", "")
+    supplied = request.headers.get("authorization", "")
+    token = supplied.removeprefix("Bearer ")
+    if not expected or not hmac.compare_digest(token, expected):
+        raise HTTPException(401, "Invalid cron authorization")
+    return run_chapter_monitor(batch_size=4)
 
 @app.get("/service-worker.js", include_in_schema=False)
 def service_worker():
