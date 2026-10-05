@@ -297,18 +297,12 @@ def load_novels() -> list[dict]:
             novels = _all_rows(
                 "novels",
                 {
-                    "select": "id,slug,title,author,reading_status,cover_url,latest_chapter,updated_at,source_url",
+                    "select": "id,slug,title,author,reading_status,cover_url,latest_chapter,updated_at,source_url,chapter_rows:chapters(count),translated_chapter_rows:chapters(count)",
+                    "translated_chapter_rows.translated": "eq.true",
                     "deleted_at": "is.null",
                     "order": "updated_at.desc",
                 },
             )
-            chapter_counts = _all_rows("chapters", {"select": "novel_id,translated"})
-            translated_counts: dict[int, int] = {}
-            total_counts: dict[int, int] = {}
-            for row in chapter_counts:
-                total_counts[row["novel_id"]] = total_counts.get(row["novel_id"], 0) + 1
-                if row.get("translated"):
-                    translated_counts[row["novel_id"]] = translated_counts.get(row["novel_id"], 0) + 1
             fallback_covers: dict[str, str] = {}
             try:
                 fallback_covers = {
@@ -319,17 +313,19 @@ def load_novels() -> list[dict]:
             except CdnDataError:
                 pass
             for novel in novels:
-                novel["total_chapters"] = total_counts.get(novel["id"], 0)
-                novel["translated_chapters"] = translated_counts.get(novel["id"], 0)
+                chapter_rows = novel.pop("chapter_rows", [])
+                translated_rows = novel.pop("translated_chapter_rows", [])
+                novel["total_chapters"] = int(chapter_rows[0]["count"]) if chapter_rows else 0
+                novel["translated_chapters"] = int(translated_rows[0]["count"]) if translated_rows else 0
                 novel["cover"] = _resolved_cover_url(novel.get("cover_url"), novel["slug"], fallback_covers)
                 novel["cover_fallback"] = fallback_covers.get(novel["slug"])
                 novel["source_name"] = _source_name(novel.get("source_url"))
-            _novels_cache = (now, novels)
+            _novels_cache = (time.monotonic(), novels)
             return [dict(novel) for novel in novels]
         except CdnDataError:
             pass
     novels = _fallback_json("metadata.json").get("novels", [])
-    _novels_cache = (now, novels)
+    _novels_cache = (time.monotonic(), novels)
     return [dict(novel) for novel in novels]
 
 

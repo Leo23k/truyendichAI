@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from starlette.requests import Request
 
 import app.main as main
+import app.cdn as cdn
 
 
 def _request(path: str = "/") -> Request:
@@ -64,3 +65,54 @@ def test_library_metadata_endpoint_still_returns_lightweight_fields(monkeypatch)
             "latest_chapter", "updated_at", "total_chapters",
         )
     }]
+
+
+def test_novel_counts_use_one_embedded_query_and_keep_response_fields(monkeypatch) -> None:
+    monkeypatch.setattr(cdn, "_novels_cache", None)
+    monkeypatch.setattr(cdn, "_configured", lambda: True)
+    calls = []
+
+    def rows(table, params):
+        calls.append((table, params))
+        assert table == "novels"
+        return [
+            {"id": 1, "slug": "many", "cover_url": None, "source_url": None,
+             "chapter_rows": [{"count": 1201}], "translated_chapter_rows": [{"count": 1199}]},
+            {"id": 2, "slug": "new", "cover_url": None, "source_url": None,
+             "chapter_rows": [{"count": 0}], "translated_chapter_rows": [{"count": 0}]},
+        ]
+
+    monkeypatch.setattr(cdn, "_all_rows", rows)
+    monkeypatch.setattr(cdn, "_fallback_json", lambda _: {"novels": []})
+
+    result = cdn.load_novels()
+
+    assert len(calls) == 1
+    assert calls[0][1]["translated_chapter_rows.translated"] == "eq.true"
+    assert [(row["total_chapters"], row["translated_chapters"]) for row in result] == [(1201, 1199), (0, 0)]
+    assert "chapter_rows" not in result[0]
+    assert "translated_chapter_rows" not in result[0]
+
+
+def test_novel_cache_ttl_starts_after_fetch_completes(monkeypatch) -> None:
+    monkeypatch.setattr(cdn, "_novels_cache", None)
+    monkeypatch.setattr(cdn, "_configured", lambda: True)
+    clock = [100.0]
+    calls = []
+
+    def rows(table, params):
+        calls.append(table)
+        clock[0] += 20.0
+        return [{"id": 1, "slug": "book", "cover_url": None, "source_url": None,
+                 "chapter_rows": [{"count": 3}], "translated_chapter_rows": [{"count": 2}]}]
+
+    monkeypatch.setattr(cdn.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(cdn, "_all_rows", rows)
+    monkeypatch.setattr(cdn, "_fallback_json", lambda _: {"novels": []})
+
+    assert cdn.load_novels()[0]["total_chapters"] == 3
+    assert cdn.load_novels()[0]["total_chapters"] == 3
+    assert calls == ["novels"]
+    clock[0] += cdn._NOVELS_CACHE_TTL_SECONDS
+    cdn.load_novels()
+    assert calls == ["novels", "novels"]
