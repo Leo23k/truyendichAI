@@ -63,14 +63,3 @@ class TranslationMemory(TimestampMixin, Base):
     source_text: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     replacement_text: Mapped[str] = mapped_column(String(500), nullable=False)
 
-
-class AudioCache(Base):
-    __tablename__ = "audio_cache"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    chapter_id: Mapped[int] = mapped_column(ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
-    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    voice: Mapped[str] = mapped_column(String(120), nullable=False)
-    audio_path: Mapped[str] = mapped_column(String(2048), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
-    __table_args__ = (UniqueConstraint("chapter_id", "content_hash", "voice", name="uq_audio_cache_key"),)

@@ -359,7 +359,7 @@ def load_admin_novel_chapters(novel_id: int) -> tuple[dict, list[dict]]:
     if not novels:
         raise CdnDataError("Không tìm thấy truyện.")
     chapters = _service_all_rows("chapters", {
-        "select": "id,chapter_number,title,source_url,translated,audio_available,content_path,updated_at",
+        "select": "id,chapter_number,title,source_url,translated,content_path,updated_at",
         "novel_id": f"eq.{novel_id}",
         "order": "chapter_number.asc,id.asc",
     })
@@ -394,7 +394,7 @@ def save_admin_novel_chapter(novel_id: int, *, chapter_id: int | None, chapter_n
     if chapter_id is None:
         try:
             with httpx.Client(timeout=30, trust_env=False) as client:
-                response = client.post(f"{SUPABASE_URL}/rest/v1/chapters", json={**payload, "novel_id": novel_id, "translated": False, "audio_available": False}, headers={**_service_headers(), "Prefer": "return=minimal"})
+                response = client.post(f"{SUPABASE_URL}/rest/v1/chapters", json={**payload, "novel_id": novel_id, "translated": False}, headers={**_service_headers(), "Prefer": "return=minimal"})
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise CdnDataError("Không thể tạo chương.") from exc
@@ -459,7 +459,7 @@ def save_admin_chapter_content(novel_id: int, chapter_id: int, *, original_title
     except httpx.HTTPError as exc:
         raise CdnDataError("Không thể lưu nội dung chương.") from exc
     _service_patch("chapters", {"id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}"}, {
-        "title": translated_title or original_title, "translated": translated, "audio_available": False,
+        "title": translated_title or original_title, "translated": translated,
         "content_path": f"chapters/{storage_path}", "updated_at": datetime.now(timezone.utc).isoformat(),
     })
     _service_delete("chapter_chunks", {"chapter_id": f"eq.{chapter_id}"})
@@ -545,7 +545,6 @@ def add_synced_chapters(slug: str, chapters: list[object]) -> int:
             "title": chapter.title,
             "source_url": chapter.url,
             "translated": False,
-            "audio_available": False,
         }
         for chapter in chapters
         if chapter.url not in existing_urls
@@ -668,7 +667,7 @@ def load_chapters_index(slug: str) -> list[dict]:
             chapters = _all_rows(
                 "chapters",
                 {
-                    "select": "id,chapter_number,title,source_url,translated,audio_available,content_path",
+                    "select": "id,chapter_number,title,source_url,translated,content_path",
                     "novel_id": f"eq.{novels[0]['id']}",
                     "order": "chapter_number.asc",
                 },

@@ -53,7 +53,6 @@ def default_database_path() -> Path:
 
 
 DATABASE_PATH = Path(os.getenv("SYNC_DATABASE_PATH", default_database_path()))
-AUDIO_DIR = Path(os.getenv("SYNC_AUDIO_DIR", settings.audio_path))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")
 RETRIES = 3
@@ -235,19 +234,6 @@ class SupabaseSync:
         if not isinstance(payload, dict):
             raise SyncError(f"Stored {bucket}/{path} is not a JSON object.")
         return payload
-
-
-def audio_bytes(chapter_id: int) -> bytes | None:
-    manifest = AUDIO_DIR / f"chapter-{chapter_id}-vi-VN-HoaiMyNeural-1_00.json"
-    if not manifest.exists():
-        return None
-    try:
-        segments = [AUDIO_DIR / item["filename"] for item in json.loads(manifest.read_text("utf-8"))["segments"]]
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
-    if not segments or not all(path.exists() and path.stat().st_size for path in segments):
-        return None
-    return b"".join(path.read_bytes() for path in segments)
 
 
 def cover_bytes(url: str | None) -> bytes | None:
@@ -811,7 +797,6 @@ def sync_once() -> dict[str, int | bool]:
                 translated_content = chapter["translated_content"]
                 translated = bool(chapter["translated_content"])
                 json_path = f"{slug}/{key}.json"
-                audio = audio_bytes(chapter["id"])
                 if original_content or translated_content:
                     payload = json.dumps(
                         {
@@ -822,15 +807,12 @@ def sync_once() -> dict[str, int | bool]:
                             "translated_content": translated_content,
                             "content": translated_content or original_content,
                             "translated": translated,
-                            "audio": f"audio/{slug}/{key}.mp3" if audio else None,
+                            "audio": None,
                         },
                         ensure_ascii=False,
                     ).encode("utf-8")
                     if remote.upload_if_changed("chapters", json_path, payload, "application/json"):
                         counts["json_uploaded"] += 1
-                audio_path = f"{slug}/{key}.mp3"
-                if audio and remote.upload_if_changed("audio", audio_path, audio, "audio/mpeg"):
-                    counts["audio_uploaded"] += 1
                 chapter_payloads.append(
                     {
                         "novel_id": novel["id"],
@@ -838,7 +820,6 @@ def sync_once() -> dict[str, int | bool]:
                         "title": chapter["translated_title"] or chapter["title"],
                         "source_url": chapter["url"],
                         "translated": translated,
-                        "audio_available": bool(audio),
                         "content_path": f"chapters/{json_path}" if original_content or translated_content else None,
                         "updated_at": chapter["updated_at"],
                     }
@@ -951,7 +932,7 @@ async def _crawl_and_translate_url(
                     if current.get("source_url") != item.url:
                         remote.patch_rows("chapters", {"id": f"eq.{current['id']}"}, {"source_url": item.url})
         new_rows = [
-            {"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": is_vietnamese, "audio_available": False}
+            {"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": is_vietnamese}
             for item in incoming
             if int(item.chapter_number) not in existing_by_number
         ]
