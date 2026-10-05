@@ -9,6 +9,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from dotenv import load_dotenv
+from app.storage import configured as b2_configured, public_url as b2_public_url
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,6 +42,8 @@ def _configured() -> bool:
 
 
 def storage_url(bucket: str, path: str) -> str:
+    if b2_configured():
+        return b2_public_url(f"{bucket}/{path}")
     if not SUPABASE_URL:
         raise CdnDataError("Supabase is not configured")
     relative = _safe_path(path)

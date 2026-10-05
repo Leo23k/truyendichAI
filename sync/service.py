@@ -28,6 +28,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.config import PROJECT_ROOT, settings
+from app.storage import configured as b2_configured, download as b2_download, upload as b2_upload
 from app.translator.chunking import chunk_text
 from app.translator.glossary import GlossaryEntry
 from app.translator.preprocess import traditional_to_simplified
@@ -194,6 +195,8 @@ class SupabaseSync:
         return rows[0]
 
     def ensure_buckets(self) -> None:
+        if b2_configured():
+            return
         buckets = self.request("GET", "/storage/v1/bucket").json()
         existing = {bucket.get("id") for bucket in buckets if isinstance(bucket, dict)}
         for bucket in ("covers", "chapters", "audio"):
@@ -201,6 +204,8 @@ class SupabaseSync:
                 self.request("POST", "/storage/v1/bucket", json={"id": bucket, "name": bucket, "public": True})
 
     def upload_if_changed(self, bucket: str, path: str, content: bytes, content_type: str) -> bool:
+        if b2_configured():
+            return b2_upload(f"{bucket}/{path}", content, content_type)
         encoded = quote(path, safe="/")
         public_path = f"/storage/v1/object/public/{bucket}/{encoded}"
         try:
@@ -219,6 +224,11 @@ class SupabaseSync:
         return True
 
     def download_json(self, bucket: str, path: str) -> dict:
+        if b2_configured():
+            payload = json.loads(b2_download(f"{bucket}/{path}").decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise SyncError(f"Stored {bucket}/{path} is not a JSON object.")
+            return payload
         encoded = quote(path, safe="/")
         response = self.request("GET", f"/storage/v1/object/public/{bucket}/{encoded}")
         payload = response.json()
