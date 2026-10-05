@@ -446,7 +446,7 @@ def startup() -> None:
 
 
 @app.get("/", name="library")
-def library(request: Request, page: int = 1, query: str = "", return_page: int | None = None):
+def library(request: Request, page: int = 1, query: str = "", filter: str = "all", return_page: int | None = None):
     """The library is Supabase-backed in every environment."""
     try:
         synced_novels = load_novels()
@@ -468,6 +468,17 @@ def library(request: Request, page: int = 1, query: str = "", return_page: int |
                 for token in query_tokens
             )
         ]
+    library_filter = filter if filter in {"all", "reading"} else "all"
+    if library_filter == "reading":
+        try:
+            reading_slugs = {
+                str(item["book_id"])
+                for item in load_user_reading_progress(request.state.user.id)
+                if item.get("book_id") and int(item.get("chapter_number") or 0) > 0
+            }
+        except CdnDataError:
+            reading_slugs = set()
+        synced_novels = [novel for novel in synced_novels if str(novel.get("slug") or "") in reading_slugs]
     page_size = 10
     total_novels = len(synced_novels)
     total_pages = max(1, (total_novels + page_size - 1) // page_size)
@@ -484,6 +495,7 @@ def library(request: Request, page: int = 1, query: str = "", return_page: int |
             "library_page": current_page,
             "library_total_pages": total_pages,
             "library_query": query,
+            "library_filter": library_filter,
             "library_return_page": library_return_page,
         },
     )

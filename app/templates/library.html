@@ -4,25 +4,16 @@
 {% block content %}
 <section class="site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
   <style>
-    [id="library-grid"].is-list{grid-template-columns:1fr}
-    [id="library-grid"].is-list .library-card{display:grid;grid-template-columns:96px minmax(0,1fr)}
-    [id="library-grid"].is-list .library-card>a{grid-row:1}
-    [id="library-grid"].is-list .library-card .aspect-\[2\/3\]{aspect-ratio:auto;height:100%}
-    [id="library-grid"].is-list .library-card .p-4{display:flex;min-width:0;flex-direction:column;justify-content:center}
-    [id="library-grid"].is-list .library-card h2{min-height:0}
     [id="library-grid"]{grid-auto-rows:1fr}.library-card{display:flex;min-width:0;flex-direction:column}.library-card>a{display:block;overflow:hidden}.library-card .aspect-\[2\/3\]{aspect-ratio:3/4!important}.library-card .p-4{display:flex;min-height:0;flex:1;flex-direction:column;padding:1rem}.library-card h2{min-height:2.75rem;font-size:.95rem;line-height:1.35}.library-card p{margin-top:.35rem!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.library-card .library-progress{margin-top:auto;padding-top:.9rem}.library-card .library-progress-head{display:flex;align-items:center;justify-content:space-between;font-size:.66rem;font-weight:700;letter-spacing:.06em;color:var(--muted)}.library-card .library-progress-head strong{color:var(--accent);letter-spacing:0}.library-card .library-progress-track{margin-top:.4rem;height:.32rem;overflow:hidden;border-radius:999px;background:var(--surface-3)}.library-card .library-progress-track>span{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .2s ease}.library-card [data-book-start]{width:100%;justify-content:center;margin-top:.75rem;background:var(--accent)!important;color:var(--accent-ink)!important}.library-card [data-book-start] span{color:var(--accent-ink)!important}.library-pagination{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.45rem}.library-pagination a{display:inline-flex;min-height:2.35rem;min-width:2.35rem;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:.5rem;padding:0 .7rem;color:var(--text);font-size:.875rem;font-weight:700}.library-pagination a:hover{border-color:var(--accent);background:var(--surface-2)}.library-pagination a[aria-current="page"]{border-color:transparent;background:var(--accent);color:var(--accent-ink)}
     @media(max-width:639px){
-      [id="library-grid"].is-list .library-card{grid-template-columns:76px minmax(0,1fr)}
       .library-toolbar [role="tablist"]{flex-wrap:nowrap;gap:.35rem;overflow-x:auto;padding-bottom:.1rem}
       .library-toolbar [role="tablist"] .site-nav-button{min-height:2.4rem;padding:0 .6rem;font-size:.78rem;white-space:nowrap}
-      .library-toolbar [role="tablist"] .icon-button{height:2.4rem;width:2.4rem;flex:0 0 auto}
-      .library-toolbar [role="tablist"]>span{display:none}
       .library-search{max-width:none}
     }
   </style>
   {% macro library_pagination() %}
     {% if library_total_pages is defined and library_total_pages > 1 %}
-    {% set query_suffix = '&query=' ~ (library_query|urlencode) ~ '&return_page=' ~ library_return_page if library_query else '' %}
+    {% set query_suffix = ('&query=' ~ (library_query|urlencode) ~ '&return_page=' ~ library_return_page if library_query else '') ~ ('&filter=reading' if library_filter == 'reading' else '') %}
     <nav class="library-pagination mt-8" aria-label="Phân trang thư viện"><a href="/?page={{ library_page - 1 }}{{ query_suffix }}" {% if library_page == 1 %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang trước"><i data-lucide="chevron-left" class="h-4 w-4"></i></a>{% for item in range(1, library_total_pages + 1) %}<a href="/?page={{ item }}{{ query_suffix }}" {% if item == library_page %}aria-current="page"{% endif %}>{{ item }}</a>{% endfor %}<a href="/?page={{ library_page + 1 }}{{ query_suffix }}" {% if library_page == library_total_pages %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang sau"><i data-lucide="chevron-right" class="h-4 w-4"></i></a></nav>
     {% endif %}
   {% endmacro %}
@@ -42,20 +33,18 @@
         <a href="/logout" class="flex min-h-11 items-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
       </div>
     </div>
-    <div x-data="{ query: {{ (library_query or '')|tojson }} }" class="library-toolbar mt-6 w-full">
+    <div x-data="{ query: {{ (library_query or '')|tojson }} }" class="library-toolbar mt-6 flex w-full flex-wrap items-center gap-2">
       <div class="flex flex-wrap items-center gap-2" role="tablist" aria-label="Lọc thư viện">
-        <button type="button" data-library-filter="all" class="site-nav-button accent" role="tab" aria-selected="true">Tất cả</button>
-        <button type="button" data-library-filter="reading" class="site-nav-button" role="tab" aria-selected="false">Đang đọc</button>
-        <button type="button" data-library-filter="completed" class="site-nav-button" role="tab" aria-selected="false">Đã xong</button>
-        <span class="hidden h-7 border-l border-[var(--line)] sm:block"></span>
-        <button type="button" data-library-view="grid" class="icon-button bg-[var(--surface-3)]" aria-label="Hiển thị dạng lưới" title="Dạng lưới"><i data-lucide="grid-2x2" class="h-4 w-4"></i></button>
-        <button type="button" data-library-view="list" class="icon-button" aria-label="Hiển thị dạng danh sách" title="Dạng danh sách"><i data-lucide="list" class="h-4 w-4"></i></button>
+        <a href="/?filter=all{% if library_query %}&amp;query={{ library_query|urlencode }}{% endif %}" class="site-nav-button {{ 'accent' if library_filter != 'reading' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter != 'reading' else 'false' }}">Tất cả</a>
+        <a href="/?filter=reading{% if library_query %}&amp;query={{ library_query|urlencode }}{% endif %}" class="site-nav-button {{ 'accent' if library_filter == 'reading' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter == 'reading' else 'false' }}">Đang đọc</a>
       </div>
+      <a href="/followed" class="site-nav-button inline-flex items-center gap-1.5"><i data-lucide="heart" class="h-4 w-4"></i>Theo dõi</a>
       <form action="/" method="get"
         data-library-search
         class="library-search flex w-full max-w-md items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500 sm:ml-auto"
       >
         <input type="hidden" name="return_page" value="{{ library_return_page }}">
+        <input type="hidden" name="filter" value="{{ library_filter }}">
         <span class="sr-only">Tìm trong thư viện</span>
         <label for="source-query" class="sr-only">Tìm truyện hoặc tác giả</label>
         <i data-lucide="search" class="ml-2 h-4 w-4 shrink-0 text-stone-400"></i>
@@ -157,7 +146,7 @@
   </div>
   {{ library_pagination() }}
   {% else %}
-  <div class="mt-10 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-6 py-16 text-center text-stone-500">Thư viện chưa có truyện.</div>
+  <div class="mt-10 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-6 py-16 text-center text-stone-500">{{ 'Bạn chưa có truyện đang đọc.' if library_filter == 'reading' else 'Thư viện chưa có truyện.' }}</div>
   {% endif %}
 </section>
 <script>
@@ -167,12 +156,7 @@
     const progressStorage = {
       getItem: (key) => window.localStorage.getItem(`${readerStoragePrefix}reader.${key}`),
     };
-    const libraryStateStorage = {
-      getItem: (key) => window.localStorage.getItem(`${readerStoragePrefix}library.${key}`),
-      setItem: (key, value) => window.localStorage.setItem(`${readerStoragePrefix}library.${key}`, value),
-    };
     const latestUrl = progressStorage.getItem("lastUrl");
-    const remoteProgress = new Map();
     let recentlyReadCard = null;
     document.querySelectorAll("[data-library-book]").forEach((card) => {
       const url = progressStorage.getItem(`lastUrl.book.${card.dataset.bookKey}`);
@@ -209,7 +193,6 @@
     if (recentlyReadCard && libraryGrid) {
       libraryGrid.prepend(recentlyReadCard);
     }
-    let activeLibraryFilter = "all";
     let activeLibraryQuery = "";
     const normalizeLibrarySearch = (value) => String(value || "")
       .toLocaleLowerCase("vi")
@@ -221,50 +204,17 @@
     const applyLibraryFilters = () => {
       let visibleCount = 0;
       document.querySelectorAll("[data-library-book]").forEach((card) => {
-        const key = card.dataset.bookKey;
-        const remote = remoteProgress.get(key);
-        const total = Number(card.querySelector("[data-library-progress]")?.dataset.totalChapters || 0);
-        const isReading = Boolean(remote || progressStorage.getItem(`lastUrl.book.${key}`));
-        const isCompleted = remote ? (total > 0 && Number(remote.chapter_number) >= total) : progressStorage.getItem(`completed.book.${key}`) === "true";
-        const matchesStatus = activeLibraryFilter === "reading"
-          ? isReading && !isCompleted
-          : activeLibraryFilter === "completed" ? isCompleted : true;
         const title = card.querySelector("h2")?.textContent || "";
         const author = card.querySelector("p")?.textContent || "";
         const matchesQuery = !activeLibraryQuery || normalizeLibrarySearch(`${title} ${author}`).includes(activeLibraryQuery);
-        card.hidden = !matchesStatus || !matchesQuery;
+        card.hidden = !matchesQuery;
         if (!card.hidden) visibleCount += 1;
       });
       const searchResults = document.querySelector("#lookup-results");
       if (searchResults) searchResults.textContent = activeLibraryQuery && !visibleCount ? "Không tìm thấy truyện phù hợp." : "";
     };
-    const setLibraryFilter = (filter) => {
-      document.querySelectorAll("[data-library-filter]").forEach((button) => {
-        const selected = button.dataset.libraryFilter === filter;
-        button.classList.toggle("accent", selected);
-        button.setAttribute("aria-selected", String(selected));
-      });
-      activeLibraryFilter = filter;
-      applyLibraryFilters();
-      libraryStateStorage.setItem("filter", filter);
-    };
-    const setLibraryView = (view) => {
-      if (!libraryGrid) return;
-      libraryGrid.classList.toggle("is-list", view === "list");
-      document.querySelectorAll("[data-library-view]").forEach((button) => button.classList.toggle("bg-[var(--surface-3)]", button.dataset.libraryView === view));
-      libraryStateStorage.setItem("view", view);
-    };
-    document.querySelectorAll("[data-library-filter]").forEach((button) => button.addEventListener("click", () => setLibraryFilter(button.dataset.libraryFilter)));
-    document.querySelectorAll("[data-library-view]").forEach((button) => button.addEventListener("click", () => setLibraryView(button.dataset.libraryView)));
     activeLibraryQuery = normalizeLibrarySearch(document.querySelector("#source-query")?.value || "");
-    setLibraryFilter(libraryStateStorage.getItem("filter") || "all");
-    const libraryViewVersion = "grid-v2";
-    if (libraryStateStorage.getItem("view-version") !== libraryViewVersion) {
-      setLibraryView("grid");
-      libraryStateStorage.setItem("view-version", libraryViewVersion);
-    } else {
-      setLibraryView(libraryStateStorage.getItem("view") || "grid");
-    }
+    applyLibraryFilters();
     fetch("/api/reading-progress", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : { items: [] })
       .then(({ items = [] }) => {
@@ -273,7 +223,6 @@
         for (const item of items) {
           const card = cards.get(String(item.book_id));
           if (!card) continue;
-          remoteProgress.set(String(item.book_id), item);
           const chapterNumber = Number(item.chapter_number || 0);
           const startLink = card.querySelector("[data-book-start]");
           if (startLink && chapterNumber) {
@@ -305,7 +254,8 @@
       clearTimeout(searchTimer);
       if (!searchInput.value.trim()) {
         const returnPage = searchForm.elements.return_page?.value || "1";
-        window.location.assign(`/?page=${encodeURIComponent(returnPage)}`);
+        const filter = searchForm.elements.filter?.value || "all";
+        window.location.assign(`/?page=${encodeURIComponent(returnPage)}&filter=${encodeURIComponent(filter)}`);
         return;
       }
       searchTimer = window.setTimeout(() => searchForm.requestSubmit(), 280);
