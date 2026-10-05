@@ -302,7 +302,10 @@
       migrateLegacyReaderState();
       storage.setItem("reader.lastUrl", window.location.pathname + window.location.search);
       storage.setItem("reader.lastTitle", document.title);
-      if (readerBookKey) storage.setItem(`reader.lastUrl.book.${readerBookKey}`, window.location.pathname + window.location.search);
+      if (readerBookKey) {
+        storage.setItem(`reader.lastUrl.book.${readerBookKey}`, window.location.pathname + window.location.search);
+        storage.setItem(`reader.lastReadAt.book.${readerBookKey}`, String(Date.now()));
+      }
       {% if not following %}if (readerBookKey) storage.setItem(`reader.completed.book.${readerBookKey}`, "true");{% else %}if (readerBookKey) storage.removeItem(`reader.completed.book.${readerBookKey}`);{% endif %}
       const readerContent = document.querySelector("[data-reader-content]");
       const readerContentTitle = document.querySelector("[data-reader-content-title]");

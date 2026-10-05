@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ book.translated_title or book.title }} | Leo Truyen{% endblock %}
-{% block main_class %}min-h-screen px-4 py-8 sm:px-6 lg:px-8{% endblock %}
+{% block main_class %}min-h-screen px-4 py-3 sm:px-6 sm:py-4 lg:px-8{% endblock %}
 {% block content %}
 {% set first_chapter = book.chapters[0] if book.chapters else none %}
 {% set is_deleted = book.deleted_at %}
@@ -45,7 +45,7 @@
     <div class="h-1.5 overflow-hidden rounded-full bg-stone-200"><div data-progress-bar class="h-full rounded-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </div>
 
-  <section class="book-hero mt-8 lg:gap-10 lg:py-8">
+  <section class="book-hero mt-5 lg:gap-10 lg:py-8">
     <div class="mx-auto w-full max-w-[240px]">
       <div class="book-cover overflow-hidden">
         {% if book.cover_url %}

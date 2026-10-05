@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Thư viện{% endblock %}
-{% block main_class %}min-h-screen px-4 py-8 sm:px-6 lg:px-8{% endblock %}
+{% block main_class %}min-h-screen px-4 py-3 sm:px-6 sm:py-4 lg:px-8{% endblock %}
 {% block content %}
 <section class="library-page site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
   <style>
@@ -90,6 +90,10 @@
     const progressStorage = {
       getItem: (key) => window.localStorage.getItem(`${readerStoragePrefix}reader.${key}`),
     };
+    const lastReadAt = (novel) => Math.max(
+      Date.parse(state.progressBySlug.get(String(novel.slug))?.updated_at || "") || 0,
+      Number(progressStorage.getItem(`lastReadAt.book.${novel.slug}`)) || 0,
+    );
     const normalize = (value) => String(value || "")
       .toLocaleLowerCase("vi")
       .normalize("NFD")
@@ -312,6 +316,9 @@
       const terms = state.searchQuery.split(" ").filter(Boolean);
       const sourceNovels = state.activeTab === "followed"
         ? (state.sort === "oldest" ? state.oldestFollowedNovels : state.followedNovels)
+        : state.activeTab === "reading"
+          ? state.allNovels.filter((novel) => state.readingSlugs.has(String(novel.slug)))
+            .sort((left, right) => (lastReadAt(right) - lastReadAt(left)) * (state.sort === "oldest" ? -1 : 1))
         : state.sort === "oldest" ? state.oldestNovels : state.allNovels;
       const filtered = sourceNovels
         .filter((novel) => {
@@ -396,8 +403,10 @@
             novel._searchText = normalize(`${novel.title || ""} ${novel.author || ""} ${novel.slug || ""}`);
             return novel;
           });
-          state.followedNovels.sort((left, right) => (Date.parse(right.follow_created_at || "") || 0) - (Date.parse(left.follow_created_at || "") || 0));
-          state.oldestFollowedNovels = [...state.followedNovels].reverse();
+          const newestFirst = (left, right) => Number(Number(right.new_chapter_count) > 0) - Number(Number(left.new_chapter_count) > 0);
+          const followedAt = (novel) => Date.parse(novel.follow_created_at || "") || 0;
+          state.followedNovels.sort((left, right) => newestFirst(left, right) || followedAt(right) - followedAt(left));
+          state.oldestFollowedNovels = [...state.followedNovels].sort((left, right) => newestFirst(left, right) || followedAt(left) - followedAt(right));
           state.followedLoadState = "loaded";
           render();
         })
