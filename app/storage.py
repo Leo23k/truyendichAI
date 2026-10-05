@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import gzip
 from functools import lru_cache
 from pathlib import PurePosixPath
 
@@ -36,14 +37,19 @@ def client():
 def upload(path: str, content: bytes, content_type: str) -> bool:
     path = _safe(path)
     digest = hashlib.sha256(content).hexdigest()
+    compress = content_type.split(";", 1)[0] == "application/json"
     s3 = client()
     try:
         head = s3.head_object(Bucket=os.environ["B2_BUCKET"], Key=path)
-        if head.get("Metadata", {}).get("sha256") == digest:
+        if head.get("Metadata", {}).get("sha256") == digest and (not compress or head.get("ContentEncoding") == "gzip"):
             return False
     except Exception:
         pass
-    s3.put_object(Bucket=os.environ["B2_BUCKET"], Key=path, Body=content, ContentType=content_type, Metadata={"sha256": digest})
+    options = {"ContentEncoding": "gzip"} if compress else {}
+    s3.put_object(
+        Bucket=os.environ["B2_BUCKET"], Key=path, Body=gzip.compress(content) if compress else content,
+        ContentType=content_type, Metadata={"sha256": digest}, **options,
+    )
     return True
 
 
@@ -55,8 +61,18 @@ def exists(path: str) -> bool:
         return False
 
 
+def needs_sync(path: str, content_type: str) -> bool:
+    try:
+        head = client().head_object(Bucket=os.environ["B2_BUCKET"], Key=_safe(path))
+        return content_type.split(";", 1)[0] == "application/json" and head.get("ContentEncoding") != "gzip"
+    except Exception:
+        return True
+
+
 def download(path: str) -> bytes:
-    return client().get_object(Bucket=os.environ["B2_BUCKET"], Key=_safe(path))["Body"].read()
+    result = client().get_object(Bucket=os.environ["B2_BUCKET"], Key=_safe(path))
+    content = result["Body"].read()
+    return gzip.decompress(content) if result.get("ContentEncoding") == "gzip" else content
 
 
 def presigned_download_url(path: str) -> str:

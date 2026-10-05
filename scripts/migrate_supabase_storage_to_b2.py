@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
-from app.storage import configured, exists, upload
+from app.storage import configured, needs_sync, upload
 
 
 def headers() -> dict[str, str]:
@@ -78,7 +78,8 @@ def main() -> None:
         base = os.environ["SUPABASE_URL"].rstrip("/")
         def copy_one(item: tuple[str, str]) -> bool:
             bucket, key = item
-            if exists(f"{bucket}/{key}"):
+            expected_type = "application/json" if bucket == "chapters" else "application/octet-stream"
+            if not needs_sync(f"{bucket}/{key}", expected_type):
                 return False
             response = source.get(f"{base}/storage/v1/object/{bucket}/{quote(key, safe='/')}", headers=headers())
             response.raise_for_status()
