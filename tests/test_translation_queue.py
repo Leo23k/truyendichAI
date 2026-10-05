@@ -111,6 +111,63 @@ def test_existing_novel_refresh_preserves_cover_and_description() -> None:
     assert "description" not in patch
 
 
+def test_store_novel_cover_uploads_image_and_returns_database_path(monkeypatch) -> None:
+    uploaded: list[tuple[str, str, bytes, str]] = []
+
+    class CoverRemote:
+        def upload_if_changed(self, bucket: str, path: str, content: bytes, content_type: str) -> bool:
+            uploaded.append((bucket, path, content, content_type))
+            return True
+
+    monkeypatch.setattr(service, "download_cover", lambda _url: (b"image-bytes", "image/webp", ".webp"))
+
+    path = service.store_novel_cover(CoverRemote(), "a novel/slug", "https://source.test/cover.webp")
+
+    assert path == "covers/a-novel-slug/cover.webp"
+    assert uploaded == [("covers", "a-novel-slug/cover.webp", b"image-bytes", "image/webp")]
+
+
+def test_cover_storage_failure_does_not_break_the_crawl(monkeypatch) -> None:
+    class BrokenCoverRemote:
+        def upload_if_changed(self, *_args) -> bool:
+            raise RuntimeError("temporary storage failure")
+
+    monkeypatch.setattr(service, "download_cover", lambda _url: (b"image-bytes", "image/jpeg", ".jpg"))
+
+    assert service.store_novel_cover(BrokenCoverRemote(), "novel", "https://source.test/cover.jpg") is None
+
+
+def test_migrate_remote_cover_urls_updates_only_after_success(monkeypatch) -> None:
+    class CoverRemote:
+        def __init__(self) -> None:
+            self.updated: list[tuple[dict, dict]] = []
+
+        def all_rows(self, table: str, _params: dict) -> list[dict]:
+            assert table == "novels"
+            return [
+                {"id": 1, "slug": "novel-one", "cover_url": "https://source.test/one.jpg"},
+                {"id": 2, "slug": "novel-two", "cover_url": "covers/novel-two/cover.webp"},
+                {"id": 3, "slug": "novel-three", "cover_url": "https://source.test/missing.jpg"},
+            ]
+
+        def patch_rows(self, table: str, params: dict, payload: dict) -> list[dict]:
+            assert table == "novels"
+            self.updated.append((params, payload))
+            return []
+
+    remote = CoverRemote()
+    monkeypatch.setattr(
+        service,
+        "store_novel_cover",
+        lambda _remote, slug, _url: "covers/novel-one/cover.jpg" if slug == "novel-one" else None,
+    )
+
+    result = service.migrate_remote_cover_urls(remote)
+
+    assert result == {"scanned": 3, "migrated": 1, "skipped": 1, "failed": 1}
+    assert remote.updated == [({"id": "eq.1"}, {"cover_url": "covers/novel-one/cover.jpg"})]
+
+
 def test_translation_worker_concurrency_defaults_to_two_and_is_bounded(monkeypatch) -> None:
     monkeypatch.delenv("TRANSLATION_WORKER_CONCURRENCY", raising=False)
     assert service.translation_worker_concurrency() == 2

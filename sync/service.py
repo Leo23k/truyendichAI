@@ -16,7 +16,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from botocore.exceptions import BotoCoreError, ClientError
@@ -242,17 +242,77 @@ class SupabaseSync:
         return payload
 
 
-def cover_bytes(url: str | None) -> bytes | None:
+_COVER_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/avif": ".avif",
+}
+
+
+def download_cover(url: str | None) -> tuple[bytes, str, str] | None:
     if not url:
         return None
     try:
         with httpx.Client(timeout=30, trust_env=False) as client:
             response = client.get(url)
         response.raise_for_status()
-        return response.content
-    except httpx.HTTPError:
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        extension = _COVER_TYPES.get(content_type)
+        if not extension or not response.content or len(response.content) > 20 * 1024 * 1024:
+            logger.warning("Skipping unsupported or oversized cover image: %s", url)
+            return None
+        return response.content, content_type, extension
+    except (httpx.HTTPError, ValueError):
         logger.warning("Could not download cover: %s", url)
         return None
+
+
+def cover_bytes(url: str | None) -> bytes | None:
+    """Compatibility helper returning downloaded cover bytes only."""
+    result = download_cover(url)
+    return result[0] if result else None
+
+
+def store_novel_cover(remote: SupabaseSync, slug: str, url: str | None) -> str | None:
+    downloaded = download_cover(url)
+    if not downloaded:
+        return None
+    safe_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", slug).strip("-_") or "novel"
+    content, content_type, extension = downloaded
+    path = f"{safe_slug}/cover{extension}"
+    try:
+        remote.upload_if_changed("covers", path, content, content_type)
+    except Exception:
+        logger.exception("Could not store downloaded cover for slug=%s", safe_slug)
+        return None
+    return f"covers/{path}"
+
+
+def migrate_remote_cover_urls(remote: SupabaseSync | None = None) -> dict[str, int]:
+    """Move existing external cover URLs into object storage without clearing failed ones."""
+    remote = remote or SupabaseSync()
+    counts = {"scanned": 0, "migrated": 0, "skipped": 0, "failed": 0}
+    novels = remote.all_rows("novels", {"select": "id,slug,cover_url", "order": "id.asc"})
+    for novel in novels:
+        counts["scanned"] += 1
+        cover_url = str(novel.get("cover_url") or "").strip()
+        if cover_url.startswith("covers/") or not novel.get("slug") or urlparse(cover_url).scheme not in {"http", "https"}:
+            counts["skipped"] += 1
+            continue
+        try:
+            stored_path = store_novel_cover(remote, str(novel.get("slug") or ""), cover_url)
+            if not stored_path:
+                counts["failed"] += 1
+                continue
+            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"cover_url": stored_path})
+            counts["migrated"] += 1
+        except Exception:
+            counts["failed"] += 1
+            logger.exception("Could not migrate cover for novel_id=%s", novel.get("id"))
+    return counts
 
 
 def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict], crawl_job_id: str | None = None, priority: int = 0) -> int:
@@ -777,19 +837,28 @@ def sync_once() -> dict[str, int | bool]:
     connection.row_factory = sqlite3.Row
     counts = {"novels": 0, "chapters": 0, "queued": 0, "json_uploaded": 0, "audio_uploaded": 0, "covers_uploaded": 0}
     try:
-        remote_novels = remote.all_rows("novels", {"select": "slug,source_url", "order": "slug.asc"})
+        remote_novels = remote.all_rows("novels", {"select": "slug,source_url,cover_url", "order": "slug.asc"})
         slugs_by_source = {str(item.get("source_url")): str(item["slug"]) for item in remote_novels if item.get("source_url") and item.get("slug")}
+        remote_by_source = {str(item.get("source_url")): item for item in remote_novels if item.get("source_url")}
         used_slugs = {str(item["slug"]) for item in remote_novels if item.get("slug")}
         for book in connection.execute("SELECT * FROM books ORDER BY id").fetchall():
             source_url = str(book["source_url"] or "")
             slug = slugs_by_source.get(source_url) or unique_slug(book["translated_title"] or book["title"], used_slugs)
             used_slugs.add(slug)
-            cover_path = None
-            cover = cover_bytes(book["cover_url"])
-            if cover:
-                cover_path = f"{slug}/cover.jpg"
-                if remote.upload_if_changed("covers", cover_path, cover, "image/jpeg"):
+            current_novel = remote_by_source.get(source_url, {})
+            local_cover = str(book["cover_url"] or "").strip()
+            remote_cover = str(current_novel.get("cover_url") or "")
+            cover_url = remote_cover if remote_cover.startswith("covers/") else None
+            if not cover_url and local_cover.startswith("covers/"):
+                cover_url = local_cover
+            if not cover_url and local_cover:
+                cover_url = store_novel_cover(remote, slug, local_cover)
+                if cover_url:
                     counts["covers_uploaded"] += 1
+                else:
+                    cover_url = remote_cover or local_cover
+            if not cover_url:
+                cover_url = remote_cover or None
             chapter_rows = connection.execute(
                 "SELECT * FROM chapters WHERE book_id = ? ORDER BY chapter_number", (book["id"],)
             ).fetchall()
@@ -800,7 +869,7 @@ def sync_once() -> dict[str, int | bool]:
                     "slug": slug,
                     "title": book["translated_title"] or book["title"],
                     "author": book["translated_author"] or book["author"],
-                    "cover_url": f"covers/{cover_path}" if cover_path else None,
+                    "cover_url": cover_url,
                     "source_url": book["source_url"],
                     "latest_chapter": latest,
                     "updated_at": book["updated_at"],
@@ -955,9 +1024,9 @@ async def _crawl_and_translate_url(
         remote = SupabaseSync()
         logger.info("Bắt đầu crawl truyện: %s", info.title)
         novels = remote.rows(
-            "novels", {"select": "id,slug,title,author", "id": f"eq.{source_update_novel_id}", "limit": "1"},
+            "novels", {"select": "id,slug,title,author,cover_url", "id": f"eq.{source_update_novel_id}", "limit": "1"},
         ) if source_update_novel_id else remote.rows(
-            "novels", {"select": "id,slug,title,author", "source_url": f"eq.{info.source_url}", "limit": "1"},
+            "novels", {"select": "id,slug,title,author,cover_url", "source_url": f"eq.{info.source_url}", "limit": "1"},
         )
         was_existing_novel = bool(novels)
         if novels:
@@ -965,12 +1034,19 @@ async def _crawl_and_translate_url(
             translated_title = str(novel.get("title") or info.title)
             translated_author = novel.get("author") or info.author
             novel_patch = _existing_novel_refresh_patch(info, source_type)
+            current_cover = str(novel.get("cover_url") or "")
+            if info.cover_url and not current_cover.startswith("covers/"):
+                stored_cover = store_novel_cover(remote, str(novel["slug"]), info.cover_url)
+                if stored_cover:
+                    novel_patch["cover_url"] = stored_cover
             remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, novel_patch)
         else:
             translated_title = info.title if is_vietnamese else translator.translate_metadata(info.title)
             translated_author = info.author if is_vietnamese else (translator.translate_metadata(info.author) if info.author else None)
             existing_slugs = {str(item["slug"]) for item in remote.all_rows("novels", {"select": "slug", "order": "slug.asc"}) if item.get("slug")}
-            novel = remote.insert("novels", {"slug": unique_slug(translated_title, existing_slugs), "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
+            novel_slug = unique_slug(translated_title, existing_slugs)
+            stored_cover = store_novel_cover(remote, novel_slug, info.cover_url)
+            novel = remote.insert("novels", {"slug": novel_slug, "title": translated_title, "author": translated_author, "cover_url": stored_cover or info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
 
         update_status(book_id=novel["id"], title=translated_title)
 
@@ -1326,13 +1402,16 @@ def prioritize(payload: dict[str, int], x_worker_token: str | None = Header(defa
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Publish LeoTruyen data to Supabase")
-    parser.add_argument("command", choices=("sync", "watch"), default="sync", nargs="?")
+    parser.add_argument("command", choices=("sync", "watch", "covers"), default="sync", nargs="?")
     parser.add_argument("--interval", type=int, default=60)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if args.command == "watch":
         os.environ["SYNC_INTERVAL"] = str(max(30, args.interval))
         run_watch()
+        return
+    if args.command == "covers":
+        logger.info("Cover migration result: %s", migrate_remote_cover_urls())
         return
     logger.info("Sync result: %s", sync_once())
 
