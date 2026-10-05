@@ -1,0 +1,97 @@
+"""Bounded, serverless discovery-only polling of novel source indexes."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timezone
+import logging
+
+from app.crawlers.bootstrap import registry
+from app.notification_service import deliver_pending_push, notify_chapter_discovery
+from sync.service import SupabaseSync, enqueue_remote_crawl
+
+logger = logging.getLogger(__name__)
+
+
+def _identity(url: str) -> str:
+    return "url:" + url.strip().rstrip("/")
+
+
+def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
+    remote = SupabaseSync()
+    novels = remote.all_rows("novels", {
+        "select": "id,slug,title,source_url,source_type,deleted_at",
+        "deleted_at": "is.null", "source_url": "not.is.null",
+    })
+    novels_by_id = {int(row["id"]): row for row in novels if row.get("id")}
+    states = remote.rows("chapter_monitor_state", {
+        "select": "novel_id,last_checked_at", "order": "last_checked_at.asc.nullsfirst",
+        "limit": str(max(1, min(12, batch_size))),
+    })
+    counts = {"checked": 0, "discovered": 0, "errors": 0, "push_sent": 0}
+    for state in states:
+        novel = novels_by_id.get(int(state["novel_id"]))
+        if not novel:
+            continue
+        novel_id = int(novel["id"])
+        now = datetime.now(timezone.utc).isoformat()
+        counts["checked"] += 1
+        try:
+            crawler = registry.get_for_url(str(novel["source_url"]))
+            chapters = asyncio.run(asyncio.wait_for(crawler.get_latest_chapters(novel["source_url"], 40), timeout=18))
+            existing = remote.all_rows("chapter_discoveries", {
+                "select": "source_identity", "novel_id": f"eq.{novel_id}",
+            })
+            known = {str(row.get("source_identity")) for row in existing}
+            discoveries = []
+            for chapter in chapters:
+                identity = _identity(chapter.url)
+                if identity in known or not chapter.url:
+                    continue
+                discoveries.append({
+                    "novel_id": novel_id,
+                    "source_identity": identity,
+                    "chapter_number": max(1, int(chapter.chapter_number)),
+                    "chapter_title": str(chapter.title or f"Chương {chapter.chapter_number}")[:500],
+                    "source_url": chapter.url,
+                })
+            if discoveries:
+                # Insert-ignore makes concurrent Cron invocations safe. Return
+                # inserted rows only, so notifications exist only for new events.
+                response = remote.request(
+                    "POST", "/rest/v1/chapter_discoveries?on_conflict=novel_id,source_identity",
+                    json=discoveries,
+                    headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
+                )
+                inserted = response.json()
+                if not isinstance(inserted, list):
+                    inserted = []
+                for discovery in inserted:
+                    counts["discovered"] += 1
+                    notify_chapter_discovery(remote, discovery, novel)
+                if inserted:
+                    enqueue_remote_crawl(
+                        str(novel["source_url"]), str(novel.get("source_type") or "zh"),
+                        {"chapter_monitor": True, "novel_id": novel_id},
+                    )
+            latest = max((int(ch.chapter_number) for ch in chapters), default=0)
+            remote.patch_rows("chapter_monitor_state", {"novel_id": f"eq.{novel_id}"}, {
+                "last_seen_chapter_number": latest,
+                "last_seen_source_url": chapters[-1].url if chapters else None,
+                "last_checked_at": now,
+                "last_error": None,
+                "updated_at": now,
+            })
+        except Exception as exc:
+            counts["errors"] += 1
+            remote.patch_rows("chapter_monitor_state", {"novel_id": f"eq.{novel_id}"}, {
+                "last_checked_at": now,
+                "last_error": str(exc)[:1000],
+                "updated_at": now,
+            })
+            logger.warning("Chapter monitor failed novel_id=%s source=%s error=%s", novel_id, novel.get("source_url"), exc)
+    try:
+        counts["push_sent"] = deliver_pending_push(20)
+    except Exception:
+        logger.exception("Pending Web Push delivery batch failed")
+    return counts

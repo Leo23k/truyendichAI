@@ -208,6 +208,20 @@ class XswCrawler(BaseCrawler):
             for index, chapter in enumerate(ordered, start=1)
         ]
 
+    async def get_latest_chapters(self, url: str, limit: int = 40) -> list[ChapterInfo]:
+        book_id = self._book_id(url)
+        if not book_id:
+            raise SourceParseError("URL truyện xsw.tw không hợp lệ.")
+        book_soup = BeautifulSoup(await self._get_html(url), "html.parser")
+        book_id = self._canonical_book_id(book_soup) or book_id
+        first_url = f"https://m.xsw.tw/{book_id}/page-1.html"
+        soup = BeautifulSoup(await self._get_html(first_url), "html.parser")
+        pattern = re.compile(rf"/{re.escape(book_id)}/(\d+)\.html$")
+        chapters = self._parse_chapter_links(soup, first_url, pattern)
+        if not chapters:
+            raise SourceParseError("Không tìm thấy danh sách chương gần nhất.")
+        return chapters[:max(1, limit)]
+
     @staticmethod
     def _parse_chapter_links(soup: BeautifulSoup, page_url: str, chapter_pattern: re.Pattern[str]) -> list[ChapterInfo]:
         chapters: list[ChapterInfo] = []

@@ -100,6 +100,20 @@ class Shuba69Crawler(BaseCrawler):
             raise SourceParseError("Không tìm thấy danh sách chương.")
         return dedupe_chapters(chapters)
 
+    async def get_latest_chapters(self, url: str, limit: int = 40) -> list[ChapterInfo]:
+        soup = BeautifulSoup(await self._get_html(url), "html.parser")
+        chapters: list[ChapterInfo] = []
+        for link in soup.select('a[href*="/txt/"]'):
+            href = urljoin(url, link.get("href", ""))
+            match = re.search(r"/txt/\d+/(\d+)", href)
+            title = link.get_text(" ", strip=True)
+            number_match = re.search(r"第\s*(\d+)\s*章", title)
+            if match and number_match:
+                chapters.append(ChapterInfo(int(number_match.group(1)), match.group(1), title, href))
+        if not chapters:
+            raise SourceParseError("Không tìm thấy danh sách chương gần nhất.")
+        return dedupe_chapters(chapters)[-max(1, limit):]
+
     async def get_chapter_content(self, url: str) -> str:
         soup = BeautifulSoup(await self._get_html(url), "html.parser")
         content_node = soup.select_one("#txt_content, .txtnav, .content, .read-content")

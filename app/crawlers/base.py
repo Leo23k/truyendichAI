@@ -165,6 +165,11 @@ class BaseCrawler:
     async def get_chapters(self, url: str) -> list[ChapterInfo]:
         raise NotImplementedError
 
+    async def get_latest_chapters(self, url: str, limit: int = 40) -> list[ChapterInfo]:
+        """Return a bounded recent listing for lightweight cloud discovery."""
+        chapters = await self.get_chapters(url)
+        return chapters[-max(1, limit):]
+
     async def get_chapter_content(self, url: str) -> str:
         raise NotImplementedError
 
