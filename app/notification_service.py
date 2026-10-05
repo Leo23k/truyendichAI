@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
@@ -106,7 +106,22 @@ def list_notifications(user_id: str, *, page: int = 1, page_size: int = 20) -> t
         total = int(content_range.rsplit("/", 1)[1])
     except (IndexError, ValueError):
         total = len(rows)
-    return [row for row in rows if isinstance(row, dict)], total
+    notifications = [row for row in rows if isinstance(row, dict)]
+    for row in notifications:
+        row["created_at_display"] = format_notification_time(row.get("created_at"))
+    return notifications, total
+
+
+def format_notification_time(value: object) -> str:
+    """Format notification timestamps in Vietnam local time."""
+    try:
+        timestamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    vietnam_time = timezone(timedelta(hours=7))
+    return timestamp.astimezone(vietnam_time).strftime("%H:%M - %d/%m/%Y")
 
 
 def unread_notification_count(user_id: str) -> int:

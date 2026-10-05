@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.notification_service import notify_chapter_discovery
+from app.notification_service import format_notification_time, notify_chapter_discovery
 from sync.service import record_crawled_chapter_discovery
 
 
@@ -39,6 +39,12 @@ class FakeSupabase:
                 event.update(payload)
                 return [event]
         return []
+
+
+def test_notification_time_uses_vietnam_timezone_and_requested_format() -> None:
+    assert format_notification_time("2026-10-05T11:08:45.759021+00:00") == "18:08 - 05/10/2026"
+    assert format_notification_time("2026-10-05T01:00:00Z") == "08:00 - 05/10/2026"
+    assert format_notification_time("not-a-timestamp") == ""
 
 
 def test_discovery_creates_one_notification_per_user_and_deduplicates_admin_follow() -> None:
