@@ -254,7 +254,13 @@
     document.querySelectorAll("[data-library-filter]").forEach((button) => button.addEventListener("click", () => setLibraryFilter(button.dataset.libraryFilter)));
     document.querySelectorAll("[data-library-view]").forEach((button) => button.addEventListener("click", () => setLibraryView(button.dataset.libraryView)));
     setLibraryFilter(libraryStateStorage.getItem("filter") || "all");
-    setLibraryView(libraryStateStorage.getItem("view") || "grid");
+    const libraryViewVersion = "grid-v2";
+    if (libraryStateStorage.getItem("view-version") !== libraryViewVersion) {
+      setLibraryView("grid");
+      libraryStateStorage.setItem("view-version", libraryViewVersion);
+    } else {
+      setLibraryView(libraryStateStorage.getItem("view") || "grid");
+    }
     fetch("/api/reading-progress", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : { items: [] })
       .then(({ items = [] }) => {
