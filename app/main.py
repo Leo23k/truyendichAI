@@ -427,14 +427,27 @@ def startup() -> None:
 
 
 @app.get("/", name="library")
-def library(request: Request):
+def library(request: Request, page: int = 1):
     """The library is Supabase-backed in every environment."""
     try:
         synced_novels = load_novels()
     except CdnDataError:
         synced_novels = []
+    page_size = 10
+    total_novels = len(synced_novels)
+    total_pages = max(1, (total_novels + page_size - 1) // page_size)
+    current_page = min(max(page, 1), total_pages)
+    page_start = (current_page - 1) * page_size
     return templates.TemplateResponse(
-        request=request, name="library.html", context={"books": [], "synced_novels": synced_novels}
+        request=request,
+        name="library.html",
+        context={
+            "books": [],
+            "synced_novels": synced_novels[page_start:page_start + page_size],
+            "library_total_novels": total_novels,
+            "library_page": current_page,
+            "library_total_pages": total_pages,
+        },
     )
 
 

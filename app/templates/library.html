@@ -10,7 +10,7 @@
     [id="library-grid"].is-list .library-card .aspect-\[2\/3\]{aspect-ratio:auto;height:100%}
     [id="library-grid"].is-list .library-card .p-4{display:flex;min-width:0;flex-direction:column;justify-content:center}
     [id="library-grid"].is-list .library-card h2{min-height:0}
-    .library-card .library-progress{margin-top:1rem}.library-card .library-progress-head{display:flex;align-items:center;justify-content:space-between;font-size:.66rem;font-weight:700;letter-spacing:.06em;color:var(--muted)}.library-card .library-progress-head strong{color:var(--accent);letter-spacing:0}.library-card .library-progress-track{margin-top:.4rem;height:.32rem;overflow:hidden;border-radius:999px;background:var(--surface-3)}.library-card .library-progress-track>span{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .2s ease}.library-card [data-book-start]{width:100%;justify-content:center;margin-top:.9rem;background:var(--accent)!important;color:var(--accent-ink)!important}.library-card [data-book-start] span{color:var(--accent-ink)!important}
+    [id="library-grid"]{grid-auto-rows:1fr}.library-card{display:flex;min-width:0;flex-direction:column}.library-card>a{display:block;overflow:hidden}.library-card .aspect-\[2\/3\]{aspect-ratio:3/4!important}.library-card .p-4{display:flex;min-height:0;flex:1;flex-direction:column;padding:1rem}.library-card h2{min-height:2.75rem;font-size:.95rem;line-height:1.35}.library-card p{margin-top:.35rem!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.library-card .library-progress{margin-top:auto;padding-top:.9rem}.library-card .library-progress-head{display:flex;align-items:center;justify-content:space-between;font-size:.66rem;font-weight:700;letter-spacing:.06em;color:var(--muted)}.library-card .library-progress-head strong{color:var(--accent);letter-spacing:0}.library-card .library-progress-track{margin-top:.4rem;height:.32rem;overflow:hidden;border-radius:999px;background:var(--surface-3)}.library-card .library-progress-track>span{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .2s ease}.library-card [data-book-start]{width:100%;justify-content:center;margin-top:.75rem;background:var(--accent)!important;color:var(--accent-ink)!important}.library-card [data-book-start] span{color:var(--accent-ink)!important}.library-pagination{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.45rem}.library-pagination a{display:inline-flex;min-height:2.35rem;min-width:2.35rem;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:.5rem;padding:0 .7rem;color:var(--text);font-size:.875rem;font-weight:700}.library-pagination a:hover{border-color:var(--accent);background:var(--surface-2)}.library-pagination a[aria-current="page"]{border-color:transparent;background:var(--accent);color:var(--accent-ink)}
     @media(max-width:639px){
       [id="library-grid"].is-list .library-card{grid-template-columns:76px minmax(0,1fr)}
       .library-toolbar [role="tablist"]{flex-wrap:nowrap;gap:.35rem;overflow-x:auto;padding-bottom:.1rem}
@@ -20,10 +20,15 @@
       .library-search{max-width:none}
     }
   </style>
+  {% macro library_pagination() %}
+    {% if library_total_pages is defined and library_total_pages > 1 %}
+    <nav class="library-pagination mt-8" aria-label="Phân trang thư viện"><a href="/?page={{ library_page - 1 }}" {% if library_page == 1 %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang trước"><i data-lucide="chevron-left" class="h-4 w-4"></i></a>{% for item in range(1, library_total_pages + 1) %}<a href="/?page={{ item }}" {% if item == library_page %}aria-current="page"{% endif %}>{{ item }}</a>{% endfor %}<a href="/?page={{ library_page + 1 }}" {% if library_page == library_total_pages %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang sau"><i data-lucide="chevron-right" class="h-4 w-4"></i></a></nav>
+    {% endif %}
+  {% endmacro %}
   <div class="relative flex flex-col gap-4">
     <div class="pr-12 sm:pr-64">
       <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện</h1></div>
-      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có {{ (books|length) if books else (synced_novels|length) }} truyện.</p>
+      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có {{ library_total_novels if library_total_novels is defined else ((books|length) if books else (synced_novels|length)) }} truyện.</p>
     </div>
     <div x-data="{ open: false }" @click.outside="open = false" class="hidden">
       <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex min-h-11 items-center gap-2 rounded-xl px-1.5 text-left hover:bg-stone-50" aria-label="Mở menu tài khoản">
@@ -76,7 +81,7 @@
   {% endif %}
 
   {% if books %}
-  <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4 xl:grid-cols-5">
+  <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
     {% for book in books %}
     {% set first_chapter = book.chapters[0] if book.chapters else none %}
     <article data-library-book data-book-key="{{ book.id }}" data-chapter-ids="{{ book.chapters|map(attribute='id')|join(',') }}" data-detail-url="/books/{{ book.id }}" tabindex="0" role="link" class="library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500">
@@ -120,8 +125,9 @@
     </article>
     {% endfor %}
   </div>
+  {{ library_pagination() }}
   {% elif synced_novels %}
-  <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4 xl:grid-cols-5">
+  <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
     {% for novel in synced_novels %}
     <article data-library-book data-book-key="{{ novel.slug }}" data-detail-url="/truyen/{{ novel.slug }}" tabindex="0" role="link" class="library-card group cursor-pointer overflow-hidden rounded-lg transition hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-teal-500">
       <a href="/truyen/{{ novel.slug }}" class="block">
@@ -146,6 +152,7 @@
     </article>
     {% endfor %}
   </div>
+  {{ library_pagination() }}
   {% else %}
   <div class="mt-10 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-6 py-16 text-center text-stone-500">Thư viện chưa có truyện.</div>
   {% endif %}
