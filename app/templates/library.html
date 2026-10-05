@@ -254,22 +254,9 @@
       document.querySelectorAll("[data-library-view]").forEach((button) => button.classList.toggle("bg-[var(--surface-3)]", button.dataset.libraryView === view));
       libraryStateStorage.setItem("view", view);
     };
-    document.querySelectorAll("[data-library-filter]").forEach((button) => button.addEventListener("click", () => {
-      const searchInput = document.querySelector("#source-query");
-      if (searchInput?.value.trim()) {
-        const searchForm = document.querySelector("[data-library-search]");
-        searchInput.value = "";
-        searchForm?.elements.return_page && (searchForm.elements.return_page.value = "1");
-        const url = new URL(window.location.href);
-        url.searchParams.delete("query");
-        url.searchParams.delete("return_page");
-        url.searchParams.set("page", "1");
-        window.history.replaceState({}, "", url);
-        activeLibraryQuery = "";
-      }
-      setLibraryFilter(button.dataset.libraryFilter);
-    }));
+    document.querySelectorAll("[data-library-filter]").forEach((button) => button.addEventListener("click", () => setLibraryFilter(button.dataset.libraryFilter)));
     document.querySelectorAll("[data-library-view]").forEach((button) => button.addEventListener("click", () => setLibraryView(button.dataset.libraryView)));
+    activeLibraryQuery = normalizeLibrarySearch(document.querySelector("#source-query")?.value || "");
     setLibraryFilter(libraryStateStorage.getItem("filter") || "all");
     const libraryViewVersion = "grid-v2";
     if (libraryStateStorage.getItem("view-version") !== libraryViewVersion) {
@@ -321,7 +308,7 @@
         window.location.assign(`/?page=${encodeURIComponent(returnPage)}`);
         return;
       }
-      searchTimer = window.setTimeout(() => searchForm.requestSubmit(), 500);
+      searchTimer = window.setTimeout(() => searchForm.requestSubmit(), 280);
     });
     clearSearch?.addEventListener("click", () => {
       searchInput.value = "";
