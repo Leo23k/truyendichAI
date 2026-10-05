@@ -1303,7 +1303,8 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
     previous = entries[position - 1] if position else None
     following = entries[position + 1] if position + 1 < len(entries) else None
     original_content = payload.get("original_content") or payload.get("content")
-    translated_content = payload.get("translated_content") or payload.get("content")
+    using_original_backup = current.get("translated") and payload.get("translated") is False
+    translated_content = "" if using_original_backup else payload.get("translated_content") or payload.get("content")
     showing_translation = request.query_params.get("mode", "translated") != "original" and bool(translated_content)
     translated_title = current.get("title") or payload.get("title")
     chapter = SimpleNamespace(
@@ -1334,7 +1335,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
             "replacement_rules": replacement_rules,
             "replacement_book_id": replacement_book_id,
             "tts_chunks": split_chapter_text(display_content) if showing_translation else [],
-            "translation_error": None,
+            "translation_error": "Bản dịch đang tạm thời không truy cập được." if using_original_backup else None,
             "original_url": current.get("source_url"),
             "is_chinese_source": str(current.get("source_type") or "zh") == "zh",
             "synced_reader": True,
