@@ -291,15 +291,32 @@ def store_novel_cover(remote: SupabaseSync, slug: str, url: str | None) -> str |
     return f"covers/{path}"
 
 
+def source_cover_url(source_url: str | None) -> str | None:
+    if not source_url:
+        return None
+    try:
+        crawler = registry.get_for_url(source_url)
+        info = asyncio.run(crawler.get_book_info(source_url))
+        return info.cover_url
+    except Exception:
+        logger.warning("Could not recover cover URL from source: %s", source_url, exc_info=True)
+        return None
+
+
 def migrate_remote_cover_urls(remote: SupabaseSync | None = None) -> dict[str, int]:
     """Move existing external cover URLs into object storage without clearing failed ones."""
     remote = remote or SupabaseSync()
     counts = {"scanned": 0, "migrated": 0, "skipped": 0, "failed": 0}
-    novels = remote.all_rows("novels", {"select": "id,slug,cover_url", "order": "id.asc"})
+    novels = remote.all_rows("novels", {"select": "id,slug,cover_url,source_url", "order": "id.asc"})
     for novel in novels:
         counts["scanned"] += 1
         cover_url = str(novel.get("cover_url") or "").strip()
-        if cover_url.startswith("covers/") or not novel.get("slug") or urlparse(cover_url).scheme not in {"http", "https"}:
+        if cover_url.startswith("covers/") or not novel.get("slug"):
+            counts["skipped"] += 1
+            continue
+        if urlparse(cover_url).scheme not in {"http", "https"}:
+            cover_url = source_cover_url(str(novel.get("source_url") or "")) or ""
+        if urlparse(cover_url).scheme not in {"http", "https"}:
             counts["skipped"] += 1
             continue
         try:

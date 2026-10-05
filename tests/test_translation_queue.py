@@ -168,6 +168,16 @@ def test_migrate_remote_cover_urls_updates_only_after_success(monkeypatch) -> No
     assert remote.updated == [({"id": "eq.1"}, {"cover_url": "covers/novel-one/cover.jpg"})]
 
 
+def test_source_cover_url_can_recover_missing_legacy_cover(monkeypatch) -> None:
+    class CoverCrawler:
+        async def get_book_info(self, _url: str):
+            return type("BookInfoResult", (), {"cover_url": "https://images.example/cover.jpg"})()
+
+    monkeypatch.setattr(service.registry, "get_for_url", lambda _url: CoverCrawler())
+
+    assert service.source_cover_url("https://source.example/novel") == "https://images.example/cover.jpg"
+
+
 def test_translation_worker_concurrency_defaults_to_two_and_is_bounded(monkeypatch) -> None:
     monkeypatch.delenv("TRANSLATION_WORKER_CONCURRENCY", raising=False)
     assert service.translation_worker_concurrency() == 2
