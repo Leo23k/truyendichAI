@@ -1210,6 +1210,13 @@ async def _crawl_and_translate_url(
                     )
             else:
                 discovery = None
+            if discovery and not is_vietnamese:
+                try:
+                    from app.notification_service import notify_chapter_discovery
+
+                    notify_chapter_discovery(remote, discovery, novel, crawler_only=True)
+                except Exception:
+                    logger.exception("Could not send source-only crawl notification for chapter %s", chapter["id"])
             if is_vietnamese:
                 if discovery:
                     try:

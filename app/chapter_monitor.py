@@ -112,6 +112,8 @@ def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
                     "source_url": chapter.url,
                 })
             if discoveries:
+                for discovery in discoveries:
+                    discovery["notification_after_translation"] = True
                 # Insert-ignore makes concurrent Cron invocations safe. Return
                 # inserted rows only, so notifications exist only for new events.
                 response = remote.request(
@@ -122,9 +124,25 @@ def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
                 inserted = response.json()
                 if not isinstance(inserted, list):
                     inserted = []
+                chapter_rows = remote.all_rows("chapters", {
+                    "select": "source_url,title,translated", "novel_id": f"eq.{novel_id}",
+                })
+                chapters_by_source = {str(row.get("source_url")): row for row in chapter_rows if row.get("source_url")}
                 for discovery in inserted:
                     counts["discovered"] += 1
-                    notify_chapter_discovery(remote, discovery, novel)
+                    notify_chapter_discovery(remote, discovery, novel, crawler_only=True)
+                    crawled_chapter = chapters_by_source.get(str(discovery.get("source_url") or ""))
+                    if crawled_chapter and crawled_chapter.get("translated") and crawled_chapter.get("title"):
+                        notify_chapter_discovery(
+                            remote,
+                            {**discovery, "chapter_title": crawled_chapter["title"]},
+                            novel,
+                            update_existing=True,
+                        )
+                        remote.patch_rows(
+                            "chapter_discoveries", {"id": f"eq.{discovery['id']}"},
+                            {"notification_after_translation": False},
+                        )
                 if inserted:
                     enqueue_remote_crawl(
                         str(novel["source_url"]), str(novel.get("source_type") or "zh"),

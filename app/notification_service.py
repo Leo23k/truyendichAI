@@ -249,9 +249,14 @@ def delete_push_subscription(user_id: str, endpoint: str) -> None:
 
 
 def notify_chapter_discovery(
-    remote: SupabaseSync, discovery: dict, novel: dict, *, update_existing: bool = False
+    remote: SupabaseSync,
+    discovery: dict,
+    novel: dict,
+    *,
+    update_existing: bool = False,
+    crawler_only: bool = False,
 ) -> int:
-    """Create at most one in-app event per user/discovery and queue push."""
+    """Create a source alert for admins or a translated chapter alert for followers."""
     novel_id = int(discovery["novel_id"])
     discovery_id = str(discovery["id"])
     followers = remote.rows("novel_followers", {
@@ -260,7 +265,7 @@ def notify_chapter_discovery(
     admins = remote.rows("profiles", {"select": "id", "role": "eq.admin"})
     follower_ids = {str(row["user_id"]) for row in followers if row.get("user_id")}
     admin_ids = {str(row["id"]) for row in admins if row.get("id")}
-    user_ids = follower_ids | admin_ids
+    user_ids = admin_ids if crawler_only else follower_ids | admin_ids
     if not user_ids:
         return 0
     settings_rows = remote.rows("notification_settings", {
@@ -273,11 +278,15 @@ def notify_chapter_discovery(
     message = str(discovery.get("chapter_title") or f"Chương {discovery.get('chapter_number')}")
     url = f"/truyen/{novel.get('slug')}"
     for user_id in user_ids:
-        follows = user_id in follower_ids
+        follows = user_id in follower_ids and not crawler_only
         is_admin = user_id in admin_ids
         kind = "NEW_CHAPTER" if follows else "CRAWLER_NEW_CHAPTER"
         preferences = settings_by_user.get(user_id, {})
-        enabled = preferences.get("follow_notifications", True) if follows else (is_admin and preferences.get("crawler_notifications", True))
+        enabled = (
+            is_admin and preferences.get("crawler_notifications", True)
+            if crawler_only or not follows
+            else preferences.get("follow_notifications", True)
+        )
         if not enabled:
             continue
         if not follows and not is_admin:

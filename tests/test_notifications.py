@@ -80,6 +80,24 @@ def test_translation_completion_refreshes_existing_notification_message() -> Non
     assert {event["message"] for event in remote.events.values()} == {"Translated chapter title"}
 
 
+def test_source_alert_goes_to_admins_first_and_followers_after_translation() -> None:
+    remote = FakeSupabase()
+    discovery = {
+        "id": "discovery-delayed", "novel_id": 15, "chapter_number": 2316,
+        "chapter_title": "原文标题", "source_url": "https://source.test/chapter/2316",
+    }
+    novel = {"slug": "novel-15", "title": "Novel 15"}
+
+    assert notify_chapter_discovery(remote, discovery, novel, crawler_only=True) == 2
+    assert {event["user_id"] for event in remote.events.values()} == {"admin-following", "admin-not-following"}
+    assert all(event["type"] == "CRAWLER_NEW_CHAPTER" for event in remote.events.values())
+
+    translated = {**discovery, "chapter_title": "Tiêu đề chương đã dịch"}
+    assert notify_chapter_discovery(remote, translated, novel, update_existing=True) == 1
+    assert {event["message"] for event in remote.events.values()} == {"Tiêu đề chương đã dịch"}
+    assert remote.events["chapter:discovery-delayed:user:reader"]["type"] == "NEW_CHAPTER"
+
+
 def test_crawled_chapter_records_discovery_but_waits_for_translation() -> None:
     discovery = {"id": "discovery-2", "novel_id": 15}
     recorded: list[dict] = []
