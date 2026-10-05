@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+from functools import lru_cache
 from pathlib import PurePosixPath
 
 import boto3
@@ -19,6 +20,7 @@ def _safe(path: str) -> str:
     return value.as_posix()
 
 
+@lru_cache(maxsize=1)
 def client():
     endpoint = os.environ["B2_ENDPOINT"].strip()
     if not endpoint.startswith("https://"):
@@ -43,6 +45,14 @@ def upload(path: str, content: bytes, content_type: str) -> bool:
         pass
     s3.put_object(Bucket=os.environ["B2_BUCKET"], Key=path, Body=content, ContentType=content_type, Metadata={"sha256": digest})
     return True
+
+
+def exists(path: str) -> bool:
+    try:
+        client().head_object(Bucket=os.environ["B2_BUCKET"], Key=_safe(path))
+        return True
+    except Exception:
+        return False
 
 
 def download(path: str) -> bytes:

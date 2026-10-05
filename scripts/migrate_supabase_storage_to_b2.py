@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -17,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
-from app.storage import configured, upload
+from app.storage import configured, exists, upload
 
 
 def headers() -> dict[str, str]:
@@ -74,16 +75,20 @@ def main() -> None:
             item for row in rows(source, "novels", "cover_url")
             if (item := object_path(str(row.get("cover_url") or "")))
         )
-        copied = skipped = 0
         base = os.environ["SUPABASE_URL"].rstrip("/")
-        for bucket, key in sorted(paths):
+        def copy_one(item: tuple[str, str]) -> bool:
+            bucket, key = item
+            if exists(f"{bucket}/{key}"):
+                return False
             response = source.get(f"{base}/storage/v1/object/{bucket}/{quote(key, safe='/')}", headers=headers())
             response.raise_for_status()
             content_type = response.headers.get("content-type", "application/octet-stream")
-            if upload(f"{bucket}/{key}", response.content, content_type):
-                copied += 1
-            else:
-                skipped += 1
+            return upload(f"{bucket}/{key}", response.content, content_type)
+        workers = max(1, min(16, int(os.getenv("B2_MIGRATION_WORKERS", "12"))))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            outcomes = list(pool.map(copy_one, sorted(paths)))
+        copied = sum(outcomes)
+        skipped = len(outcomes) - copied
     print(f"B2 migration complete: {copied} copied, {skipped} unchanged, {len(paths)} verified.")
 
 

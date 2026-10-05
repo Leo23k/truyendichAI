@@ -50,6 +50,15 @@ def storage_url(bucket: str, path: str) -> str:
     return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{quote(relative.as_posix())}"
 
 
+def _supabase_storage_url(relative: PurePosixPath) -> str | None:
+    parts = relative.parts
+    if parts and parts[0] in {"chapters", "covers"}:
+        return f"{SUPABASE_URL}/storage/v1/object/public/{parts[0]}/{quote('/'.join(parts[1:]))}"
+    if len(parts) >= 4 and parts[0] == "novels" and parts[2] == "chapters":
+        return f"{SUPABASE_URL}/storage/v1/object/public/chapters/{quote('/'.join((parts[1], *parts[3:])))}"
+    return None
+
+
 def cdn_url(path: str) -> str:
     relative = _safe_path(path)
     parts = relative.parts
@@ -649,15 +658,20 @@ def load_cdn_json(path: str) -> dict:
         (len(relative.parts) >= 4 and relative.parts[0] == "novels" and relative.parts[2] == "chapters")
         or (len(relative.parts) >= 3 and relative.parts[0] == "chapters")
     ):
-        try:
+        urls = [cdn_url(path)]
+        fallback_url = _supabase_storage_url(relative) if b2_configured() else None
+        if fallback_url:
+            urls.append(fallback_url)
+        for url in urls:
             with httpx.Client(timeout=15, trust_env=False) as client:
-                response = client.get(cdn_url(path), headers=_headers())
-            response.raise_for_status()
-            payload = response.json()
-            if isinstance(payload, dict):
-                return payload
-        except (httpx.HTTPError, ValueError):
-            pass
+                try:
+                    response = client.get(url, headers=_headers())
+                    response.raise_for_status()
+                    payload = response.json()
+                    if isinstance(payload, dict):
+                        return payload
+                except (httpx.HTTPError, ValueError):
+                    continue
     return _fallback_json(path)
 
 
