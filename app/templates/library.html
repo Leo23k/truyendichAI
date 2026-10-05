@@ -22,7 +22,8 @@
   </style>
   {% macro library_pagination() %}
     {% if library_total_pages is defined and library_total_pages > 1 %}
-    <nav class="library-pagination mt-8" aria-label="Phân trang thư viện"><a href="/?page={{ library_page - 1 }}" {% if library_page == 1 %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang trước"><i data-lucide="chevron-left" class="h-4 w-4"></i></a>{% for item in range(1, library_total_pages + 1) %}<a href="/?page={{ item }}" {% if item == library_page %}aria-current="page"{% endif %}>{{ item }}</a>{% endfor %}<a href="/?page={{ library_page + 1 }}" {% if library_page == library_total_pages %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang sau"><i data-lucide="chevron-right" class="h-4 w-4"></i></a></nav>
+    {% set query_suffix = '&query=' ~ (library_query|urlencode) if library_query else '' %}
+    <nav class="library-pagination mt-8" aria-label="Phân trang thư viện"><a href="/?page={{ library_page - 1 }}{{ query_suffix }}" {% if library_page == 1 %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang trước"><i data-lucide="chevron-left" class="h-4 w-4"></i></a>{% for item in range(1, library_total_pages + 1) %}<a href="/?page={{ item }}{{ query_suffix }}" {% if item == library_page %}aria-current="page"{% endif %}>{{ item }}</a>{% endfor %}<a href="/?page={{ library_page + 1 }}{{ query_suffix }}" {% if library_page == library_total_pages %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang sau"><i data-lucide="chevron-right" class="h-4 w-4"></i></a></nav>
     {% endif %}
   {% endmacro %}
   <div class="relative flex flex-col gap-4">
@@ -41,7 +42,7 @@
         <a href="/logout" class="flex min-h-11 items-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
       </div>
     </div>
-    <div x-data="{ query: '' }" class="library-toolbar mt-6 w-full">
+    <div x-data="{ query: {{ (library_query or '')|tojson }} }" class="library-toolbar mt-6 w-full">
       <div class="flex flex-wrap items-center gap-2" role="tablist" aria-label="Lọc thư viện">
         <button type="button" data-library-filter="all" class="site-nav-button accent" role="tab" aria-selected="true">Tất cả</button>
         <button type="button" data-library-filter="reading" class="site-nav-button" role="tab" aria-selected="false">Đang đọc</button>
@@ -50,7 +51,7 @@
         <button type="button" data-library-view="grid" class="icon-button bg-[var(--surface-3)]" aria-label="Hiển thị dạng lưới" title="Dạng lưới"><i data-lucide="grid-2x2" class="h-4 w-4"></i></button>
         <button type="button" data-library-view="list" class="icon-button" aria-label="Hiển thị dạng danh sách" title="Dạng danh sách"><i data-lucide="list" class="h-4 w-4"></i></button>
       </div>
-      <form
+      <form action="/" method="get"
         data-library-search
         class="library-search flex w-full max-w-md items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500 sm:ml-auto"
       >
@@ -60,6 +61,7 @@
         <input
           id="source-query"
           name="query"
+          value="{{ library_query or '' }}"
           type="text"
           x-ref="librarySearch"
           x-model="query"
@@ -294,10 +296,12 @@
     const searchInput = document.querySelector("#source-query");
     const clearSearch = document.querySelector("[data-clear-search]");
     if (!searchForm || !searchInput) return;
-    searchForm.addEventListener("submit", (event) => event.preventDefault());
+    let searchTimer;
     searchInput.addEventListener("input", () => {
       activeLibraryQuery = normalizeLibrarySearch(searchInput.value);
       applyLibraryFilters();
+      clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(() => searchForm.requestSubmit(), 350);
     });
     clearSearch?.addEventListener("click", () => {
       searchInput.value = "";

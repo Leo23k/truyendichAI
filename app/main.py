@@ -427,12 +427,28 @@ def startup() -> None:
 
 
 @app.get("/", name="library")
-def library(request: Request, page: int = 1):
+def library(request: Request, page: int = 1, query: str = ""):
     """The library is Supabase-backed in every environment."""
     try:
         synced_novels = load_novels()
     except CdnDataError:
         synced_novels = []
+    query = " ".join(query.split())
+    normalized_query = normalize_search_key(query)
+    if normalized_query:
+        query_tokens = normalized_query.split()
+        synced_novels = [
+            novel for novel in synced_novels
+            if normalized_query in normalize_search_key(
+                f"{novel.get('title') or ''} {novel.get('author') or ''} {novel.get('slug') or ''}"
+            )
+            or all(
+                token in normalize_search_key(
+                    f"{novel.get('title') or ''} {novel.get('author') or ''} {novel.get('slug') or ''}"
+                )
+                for token in query_tokens
+            )
+        ]
     page_size = 10
     total_novels = len(synced_novels)
     total_pages = max(1, (total_novels + page_size - 1) // page_size)
@@ -447,6 +463,7 @@ def library(request: Request, page: int = 1):
             "library_total_novels": total_novels,
             "library_page": current_page,
             "library_total_pages": total_pages,
+            "library_query": query,
         },
     )
 
