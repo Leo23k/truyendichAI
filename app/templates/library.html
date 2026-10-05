@@ -120,13 +120,27 @@
       .replace(/đ/g, "d")
       .replace(/\s+/g, " ")
       .trim();
+    const metadataCacheKey = "leotruyen.library.metadata.v1";
+    const metadataCacheTtl = 20_000;
+    const prepareNovels = (items) => items
+      .map((novel) => ({ ...novel, _searchText: normalize(`${novel.title || ""} ${novel.author || ""} ${novel.slug || ""}`) }))
+      .sort((left, right) => (Date.parse(right.updated_at || "") || 0) - (Date.parse(left.updated_at || "") || 0));
+    let cachedNovels = null;
+    try {
+      const cached = JSON.parse(window.sessionStorage.getItem(metadataCacheKey) || "null");
+      if (Array.isArray(cached?.items) && Date.now() - Number(cached.savedAt) <= metadataCacheTtl) {
+        cachedNovels = prepareNovels(cached.items);
+      } else if (cached) {
+        window.sessionStorage.removeItem(metadataCacheKey);
+      }
+    } catch {}
     const initialUrl = new URL(window.location.href);
     const state = {
-      allNovels: [],
-      novelsBySlug: new Map(),
+      allNovels: cachedNovels || [],
+      novelsBySlug: new Map((cachedNovels || []).map((novel) => [String(novel.slug), novel])),
       readingSlugs: new Set(),
       progressBySlug: new Map(),
-      oldestNovels: [],
+      oldestNovels: cachedNovels ? [...cachedNovels].reverse() : [],
       followedNovels: [],
       oldestFollowedNovels: [],
       followedLoadState: "idle",
@@ -136,7 +150,10 @@
       sort: initialUrl.searchParams.get("sort") === "oldest" ? "oldest" : "newest",
       currentPage: Math.max(1, Number(initialUrl.searchParams.get("page") || 1)),
       pageSize: 10,
-      isLoading: true,
+      isLoading: cachedNovels === null,
+      hasCachedMetadata: cachedNovels !== null,
+      isProgressLoading: true,
+      progressLoadError: false,
     };
 
     const updateUrl = () => {
@@ -305,6 +322,18 @@
         searchStatus.textContent = "Đang tải danh sách truyện...";
         return;
       }
+      if (state.activeTab === "reading" && state.isProgressLoading && state.readingSlugs.size === 0) {
+        libraryGrid.replaceChildren();
+        renderPagination(1);
+        searchStatus.textContent = "Đang tải tiến độ đọc...";
+        return;
+      }
+      if (state.activeTab === "reading" && state.progressLoadError && state.readingSlugs.size === 0) {
+        libraryGrid.replaceChildren();
+        renderPagination(1);
+        searchStatus.textContent = "Không tải được tiến độ đọc. Vui lòng tải lại trang.";
+        return;
+      }
       if (state.activeTab === "followed" && state.followedLoadState !== "loaded") {
         libraryGrid.replaceChildren();
         renderPagination(1);
@@ -411,37 +440,64 @@
           render();
         });
     };
-    Promise.allSettled([fetchJson("/api/novels/metadata"), fetchJson("/api/reading-progress")])
-      .then(([novelResult, progressResult]) => {
-        if (novelResult.status !== "fulfilled") throw novelResult.reason;
-        state.allNovels = (Array.isArray(novelResult.value.items) ? novelResult.value.items : [])
-          .map((novel) => ({ ...novel, _searchText: normalize(`${novel.title || ""} ${novel.author || ""} ${novel.slug || ""}`) }))
-          .sort((left, right) => (Date.parse(right.updated_at || "") || 0) - (Date.parse(left.updated_at || "") || 0));
+    const applyLocalReadingHistory = () => {
+      for (const novel of state.allNovels) {
+        if (progressStorage.getItem(`lastUrl.book.${novel.slug}`)) state.readingSlugs.add(String(novel.slug));
+      }
+    };
+
+    if (cachedNovels !== null) {
+      const libraryCount = document.querySelector("#library-count");
+      if (libraryCount) libraryCount.textContent = String(state.allNovels.length);
+      applyLocalReadingHistory();
+      if (state.activeTab === "followed") loadFollowedNovels();
+      render();
+    }
+
+    fetchJson("/api/reading-progress")
+      .then(({ items = [] }) => {
+        for (const item of items) {
+          const slug = String(item.book_id || "");
+          if (slug && Number(item.chapter_number || 0) > 0) {
+            state.readingSlugs.add(slug);
+            state.progressBySlug.set(slug, item);
+          }
+        }
+        state.isProgressLoading = false;
+        if (!state.isLoading) render();
+      })
+      .catch(() => {
+        state.isProgressLoading = false;
+        state.progressLoadError = true;
+        if (!state.isLoading) render();
+      });
+
+    fetchJson("/api/novels/metadata")
+      .then((novelResult) => {
+        const items = Array.isArray(novelResult.items) ? novelResult.items : [];
+        state.allNovels = prepareNovels(items);
+        state.hasCachedMetadata = true;
+        try {
+          window.sessionStorage.setItem(metadataCacheKey, JSON.stringify({ savedAt: Date.now(), items }));
+        } catch {}
         const libraryCount = document.querySelector("#library-count");
         if (libraryCount) libraryCount.textContent = String(state.allNovels.length);
         state.novelsBySlug = new Map(state.allNovels.map((novel) => [String(novel.slug), novel]));
         state.oldestNovels = [...state.allNovels].reverse();
-        if (progressResult.status === "fulfilled") {
-          for (const item of progressResult.value.items || []) {
-            const slug = String(item.book_id || "");
-            if (slug && Number(item.chapter_number || 0) > 0) {
-              state.readingSlugs.add(slug);
-              state.progressBySlug.set(slug, item);
-            }
-          }
-        }
-        for (const novel of state.allNovels) {
-          if (progressStorage.getItem(`lastUrl.book.${novel.slug}`)) state.readingSlugs.add(String(novel.slug));
-        }
+        applyLocalReadingHistory();
         state.isLoading = false;
         if (state.activeTab === "followed") loadFollowedNovels();
         render();
       })
       .catch(() => {
         state.isLoading = false;
-        const libraryCount = document.querySelector("#library-count");
-        if (libraryCount) libraryCount.textContent = "—";
-        searchStatus.textContent = "Không tải được danh sách truyện. Hãy thử tải lại trang.";
+        if (!state.hasCachedMetadata) {
+          const libraryCount = document.querySelector("#library-count");
+          if (libraryCount) libraryCount.textContent = "—";
+          searchStatus.textContent = "Không tải được danh sách truyện. Hãy thử tải lại trang.";
+        } else {
+          render();
+        }
       });
   })();
 </script>
