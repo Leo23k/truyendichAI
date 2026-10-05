@@ -459,28 +459,19 @@ def startup() -> None:
 
 @app.get("/", name="library")
 def library(request: Request, page: int = 1, query: str = "", filter: str = "all", return_page: int | None = None):
-    """The library is Supabase-backed in every environment."""
-    try:
-        synced_novels = load_novels()
-    except CdnDataError:
-        synced_novels = []
+    """Render the library shell without waiting for its separately fetched metadata."""
     query = " ".join(query.split())
     library_filter = filter if filter in {"all", "reading", "followed"} else "all"
-    page_size = 10
-    total_novels = len(synced_novels)
-    total_pages = max(1, (total_novels + page_size - 1) // page_size)
-    current_page = min(max(page, 1), total_pages)
-    page_start = (current_page - 1) * page_size
     library_return_page = max(1, return_page or page)
     return templates.TemplateResponse(
         request=request,
         name="library.html",
         context={
             "books": [],
-            "synced_novels": synced_novels[page_start:page_start + page_size],
-            "library_total_novels": total_novels,
-            "library_page": current_page,
-            "library_total_pages": total_pages,
+            "synced_novels": [],
+            "library_total_novels": 0,
+            "library_page": 1,
+            "library_total_pages": 1,
             "library_query": query,
             "library_filter": library_filter,
             "library_return_page": library_return_page,

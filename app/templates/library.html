@@ -34,7 +34,7 @@
   <div class="relative flex flex-col gap-4">
     <div class="library-heading pr-12 sm:pr-64">
       <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện</h1></div>
-      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có <span id="library-count">{{ library_total_novels }}</span> truyện.</p>
+      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có <span id="library-count" aria-live="polite">{{ library_total_novels }}</span> truyện.</p>
     </div>
     <div x-data="{ open: false }" @click.outside="open = false" class="hidden">
       <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex min-h-11 items-center gap-2 rounded-xl px-1.5 text-left hover:bg-stone-50" aria-label="Mở menu tài khoản">
@@ -417,6 +417,8 @@
         state.allNovels = (Array.isArray(novelResult.value.items) ? novelResult.value.items : [])
           .map((novel) => ({ ...novel, _searchText: normalize(`${novel.title || ""} ${novel.author || ""} ${novel.slug || ""}`) }))
           .sort((left, right) => (Date.parse(right.updated_at || "") || 0) - (Date.parse(left.updated_at || "") || 0));
+        const libraryCount = document.querySelector("#library-count");
+        if (libraryCount) libraryCount.textContent = String(state.allNovels.length);
         state.novelsBySlug = new Map(state.allNovels.map((novel) => [String(novel.slug), novel]));
         state.oldestNovels = [...state.allNovels].reverse();
         if (progressResult.status === "fulfilled") {
@@ -437,6 +439,8 @@
       })
       .catch(() => {
         state.isLoading = false;
+        const libraryCount = document.querySelector("#library-count");
+        if (libraryCount) libraryCount.textContent = "—";
         searchStatus.textContent = "Không tải được danh sách truyện. Hãy thử tải lại trang.";
       });
   })();

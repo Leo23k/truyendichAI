@@ -10,9 +10,9 @@
   {% block theme_override %}{% endblock %}
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script defer src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script defer src="https://unpkg.com/lucide@latest"></script>
-  <script>htmx.config.responseHandling = [{code: "204", swap: false}, {code: "[23]xx", swap: true}, {code: "[45]xx", swap: true, error: true}];</script>
+  <script>document.addEventListener("DOMContentLoaded", () => { if (window.htmx) window.htmx.config.responseHandling = [{code: "204", swap: false}, {code: "[23]xx", swap: true}, {code: "[45]xx", swap: true, error: true}]; });</script>
   <script defer src="/static/offline.js"></script>
   <script>
     if ("serviceWorker" in navigator) {
