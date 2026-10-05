@@ -23,11 +23,10 @@
         <h2 class="flex items-center gap-2 text-base font-semibold text-[var(--text)]"><i data-lucide="info" class="h-4 w-4 text-teal-500"></i>Giới thiệu</h2>
         <p class="mt-3 whitespace-pre-line text-sm leading-7 text-[var(--muted)]">{{ novel.description or 'Chưa có phần giới thiệu cho truyện này.' }}</p>
       </section>
-      {% if chapters %}
       <div class="book-actions mt-7 flex flex-wrap gap-3">
-        <a href="/truyen/{{ novel.slug }}/{{ first_chapter.chapter_number }}" class="book-action primary"><i data-lucide="play" class="h-4 w-4"></i><span>Đọc ngay</span></a>
+        {% if chapters %}<a href="/truyen/{{ novel.slug }}/{{ first_chapter.chapter_number }}" class="book-action primary"><i data-lucide="play" class="h-4 w-4"></i><span>Đọc ngay</span></a>{% endif %}
         {% if novel.id %}<button type="button" data-follow-button data-novel-id="{{ novel.id }}" data-following="{{ 'true' if is_following else 'false' }}" class="book-action"><i data-lucide="heart" class="h-4 w-4"></i><span>{{ 'Bỏ theo dõi' if is_following else 'Theo dõi truyện' }}</span></button>{% endif %}
-      </div>{% endif %}
+      </div>
     </div>
     {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" width="480" height="720" class="book-cover aspect-[2/3] w-full max-w-[240px] object-cover">{% endif %}
   </div>

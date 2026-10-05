@@ -240,7 +240,7 @@
       <a href="/" class="flex items-center gap-2.5 font-semibold tracking-tight text-[var(--text)]"><span class="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)]"><i data-lucide="book-open" class="h-5 w-5"></i></span><span class="text-lg">Leo Truyện</span></a>
       <nav class="ml-auto flex items-center gap-2 text-sm">
         <a href="/followed" class="site-nav-button desktop-only"><i data-lucide="heart" class="h-4 w-4"></i><span>Theo dõi</span></a>
-        <a href="/notifications" class="icon-button relative" aria-label="Thông báo" title="Thông báo"><i data-lucide="bell" class="h-4 w-4"></i></a>
+        <a href="/notifications" class="icon-button relative" aria-label="Thông báo" title="Thông báo"><i data-lucide="bell" class="h-4 w-4"></i><span data-unread-badge class="absolute -right-1 -top-1 hidden min-w-4 rounded-full bg-rose-500 px-1 text-center text-[10px] font-bold text-white"></span></a>
         {% if request.state.user.role == 'admin' %}<a href="/admin" class="icon-button bg-[var(--accent)] text-[var(--accent-ink)]" aria-label="Mở Admin panel" title="Admin panel"><i data-lucide="shield-cog" class="h-4 w-4"></i></a>{% endif %}
         {% if request.url.path == '/' %}<button type="button" data-theme-toggle class="icon-button h-9 w-9" aria-label="Đổi giao diện sáng hoặc tối" title="Đổi giao diện"><i data-lucide="sun-moon" class="h-4 w-4"></i></button>{% endif %}
         <div x-data="{ open: false }" @click.outside="open = false" class="relative ml-1 border-l border-[var(--line)] pl-3">
@@ -273,6 +273,14 @@
         localStorage.setItem("app-theme", nextTheme);
       });
     });
+  </script>
+  <script>
+    fetch('/api/notifications/unread-count').then(r => r.ok ? r.json() : null).then(data => {
+      const badge = document.querySelector('[data-unread-badge]');
+      if (!badge || !data?.count) return;
+      badge.textContent = data.count > 99 ? '99+' : String(data.count);
+      badge.classList.remove('hidden');
+    }).catch(() => {});
   </script>
 </body>
 </html>

@@ -164,8 +164,8 @@ def pwa_manifest():
 def cloud_chapter_monitor(request: Request):
     expected = os.getenv("CRON_SECRET", "")
     supplied = request.headers.get("authorization", "")
-    token = supplied.removeprefix("Bearer ")
-    if not expected or not hmac.compare_digest(token, expected):
+    token = supplied[7:] if supplied.startswith("Bearer ") else ""
+    if len(expected) < 32 or not hmac.compare_digest(token, expected):
         raise HTTPException(401, "Invalid cron authorization")
     return run_chapter_monitor(batch_size=4)
 
@@ -1101,6 +1101,11 @@ def notifications_page(request: Request, page: int = 1):
         "unread": unread_notification_count(user.id),
         "settings": get_notification_settings(user.id),
     })
+
+
+@app.get("/api/notifications/unread-count")
+def notifications_unread_count(request: Request):
+    return {"count": unread_notification_count(require_authenticated(request).id)}
 
 
 @app.post("/api/notifications/{notification_id}/read")
