@@ -3,6 +3,7 @@ import asyncio
 import pytest
 from botocore.exceptions import ClientError
 
+from app import cdn
 from app.crawlers.base import BookInfo, ChapterInfo
 from sync import service
 from sync.service import enqueue_untranslated_chapters, restore_stored_chapters
@@ -137,6 +138,68 @@ def test_cover_storage_failure_does_not_break_the_crawl(monkeypatch) -> None:
     assert service.store_novel_cover(BrokenCoverRemote(), "novel", "https://source.test/cover.jpg") is None
 
 
+def test_cover_upload_stays_in_supabase_when_b2_is_configured(monkeypatch) -> None:
+    class ExistingObject:
+        status_code = 404
+
+    class StorageClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def get(self, *_args, **_kwargs):
+            return ExistingObject()
+
+    remote = object.__new__(service.SupabaseSync)
+    remote.headers = {}
+    uploads: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(service, "b2_configured", lambda: True)
+    monkeypatch.setattr(service, "b2_upload", lambda *_args: (_ for _ in ()).throw(AssertionError("cover must not use B2")))
+    monkeypatch.setattr(service.httpx, "Client", lambda **_kwargs: StorageClient())
+    monkeypatch.setattr(remote, "request", lambda method, path, **kwargs: uploads.append((method, path, kwargs)))
+
+    assert remote.upload_if_changed("covers", "novel/cover.jpg", b"image", "image/jpeg") is True
+    assert uploads[0][0:2] == ("POST", "/storage/v1/object/covers/novel/cover.jpg")
+
+
+def test_cover_urls_use_supabase_while_chapter_urls_keep_using_b2(monkeypatch) -> None:
+    monkeypatch.setattr(cdn, "b2_configured", lambda: True)
+    monkeypatch.setattr(cdn, "SUPABASE_URL", "https://project.supabase.co")
+    monkeypatch.setattr(cdn, "presigned_download_url", lambda path: f"b2://{path}")
+
+    assert cdn.storage_url("covers", "novel/cover.jpg") == (
+        "https://project.supabase.co/storage/v1/object/public/covers/novel/cover.jpg"
+    )
+    assert cdn.storage_url("chapters", "novel/001.json") == "b2://chapters/novel/001.json"
+
+
+def test_admin_cover_upload_accepts_valid_png_and_returns_public_url(monkeypatch) -> None:
+    class Response:
+        def raise_for_status(self) -> None:
+            pass
+
+    class StorageClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(cdn, "SUPABASE_URL", "https://project.supabase.co")
+    monkeypatch.setattr(cdn, "_service_headers", lambda: {"apikey": "test"})
+    monkeypatch.setattr(cdn.httpx, "Client", lambda **_kwargs: StorageClient())
+
+    url = cdn.upload_admin_novel_cover("test-novel", b"\x89PNG\r\n\x1a\nimage", "image/png")
+
+    assert url.startswith("https://project.supabase.co/storage/v1/object/public/covers/test-novel/uploaded-")
+    assert url.endswith(".png")
+
+
 def test_migrate_remote_cover_urls_updates_only_after_success(monkeypatch) -> None:
     class CoverRemote:
         def __init__(self) -> None:
@@ -146,7 +209,7 @@ def test_migrate_remote_cover_urls_updates_only_after_success(monkeypatch) -> No
             assert table == "novels"
             return [
                 {"id": 1, "slug": "novel-one", "cover_url": "https://source.test/one.jpg"},
-                {"id": 2, "slug": "novel-two", "cover_url": "covers/novel-two/cover.webp"},
+                {"id": 2, "slug": "novel-two", "cover_url": "covers/novel-two/cover.webp", "source_url": "https://source.test/novel-two"},
                 {"id": 3, "slug": "novel-three", "cover_url": "https://source.test/missing.jpg"},
             ]
 
@@ -156,16 +219,12 @@ def test_migrate_remote_cover_urls_updates_only_after_success(monkeypatch) -> No
             return []
 
     remote = CoverRemote()
-    monkeypatch.setattr(
-        service,
-        "store_novel_cover",
-        lambda _remote, slug, _url: "covers/novel-one/cover.jpg" if slug == "novel-one" else None,
-    )
+    monkeypatch.setattr(service, "source_cover_url", lambda url: "https://images.example/novel-two.jpg" if url else None)
 
     result = service.migrate_remote_cover_urls(remote)
 
-    assert result == {"scanned": 3, "migrated": 1, "skipped": 1, "failed": 1}
-    assert remote.updated == [({"id": "eq.1"}, {"cover_url": "covers/novel-one/cover.jpg"})]
+    assert result == {"scanned": 3, "restored": 1, "skipped": 2, "unavailable": 0}
+    assert remote.updated == [({"id": "eq.2"}, {"cover_url": "https://images.example/novel-two.jpg"})]
 
 
 def test_source_cover_url_can_recover_missing_legacy_cover(monkeypatch) -> None:

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from urllib.parse import quote
 
 import httpx
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -51,6 +51,7 @@ from app.cdn import (
     save_user_reading_progress,
     set_synced_novel_deletion,
     update_admin_novel,
+    upload_admin_novel_cover,
     update_admin_novel_source,
     save_admin_novel_chapter,
     delete_admin_novel_chapter,
@@ -685,6 +686,7 @@ def update_admin_novel_page(
     author: str = Form(""),
     description: str = Form(""),
     cover_url: str = Form(""),
+    cover_file: UploadFile | None = File(None),
     genres: str = Form(""),
     reading_status: str = Form("ongoing"),
 ):
@@ -693,13 +695,19 @@ def update_admin_novel_page(
     if not cleaned_title or reading_status not in {"ongoing", "completed"} or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", cleaned_slug):
         return RedirectResponse("/admin/novels?toast=Slug%20chỉ%20gồm%20chữ%20thường,%20số%20và%20dấu%20gạch%20ngang.&error=1", status_code=303)
     try:
+        resolved_cover_url = cover_url.strip()
+        if cover_file and cover_file.filename:
+            if cover_file.size is not None and cover_file.size > 15 * 1024 * 1024:
+                raise CdnDataError("Ảnh bìa không được vượt quá 15 MB.")
+            cover_content = cover_file.file.read(15 * 1024 * 1024 + 1)
+            resolved_cover_url = upload_admin_novel_cover(cleaned_slug, cover_content, cover_file.content_type or "")
         update_admin_novel(
             novel_id,
             slug=cleaned_slug,
             title=cleaned_title,
             author=author.strip(),
             description=description.strip(),
-            cover_url=cover_url.strip(),
+            cover_url=resolved_cover_url,
             genres=sorted({item.strip() for item in genres.split(",") if item.strip()}),
             reading_status=reading_status,
         )

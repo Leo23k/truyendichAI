@@ -204,7 +204,7 @@ class SupabaseSync:
                 self.request("POST", "/storage/v1/bucket", json={"id": bucket, "name": bucket, "public": True})
 
     def upload_if_changed(self, bucket: str, path: str, content: bytes, content_type: str) -> bool:
-        if b2_configured():
+        if b2_configured() and bucket != "covers":
             return b2_upload(f"{bucket}/{path}", content, content_type)
         encoded = quote(path, safe="/")
         public_path = f"/storage/v1/object/public/{bucket}/{encoded}"
@@ -304,31 +304,36 @@ def source_cover_url(source_url: str | None) -> str | None:
 
 
 def migrate_remote_cover_urls(remote: SupabaseSync | None = None) -> dict[str, int]:
-    """Move existing external cover URLs into object storage without clearing failed ones."""
+    """Restore direct source image URLs for covers previously replaced by object paths."""
+    recovered_urls = {
+        "da-vo-cuong": "https://6ed7f732781d5145ac367958b98f24ef.cdn.bubble.io/cdn-cgi/image/w%3D256%2Ch%3D341%2Cf%3Dauto%2Cdpr%3D2.5%2Cfit%3Dcover%2Cq%3D75/f1729177579401x492835757942738050/600%20%2820%29.webp",
+        "xich-tam-tuan-thien": "https://so1.360tres.com/t01d83620acf52d09d1.jpg",
+        "kiem-lai": "https://cdn.novelupdates.com/images/2019/04/1496234539057.jpg",
+        "chu-nhan-pho-la": "https://bookcover.yuewen.com/qdbimg/349573/1038229163/600",
+        "kiem-chuc-dai-hoang": "https://imgpai.thepaper.cn/newpai/image/1780297679162_3rKWAp_1780303822446.png?x-oss-process=image%2Fresize%2Cw_1024",
+        "huyen-giam-tien-toc-ban-cu": "https://q8.itc.cn/q_70/images03/20240511/0939405ed5c04e0fb8a0fcc8f5a9b495.jpeg",
+    }
     remote = remote or SupabaseSync()
-    counts = {"scanned": 0, "migrated": 0, "skipped": 0, "failed": 0}
+    counts = {"scanned": 0, "restored": 0, "skipped": 0, "unavailable": 0}
     novels = remote.all_rows("novels", {"select": "id,slug,cover_url,source_url", "order": "id.asc"})
     for novel in novels:
         counts["scanned"] += 1
         cover_url = str(novel.get("cover_url") or "").strip()
-        if cover_url.startswith("covers/") or not novel.get("slug"):
+        is_placeholder = any(marker in cover_url.lower() for marker in ("noimg", "nocover"))
+        if urlparse(cover_url).scheme in {"http", "https"} and not is_placeholder:
             counts["skipped"] += 1
             continue
-        if urlparse(cover_url).scheme not in {"http", "https"}:
-            cover_url = source_cover_url(str(novel.get("source_url") or "")) or ""
-        if urlparse(cover_url).scheme not in {"http", "https"}:
-            counts["skipped"] += 1
+        source_url = source_cover_url(str(novel.get("source_url") or "")) if not is_placeholder else None
+        source_url = source_url or recovered_urls.get(str(novel.get("slug") or ""))
+        if not source_url:
+            counts["unavailable"] += 1
             continue
         try:
-            stored_path = store_novel_cover(remote, str(novel.get("slug") or ""), cover_url)
-            if not stored_path:
-                counts["failed"] += 1
-                continue
-            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"cover_url": stored_path})
-            counts["migrated"] += 1
+            remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, {"cover_url": source_url})
+            counts["restored"] += 1
         except Exception:
-            counts["failed"] += 1
-            logger.exception("Could not migrate cover for novel_id=%s", novel.get("id"))
+            counts["unavailable"] += 1
+            logger.exception("Could not restore source cover URL for novel_id=%s", novel.get("id"))
     return counts
 
 
@@ -869,11 +874,7 @@ def sync_once() -> dict[str, int | bool]:
             if not cover_url and local_cover.startswith("covers/"):
                 cover_url = local_cover
             if not cover_url and local_cover:
-                cover_url = store_novel_cover(remote, slug, local_cover)
-                if cover_url:
-                    counts["covers_uploaded"] += 1
-                else:
-                    cover_url = remote_cover or local_cover
+                cover_url = local_cover
             if not cover_url:
                 cover_url = remote_cover or None
             chapter_rows = connection.execute(
@@ -1051,19 +1052,13 @@ async def _crawl_and_translate_url(
             translated_title = str(novel.get("title") or info.title)
             translated_author = novel.get("author") or info.author
             novel_patch = _existing_novel_refresh_patch(info, source_type)
-            current_cover = str(novel.get("cover_url") or "")
-            if info.cover_url and not current_cover.startswith("covers/"):
-                stored_cover = store_novel_cover(remote, str(novel["slug"]), info.cover_url)
-                if stored_cover:
-                    novel_patch["cover_url"] = stored_cover
             remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, novel_patch)
         else:
             translated_title = info.title if is_vietnamese else translator.translate_metadata(info.title)
             translated_author = info.author if is_vietnamese else (translator.translate_metadata(info.author) if info.author else None)
             existing_slugs = {str(item["slug"]) for item in remote.all_rows("novels", {"select": "slug", "order": "slug.asc"}) if item.get("slug")}
             novel_slug = unique_slug(translated_title, existing_slugs)
-            stored_cover = store_novel_cover(remote, novel_slug, info.cover_url)
-            novel = remote.insert("novels", {"slug": novel_slug, "title": translated_title, "author": translated_author, "cover_url": stored_cover or info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
+            novel = remote.insert("novels", {"slug": novel_slug, "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
 
         update_status(book_id=novel["id"], title=translated_title)
 

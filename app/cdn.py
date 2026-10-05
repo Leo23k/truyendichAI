@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlparse
@@ -45,7 +46,7 @@ def _configured() -> bool:
 
 
 def storage_url(bucket: str, path: str) -> str:
-    if b2_configured():
+    if b2_configured() and bucket != "covers":
         return presigned_download_url(f"{bucket}/{path}")
     if not SUPABASE_URL:
         raise CdnDataError("Supabase is not configured")
@@ -365,6 +366,32 @@ def update_admin_novel(novel_id: int, *, slug: str, title: str, author: str, des
         "genres": genres or [],
         "reading_status": reading_status,
     })
+
+
+def upload_admin_novel_cover(slug: str, content: bytes, content_type: str) -> str:
+    extensions = {"image/jpeg": (".jpg", b"\xff\xd8\xff"), "image/png": (".png", b"\x89PNG\r\n\x1a\n"), "image/webp": (".webp", b"RIFF"), "image/gif": (".gif", (b"GIF87a", b"GIF89a"))}
+    image_type = extensions.get(content_type.lower().split(";", 1)[0].strip())
+    if not content or len(content) > 15 * 1024 * 1024 or not image_type:
+        raise CdnDataError("Ảnh bìa phải là JPEG, PNG, WebP hoặc GIF và không quá 15 MB.")
+    extension, signature = image_type
+    valid_signature = content.startswith(signature) if isinstance(signature, bytes) else content.startswith(signature)
+    if content_type.lower().startswith("image/webp"):
+        valid_signature = len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP"
+    if not valid_signature:
+        raise CdnDataError("Nội dung tệp không khớp với định dạng ảnh đã chọn.")
+    safe_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", slug).strip("-_") or "novel"
+    path = f"{safe_slug}/uploaded-{uuid.uuid4().hex}{extension}"
+    try:
+        with httpx.Client(timeout=60, trust_env=False) as client:
+            response = client.post(
+                f"{SUPABASE_URL}/storage/v1/object/covers/{quote(path, safe='/')}",
+                content=content,
+                headers={**_service_headers(), "x-upsert": "true", "Content-Type": content_type},
+            )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise CdnDataError("Không thể tải ảnh bìa lên Supabase Storage.") from exc
+    return f"{SUPABASE_URL}/storage/v1/object/public/covers/{quote(path, safe='/')}"
 
 
 def update_admin_novel_source(novel_id: int, source_url: str) -> dict:
