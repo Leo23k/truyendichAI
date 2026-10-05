@@ -136,7 +136,7 @@ async def auth_guard(request: Request, call_next):
             return HTMLResponse(status_code=401)
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
     user_mutation = path in {"/api/tts", "/api/reading-progress"} or path.startswith("/api/books/")
-    admin = path.startswith(("/admin", "/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and not user_mutation)
+    admin = path.startswith(("/admin", "/restore", "/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and not user_mutation)
     if admin and request.state.user.role != "admin":
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
     response = await call_next(request)
@@ -429,17 +429,38 @@ def startup() -> None:
 @app.get("/", name="library")
 def library(request: Request):
     """The library is Supabase-backed in every environment."""
-    deleted_synced_novels = []
-    try:
-        deleted_synced_novels = load_deleted_synced_novels()
-    except CdnDataError:
-        pass
     try:
         synced_novels = load_novels()
     except CdnDataError:
         synced_novels = []
     return templates.TemplateResponse(
-        request=request, name="library.html", context={"books": [], "deleted_books": [], "deleted_synced_novels": deleted_synced_novels, "synced_novels": synced_novels}
+        request=request, name="library.html", context={"books": [], "synced_novels": synced_novels}
+    )
+
+
+@app.get("/restore", include_in_schema=False)
+def restore_page(request: Request):
+    db = SessionLocal()
+    try:
+        _purge_expired_deleted_books(db)
+        deleted_books = db.scalars(
+            select(Book).where(Book.deleted_at.is_not(None)).order_by(Book.deleted_at.desc())
+        ).all()
+    finally:
+        db.close()
+    try:
+        deleted_synced_novels = load_deleted_synced_novels()
+    except CdnDataError:
+        deleted_synced_novels = []
+    return templates.TemplateResponse(
+        request=request,
+        name="restore.html",
+        context={
+            "deleted_books": deleted_books,
+            "deleted_synced_novels": deleted_synced_novels,
+            "toast": request.query_params.get("toast"),
+            "toast_error": request.query_params.get("error") == "1",
+        },
     )
 
 
@@ -1154,7 +1175,7 @@ def delete_synced_book(slug: str):
 def restore_synced_book(slug: str):
     try:
         set_synced_novel_deletion(slug, deleted_at=None, delete_after=None)
-        return RedirectResponse(f"/truyen/{slug}", status_code=303)
+        return RedirectResponse("/restore", status_code=303)
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -1164,7 +1185,7 @@ def restore_synced_book(slug: str):
 def delete_synced_book_permanently(slug: str):
     try:
         delete_synced_novel_permanently(slug)
-        return RedirectResponse("/?restore=1", status_code=303)
+        return RedirectResponse("/restore", status_code=303)
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -1495,7 +1516,7 @@ def delete_book(book_id: int, db: Session = Depends(get_db)):
     book.deleted_at = now
     book.delete_after = now + BOOK_RESTORE_WINDOW
     db.commit()
-    return RedirectResponse(f"/books/{book.id}", status_code=303)
+    return RedirectResponse("/restore", status_code=303)
 
 
 @app.post("/books/{book_id}/restore")
@@ -1506,7 +1527,7 @@ def restore_book(book_id: int, db: Session = Depends(get_db)):
     book.deleted_at = None
     book.delete_after = None
     db.commit()
-    return RedirectResponse(f"/books/{book.id}", status_code=303)
+    return RedirectResponse("/restore", status_code=303)
 
 
 @app.post("/books/{book_id}/delete-permanently")
@@ -1516,7 +1537,7 @@ def delete_book_permanently(book_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Không tìm thấy truyện.")
     db.delete(book)
     db.commit()
-    return RedirectResponse("/?restore=1", status_code=303)
+    return RedirectResponse("/restore", status_code=303)
 
 
 @app.get("/chapters/{chapter_id}")

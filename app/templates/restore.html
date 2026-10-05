@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Restore | Leo Truyen{% endblock %}
+{% block theme_override %}<script>document.documentElement.dataset.theme="light";</script>{% endblock %}
+{% block content %}
+<section class="site-page mx-auto max-w-4xl">
+  <div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-sm font-semibold text-amber-700">ADMIN</p><h1 class="site-title text-3xl">Khôi phục truyện</h1><p class="site-muted mt-1 text-sm">Truyện đã xóa sẽ còn trong thời hạn cho phép trước khi bị xóa vĩnh viễn.</p></div><a href="/admin" class="site-nav-button"><i data-lucide="arrow-left" class="h-4 w-4"></i>Admin Panel</a></div>
+  {% if toast %}<p class="mt-5 rounded-lg border {% if toast_error %}border-red-200 bg-red-50 text-red-800{% else %}border-teal-200 bg-teal-50 text-teal-800{% endif %} px-4 py-3 text-sm">{{ toast }}</p>{% endif %}
+  <div class="mt-7 space-y-3">
+    {% for book in deleted_books %}
+    <article class="site-panel flex flex-wrap items-center justify-between gap-3 p-4"><div><h2 class="font-semibold text-stone-950">{{ book.translated_title or book.title }}</h2><p class="mt-1 text-xs text-stone-500">Thư viện local</p></div><div class="flex gap-2"><form action="/books/{{ book.id }}/restore" method="post"><button class="site-nav-button accent"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Khôi phục</button></form><form action="/books/{{ book.id }}/delete-permanently" method="post" onsubmit="return confirm('Xóa vĩnh viễn truyện này?');"><button class="site-nav-button text-red-700"><i data-lucide="trash-2" class="h-4 w-4"></i>Xóa vĩnh viễn</button></form></div></article>
+    {% endfor %}
+    {% for book in deleted_synced_novels %}
+    <article class="site-panel flex flex-wrap items-center justify-between gap-3 p-4"><div><h2 class="font-semibold text-stone-950">{{ book.title }}</h2><p class="mt-1 text-xs text-stone-500">Backblaze / Supabase</p></div><div class="flex gap-2"><form action="/truyen/{{ book.slug }}/restore" method="post"><button class="site-nav-button accent"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Khôi phục</button></form><form action="/truyen/{{ book.slug }}/delete-permanently" method="post" onsubmit="return confirm('Xóa vĩnh viễn truyện này?');"><button class="site-nav-button text-red-700"><i data-lucide="trash-2" class="h-4 w-4"></i>Xóa vĩnh viễn</button></form></div></article>
+    {% endfor %}
+    {% if not deleted_books and not deleted_synced_novels %}<p class="site-muted rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm">Không có truyện nào chờ khôi phục.</p>{% endif %}
+  </div>
+</section>
+{% endblock %}
