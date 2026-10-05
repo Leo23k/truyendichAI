@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from dotenv import load_dotenv
-from app.storage import configured as b2_configured, presigned_download_url
+from app.storage import configured as b2_configured, presigned_download_url, upload as b2_upload
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -450,13 +450,16 @@ def save_admin_chapter_content(novel_id: int, chapter_id: int, *, original_title
         "translated": translated, "audio": None,
     }, ensure_ascii=False).encode("utf-8")
     try:
-        with httpx.Client(timeout=60, trust_env=False) as client:
-            response = client.post(
-                f"{SUPABASE_URL}/storage/v1/object/chapters/{quote(storage_path, safe='/')}", content=payload,
-                headers={**_service_headers(), "x-upsert": "true", "Content-Type": "application/json"},
-            )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
+        if b2_configured():
+            b2_upload(f"chapters/{storage_path}", payload, "application/json")
+        else:
+            with httpx.Client(timeout=60, trust_env=False) as client:
+                response = client.post(
+                    f"{SUPABASE_URL}/storage/v1/object/chapters/{quote(storage_path, safe='/')}", content=payload,
+                    headers={**_service_headers(), "x-upsert": "true", "Content-Type": "application/json"},
+                )
+            response.raise_for_status()
+    except Exception as exc:
         raise CdnDataError("Không thể lưu nội dung chương.") from exc
     _service_patch("chapters", {"id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}"}, {
         "title": translated_title or original_title, "translated": translated,
@@ -740,13 +743,16 @@ def publish_translated_chapter(
         },
         ensure_ascii=False,
     ).encode("utf-8")
+    if b2_configured():
+        b2_upload(f"chapters/{json_path}", payload, "application/json")
     with httpx.Client(timeout=60, trust_env=False) as client:
-        upload = client.post(
-            f"{SUPABASE_URL}/storage/v1/object/chapters/{quote(json_path, safe='/')}",
-            content=payload,
-            headers={**headers, "x-upsert": "true", "Content-Type": "application/json"},
-        )
-        upload.raise_for_status()
+        if not b2_configured():
+            upload = client.post(
+                f"{SUPABASE_URL}/storage/v1/object/chapters/{quote(json_path, safe='/')}",
+                content=payload,
+                headers={**headers, "x-upsert": "true", "Content-Type": "application/json"},
+            )
+            upload.raise_for_status()
         novels = client.get(
             f"{SUPABASE_URL}/rest/v1/novels",
             params={"select": "id,latest_chapter", "slug": f"eq.{slug}", "limit": "1"},
