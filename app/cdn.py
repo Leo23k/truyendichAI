@@ -1,6 +1,7 @@
 """Supabase-backed public novel data with a local development fallback."""
 
 import json
+import logging
 import os
 import re
 import time
@@ -28,6 +29,7 @@ JSDELIVR_DATA_BASE_URL = os.getenv(
 ).rstrip("/")
 _NOVELS_CACHE_TTL_SECONDS = 12.0
 _novels_cache: tuple[float, list[dict]] | None = None
+logger = logging.getLogger(__name__)
 
 
 class CdnDataError(RuntimeError):
@@ -48,7 +50,7 @@ def _configured() -> bool:
 def storage_url(bucket: str, path: str) -> str:
     if b2_configured() and bucket != "covers":
         object_key = f"{bucket}/{_safe_path(path).as_posix()}"
-        cdn_read_url = cdn_object_url(object_key) if bucket == "chapters" else None
+        cdn_read_url = cdn_object_url(object_key) if bucket == "chapters" and os.getenv("CDN_READ_TOKEN") else None
         return cdn_read_url or presigned_download_url(object_key)
     if not SUPABASE_URL:
         raise CdnDataError("Supabase is not configured")
@@ -699,15 +701,26 @@ def load_cdn_json(path: str) -> dict:
         fallback_url = _supabase_storage_url(relative) if b2_configured() else None
         if fallback_url:
             urls.append(fallback_url)
+        cdn_base = os.getenv("CDN_BASE_URL", "").strip().rstrip("/")
         for url in urls:
             with httpx.Client(timeout=15, trust_env=False) as client:
                 try:
-                    response = client.get(url, headers=_headers() if SUPABASE_URL and url.startswith(f"{SUPABASE_URL}/") else {})
+                    if SUPABASE_URL and url.startswith(f"{SUPABASE_URL}/"):
+                        headers = _headers()
+                    elif cdn_base and url.startswith(f"{cdn_base}/") and os.getenv("CDN_READ_TOKEN"):
+                        headers = {"X-CDN-Read-Token": os.environ["CDN_READ_TOKEN"]}
+                    else:
+                        headers = {}
+                    response = client.get(url, headers=headers)
                     response.raise_for_status()
                     payload = response.json()
                     if isinstance(payload, dict):
                         return payload
-                except (httpx.HTTPError, ValueError):
+                    if url == urls[0] and fallback_url:
+                        logger.warning("Primary chapter read returned a non-object for %s; trying Supabase Storage", relative)
+                except (httpx.HTTPError, ValueError) as exc:
+                    if url == urls[0] and fallback_url:
+                        logger.warning("Primary chapter read failed for %s (%s); trying Supabase Storage", relative, type(exc).__name__)
                     continue
     return _fallback_json(path)
 

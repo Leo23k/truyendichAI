@@ -226,11 +226,12 @@ class SupabaseSync:
     def download_json(self, bucket: str, path: str) -> dict:
         if b2_configured():
             object_key = f"{bucket}/{path}"
-            cdn_url = cdn_object_url(object_key) if bucket == "chapters" else None
+            cdn_token = os.getenv("CDN_READ_TOKEN", "")
+            cdn_url = cdn_object_url(object_key) if bucket == "chapters" and cdn_token else None
             try:
                 if cdn_url:
                     with httpx.Client(timeout=30, trust_env=False) as client:
-                        response = client.get(cdn_url)
+                        response = client.get(cdn_url, headers={"X-CDN-Read-Token": cdn_token})
                         response.raise_for_status()
                         payload = response.json()
                 else:

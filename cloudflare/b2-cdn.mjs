@@ -1,6 +1,6 @@
 // Read-only CDN for the private leotruyen-storage bucket.
 // Deploy: npx wrangler deploy cloudflare/b2-cdn.mjs --name leotruyen-b2-cdn
-// Set B2_KEY_ID and B2_APPLICATION_KEY with `wrangler secret put`.
+// Set B2_KEY_ID, B2_APPLICATION_KEY and CDN_READ_TOKEN with `wrangler secret put`.
 // Set B2_ENDPOINT=s3.ca-east-006.backblazeb2.com as a Worker variable.
 
 const encoder = new TextEncoder();
@@ -59,8 +59,21 @@ async function signedOriginRequest(path, env) {
 
 function reply(response, status) {
   const headers = new Headers(response.headers);
+  // The Cache API stores a public response internally; downstream caches must not bypass auth.
+  headers.set("Cache-Control", "private, no-store");
   headers.set("X-Cache-Status", status);
   return new Response(response.body, { status: response.status, headers });
+}
+
+async function authorized(request, secret) {
+  const supplied = request.headers.get("X-CDN-Read-Token") || "";
+  if (!secret || !supplied) return false;
+  const [actual, expected] = await Promise.all([sha256(supplied), sha256(secret)]);
+  let difference = 0;
+  for (let index = 0; index < expected.length; index++) {
+    difference |= actual.charCodeAt(index) ^ expected.charCodeAt(index);
+  }
+  return difference === 0;
 }
 
 export default {
@@ -69,8 +82,11 @@ export default {
     const url = new URL(request.url);
     const path = objectPath(url);
     if (!path) return new Response("Not found", { status: 404 });
-    if (!env.B2_KEY_ID || !env.B2_APPLICATION_KEY || !env.B2_ENDPOINT) {
+    if (!env.B2_KEY_ID || !env.B2_APPLICATION_KEY || !env.B2_ENDPOINT || !env.CDN_READ_TOKEN) {
       return new Response("CDN origin is not configured", { status: 503 });
+    }
+    if (!await authorized(request, env.CDN_READ_TOKEN)) {
+      return new Response("Unauthorized", { status: 401, headers: { "Cache-Control": "no-store" } });
     }
 
     const cache = caches.default;
