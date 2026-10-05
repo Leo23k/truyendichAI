@@ -1,5 +1,8 @@
 import asyncio
 
+import pytest
+from botocore.exceptions import ClientError
+
 from app.crawlers.base import BookInfo, ChapterInfo
 from sync import service
 from sync.service import enqueue_untranslated_chapters, restore_stored_chapters
@@ -182,7 +185,12 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
         def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
             if table == "translation_queue":
                 return [self.job]
+            if table == "chapters":
+                return [{"id": 7, "source_url": "https://example.test", "content_path": "chapters/novel/007.json", "title": "Raw title"}]
             return [self.chunks[self.job["current_chunk"]]]
+
+        def download_json(self, *_args) -> dict:
+            raise AssertionError("Existing translation chunks should not require a B2 download")
 
         def patch_rows(self, table: str, _params: dict[str, str], payload: dict) -> list[dict]:
             self.patches.append((table, _params, payload))
@@ -216,12 +224,12 @@ def test_worker_rebuilds_chunks_from_stored_raw_when_retranslation_has_none(monk
             if table == "translation_queue":
                 return [self.job]
             if table == "chapters":
-                return [{"id": 7, "content_path": "chapters/novel/007.json"}]
+                return [{"id": 7, "title": "Tiêu đề dịch", "content_path": "chapters/novel/007.json"}]
             return [self.chunks[self.job["current_chunk"]]]
 
         def download_json(self, bucket: str, path: str) -> dict:
             assert (bucket, path) == ("chapters", "novel/007.json")
-            return {"original_content": "Nội dung gốc."}
+            return {"original_title": "Tiêu đề gốc", "original_content": "Nội dung gốc."}
 
         def insert_many_ignore(self, table: str, payloads: list[dict], conflict: str) -> None:
             self.inserted.append((table, payloads, conflict))
@@ -243,6 +251,52 @@ def test_worker_rebuilds_chunks_from_stored_raw_when_retranslation_has_none(monk
     assert remote.inserted[0][0] == "chapter_chunks"
     assert remote.inserted[0][1][0]["original_text"] == "Nội dung gốc."
     assert remote.job["total_chunks"] == 1
+    assert any(table == "chapters" and payload.get("title") == "Tiêu đề gốc" for table, _, payload in remote.patches)
+
+
+def test_download_json_converts_b2_cap_errors_to_sync_error(monkeypatch) -> None:
+    error = ClientError(
+        {"Error": {"Code": "AccessDenied", "Message": "download bandwidth or transaction cap exceeded"}},
+        "GetObject",
+    )
+    monkeypatch.setattr(service, "b2_configured", lambda: True)
+    monkeypatch.setattr(service, "b2_download", lambda _path: (_ for _ in ()).throw(error))
+    remote = object.__new__(service.SupabaseSync)
+
+    with pytest.raises(service.SyncError, match="cap exceeded"):
+        remote.download_json("chapters", "novel/001.json")
+
+
+def test_worker_marks_b2_blocked_retranslation_failed_without_raising(monkeypatch) -> None:
+    class BlockedStorageRemote:
+        def __init__(self) -> None:
+            self.job = {"id": "job", "chapter_id": 7, "current_chunk": 0, "total_chunks": 0}
+            self.patches: list[tuple[str, dict, dict]] = []
+
+        def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
+            if table == "translation_queue":
+                return [self.job]
+            if table == "chapters":
+                return [{"id": 7, "source_url": "https://example.test", "novel_id": 3,
+                         "content_path": "chapters/novel/007.json", "title": "Title"}]
+            return []
+
+        def patch_rows(self, table: str, _params: dict[str, str], payload: dict) -> list[dict]:
+            self.patches.append((table, _params, payload))
+            if table == "translation_queue" and payload.get("status") == "translating":
+                self.job.update(payload)
+                return [self.job]
+            return []
+
+        def download_json(self, _bucket: str, _path: str) -> dict:
+            raise service.SyncError("B2 download cap exceeded")
+
+    remote = BlockedStorageRemote()
+    monkeypatch.setattr(service, "glossary_for_source_url", lambda _url: [])
+    monkeypatch.setattr(service, "_auto_glossary_entries", lambda *_args: [])
+
+    assert service.run_translation_worker_once(remote) is False
+    assert any(table == "translation_queue" and payload.get("status") == "failed" for table, _, payload in remote.patches)
 
 
 def test_stale_translation_jobs_are_requeued_before_claiming() -> None:
