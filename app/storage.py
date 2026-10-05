@@ -5,6 +5,7 @@ import os
 import gzip
 from functools import lru_cache
 from pathlib import PurePosixPath
+from urllib.parse import quote, urlparse
 
 import boto3
 from botocore.client import Config
@@ -19,6 +20,17 @@ def _safe(path: str) -> str:
     if value.is_absolute() or ".." in value.parts:
         raise ValueError("Invalid object path")
     return value.as_posix()
+
+
+def cdn_object_url(path: str) -> str | None:
+    """Stable read URL for a B2 object; None keeps local B2 reads working."""
+    base = os.getenv("CDN_BASE_URL", "").strip().rstrip("/")
+    if not base:
+        return None
+    parsed = urlparse(base)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.path or parsed.query or parsed.fragment:
+        raise ValueError("CDN_BASE_URL must be an HTTPS origin without a path or query")
+    return f"{base}/{quote(_safe(path), safe='/')}"
 
 
 @lru_cache(maxsize=1)

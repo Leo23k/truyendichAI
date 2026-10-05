@@ -11,7 +11,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from dotenv import load_dotenv
-from app.storage import configured as b2_configured, presigned_download_url, upload as b2_upload
+from app.storage import cdn_object_url, configured as b2_configured, presigned_download_url, upload as b2_upload
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,7 +47,9 @@ def _configured() -> bool:
 
 def storage_url(bucket: str, path: str) -> str:
     if b2_configured() and bucket != "covers":
-        return presigned_download_url(f"{bucket}/{path}")
+        object_key = f"{bucket}/{_safe_path(path).as_posix()}"
+        cdn_read_url = cdn_object_url(object_key) if bucket == "chapters" else None
+        return cdn_read_url or presigned_download_url(object_key)
     if not SUPABASE_URL:
         raise CdnDataError("Supabase is not configured")
     relative = _safe_path(path)
@@ -700,7 +702,7 @@ def load_cdn_json(path: str) -> dict:
         for url in urls:
             with httpx.Client(timeout=15, trust_env=False) as client:
                 try:
-                    response = client.get(url, headers=_headers())
+                    response = client.get(url, headers=_headers() if SUPABASE_URL and url.startswith(f"{SUPABASE_URL}/") else {})
                     response.raise_for_status()
                     payload = response.json()
                     if isinstance(payload, dict):

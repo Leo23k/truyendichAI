@@ -29,7 +29,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.config import PROJECT_ROOT, settings
-from app.storage import configured as b2_configured, download as b2_download, upload as b2_upload
+from app.storage import cdn_object_url, configured as b2_configured, download as b2_download, upload as b2_upload
 from app.translator.chunking import chunk_text
 from app.translator.glossary import GlossaryEntry
 from app.translator.preprocess import traditional_to_simplified
@@ -225,12 +225,22 @@ class SupabaseSync:
 
     def download_json(self, bucket: str, path: str) -> dict:
         if b2_configured():
+            object_key = f"{bucket}/{path}"
+            cdn_url = cdn_object_url(object_key) if bucket == "chapters" else None
             try:
-                payload = json.loads(b2_download(f"{bucket}/{path}").decode("utf-8"))
+                if cdn_url:
+                    with httpx.Client(timeout=30, trust_env=False) as client:
+                        response = client.get(cdn_url)
+                        response.raise_for_status()
+                        payload = response.json()
+                else:
+                    payload = json.loads(b2_download(object_key).decode("utf-8"))
+            except httpx.HTTPError as exc:
+                raise SyncError(f"Could not download CDN object {object_key}: {exc}") from exc
             except (BotoCoreError, ClientError) as exc:
-                raise SyncError(f"Could not download B2 object {bucket}/{path}: {exc}") from exc
+                raise SyncError(f"Could not download B2 object {object_key}: {exc}") from exc
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise SyncError(f"B2 object {bucket}/{path} is not valid UTF-8 JSON.") from exc
+                raise SyncError(f"Stored object {object_key} is not valid UTF-8 JSON.") from exc
             if not isinstance(payload, dict):
                 raise SyncError(f"Stored {bucket}/{path} is not a JSON object.")
             return payload
