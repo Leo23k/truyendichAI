@@ -893,6 +893,17 @@ def record_crawled_chapter_discovery(remote: SupabaseSync, chapter: dict, novel:
     return existing[0] if existing else None
 
 
+def _existing_novel_refresh_patch(info, source_type: str) -> dict:
+    """Refresh crawl-derived fields without replacing editor-managed artwork or synopsis."""
+    return {
+        "genres": info.genres or [],
+        "source_type": source_type,
+        "deleted_at": None,
+        "delete_after": None,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @contextmanager
 def worker_process_lock():
     """Keep a second PC worker from claiming crawl or translation work."""
@@ -953,9 +964,7 @@ async def _crawl_and_translate_url(
             novel = novels[0]
             translated_title = str(novel.get("title") or info.title)
             translated_author = novel.get("author") or info.author
-            novel_patch = {"genres": info.genres or [], "source_type": source_type, "deleted_at": None, "delete_after": None, "updated_at": datetime.now(timezone.utc).isoformat()}
-            if not source_update_novel_id:
-                novel_patch["cover_url"] = info.cover_url
+            novel_patch = _existing_novel_refresh_patch(info, source_type)
             remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, novel_patch)
         else:
             translated_title = info.title if is_vietnamese else translator.translate_metadata(info.title)

@@ -97,6 +97,20 @@ def test_unique_slug_only_adds_a_suffix_for_duplicates() -> None:
     assert service.unique_slug("Xích Tâm Tuần Thiên", {"xich-tam-tuan-thien", "xich-tam-tuan-thien-1"}) == "xich-tam-tuan-thien-2"
 
 
+def test_existing_novel_refresh_preserves_cover_and_description() -> None:
+    info = BookInfo(
+        "https://source.example/novel", "example", "novel", "Title",
+        "Author", "New source synopsis", "https://source.example/new-cover.jpg",
+        genres=["Fantasy"],
+    )
+
+    patch = service._existing_novel_refresh_patch(info, "zh")
+
+    assert patch["genres"] == ["Fantasy"]
+    assert "cover_url" not in patch
+    assert "description" not in patch
+
+
 def test_translation_worker_concurrency_defaults_to_two_and_is_bounded(monkeypatch) -> None:
     monkeypatch.delenv("TRANSLATION_WORKER_CONCURRENCY", raising=False)
     assert service.translation_worker_concurrency() == 2
