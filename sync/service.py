@@ -835,6 +835,33 @@ sync_status: dict[str, object] = {"last_sync": None, "last_error": None}
 pc_crawl_jobs: dict[str, dict[str, object]] = {}
 
 
+def notify_newly_crawled_chapter(remote: SupabaseSync, chapter: dict, novel: dict) -> bool:
+    """Persist and announce a chapter found while crawling an existing novel."""
+    source_url = str(chapter.get("source_url") or "").strip()
+    if not source_url:
+        return False
+    response = remote.request(
+        "POST",
+        "/rest/v1/chapter_discoveries?on_conflict=novel_id,source_identity",
+        json={
+            "novel_id": int(novel["id"]),
+            "source_identity": "url:" + source_url.rstrip("/"),
+            "chapter_number": max(1, int(chapter.get("chapter_number") or 1)),
+            "chapter_title": str(chapter.get("title") or "Chapter")[:500],
+            "source_url": source_url,
+            "crawled_at": datetime.now(timezone.utc).isoformat(),
+        },
+        headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
+    )
+    inserted = response.json()
+    if not isinstance(inserted, list) or not inserted:
+        return False
+    from app.notification_service import notify_chapter_discovery
+
+    notify_chapter_discovery(remote, inserted[0], novel)
+    return True
+
+
 @contextmanager
 def worker_process_lock():
     """Keep a second PC worker from claiming crawl or translation work."""
@@ -890,6 +917,7 @@ async def _crawl_and_translate_url(
         ) if source_update_novel_id else remote.rows(
             "novels", {"select": "id,slug,title,author", "source_url": f"eq.{info.source_url}", "limit": "1"},
         )
+        was_existing_novel = bool(novels)
         if novels:
             novel = novels[0]
             translated_title = str(novel.get("title") or info.title)
@@ -1038,6 +1066,14 @@ async def _crawl_and_translate_url(
                 },
                 {"crawled_at": datetime.now(timezone.utc).isoformat()},
             )
+            if was_existing_novel and chapter.get("source_url") in new_source_urls:
+                try:
+                    notify_newly_crawled_chapter(remote, chapter, novel)
+                except Exception:
+                    logger.exception(
+                        "Could not create a follow notification for novel_id=%s chapter=%s",
+                        novel["id"], chapter["chapter_number"],
+                    )
             if is_vietnamese:
                 update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
                 continue

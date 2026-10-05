@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.notification_service import notify_chapter_discovery
+from sync.service import notify_newly_crawled_chapter
 
 
 class FakeSupabase:
@@ -47,3 +48,30 @@ def test_discovery_creates_one_notification_per_user_and_deduplicates_admin_foll
         "reader": "NEW_CHAPTER",
         "admin-not-following": "CRAWLER_NEW_CHAPTER",
     }
+
+
+def test_crawled_chapter_creates_discovery_and_notifies_once(monkeypatch) -> None:
+    discovery = {"id": "discovery-2", "novel_id": 15}
+    calls: list[tuple[dict, dict]] = []
+
+    class CrawlRemote:
+        def request(self, method: str, path: str, *, json: dict, headers: dict) -> SimpleNamespace:
+            assert method == "POST"
+            assert path.endswith("on_conflict=novel_id,source_identity")
+            assert headers["Prefer"] == "resolution=ignore-duplicates,return=representation"
+            assert json["source_identity"] == "url:https://source.test/chapter/2316"
+            return SimpleNamespace(json=lambda: [discovery])
+
+    monkeypatch.setattr(
+        "app.notification_service.notify_chapter_discovery",
+        lambda _remote, found, novel: calls.append((found, novel)),
+    )
+    novel = {"id": 15, "slug": "novel-15", "title": "Novel 15"}
+    chapter = {
+        "chapter_number": 2316,
+        "title": "Chapter 2316",
+        "source_url": "https://source.test/chapter/2316/",
+    }
+
+    assert notify_newly_crawled_chapter(CrawlRemote(), chapter, novel) is True
+    assert calls == [(discovery, novel)]
