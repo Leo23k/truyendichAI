@@ -536,7 +536,7 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
     chapter = chapters[0]
     novels = remote.rows(
         "novels",
-        {"select": "id,slug,latest_chapter", "id": f"eq.{chapter['novel_id']}", "limit": "1"},
+        {"select": "id,slug,title,latest_chapter", "id": f"eq.{chapter['novel_id']}", "limit": "1"},
     )
     if not novels:
         raise SyncError(f"Novel for chapter {chapter_id} was not found while publishing translation.")
@@ -581,6 +581,33 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
             "updated_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+    try:
+        discoveries = remote.rows(
+            "chapter_discoveries",
+            {
+                "select": "id,novel_id,chapter_number,chapter_title,source_url,notification_after_translation",
+                "novel_id": f"eq.{chapter['novel_id']}",
+                "source_identity": f"eq.url:{str(chapter['source_url']).rstrip('/')}",
+                "notification_after_translation": "eq.true",
+                "limit": "1",
+            },
+        )
+        if discoveries:
+            from app.notification_service import notify_chapter_discovery
+
+            notify_chapter_discovery(
+                remote,
+                {**discoveries[0], "chapter_title": translated_title},
+                {**novel, "title": novel.get("title") or "Truyện"},
+                update_existing=True,
+            )
+            remote.patch_rows(
+                "chapter_discoveries",
+                {"id": f"eq.{discoveries[0]['id']}"},
+                {"notification_after_translation": False},
+            )
+    except Exception:
+        logger.exception("Could not notify followers after translating chapter %s", chapter_id)
     if int(novel.get("latest_chapter") or 0) < int(chapter["chapter_number"]):
         remote.patch_rows(
             "novels",
@@ -835,11 +862,11 @@ sync_status: dict[str, object] = {"last_sync": None, "last_error": None}
 pc_crawl_jobs: dict[str, dict[str, object]] = {}
 
 
-def notify_newly_crawled_chapter(remote: SupabaseSync, chapter: dict, novel: dict) -> bool:
-    """Persist and announce a chapter found while crawling an existing novel."""
+def record_crawled_chapter_discovery(remote: SupabaseSync, chapter: dict, novel: dict) -> dict | None:
+    """Record a new chapter for notification after translation completes."""
     source_url = str(chapter.get("source_url") or "").strip()
     if not source_url:
-        return False
+        return None
     response = remote.request(
         "POST",
         "/rest/v1/chapter_discoveries?on_conflict=novel_id,source_identity",
@@ -850,16 +877,20 @@ def notify_newly_crawled_chapter(remote: SupabaseSync, chapter: dict, novel: dic
             "chapter_title": str(chapter.get("title") or "Chapter")[:500],
             "source_url": source_url,
             "crawled_at": datetime.now(timezone.utc).isoformat(),
+            "notification_after_translation": True,
         },
         headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
     )
     inserted = response.json()
-    if not isinstance(inserted, list) or not inserted:
-        return False
-    from app.notification_service import notify_chapter_discovery
-
-    notify_chapter_discovery(remote, inserted[0], novel)
-    return True
+    if isinstance(inserted, list) and inserted:
+        return inserted[0]
+    identity = "url:" + source_url.rstrip("/")
+    existing = remote.patch_rows(
+        "chapter_discoveries",
+        {"novel_id": f"eq.{novel['id']}", "source_identity": f"eq.{identity}"},
+        {"crawled_at": datetime.now(timezone.utc).isoformat(), "notification_after_translation": True},
+    )
+    return existing[0] if existing else None
 
 
 @contextmanager
@@ -1068,13 +1099,31 @@ async def _crawl_and_translate_url(
             )
             if was_existing_novel and chapter.get("source_url") in new_source_urls:
                 try:
-                    notify_newly_crawled_chapter(remote, chapter, novel)
+                    discovery = record_crawled_chapter_discovery(remote, chapter, novel)
                 except Exception:
+                    discovery = None
                     logger.exception(
-                        "Could not create a follow notification for novel_id=%s chapter=%s",
+                        "Could not record notification discovery for novel_id=%s chapter=%s",
                         novel["id"], chapter["chapter_number"],
                     )
+            else:
+                discovery = None
             if is_vietnamese:
+                if discovery:
+                    try:
+                        from app.notification_service import notify_chapter_discovery
+
+                        notify_chapter_discovery(
+                            remote, {**discovery, "chapter_title": chapter["title"]}, novel,
+                            update_existing=True,
+                        )
+                        remote.patch_rows(
+                            "chapter_discoveries",
+                            {"id": f"eq.{discovery['id']}"},
+                            {"notification_after_translation": False},
+                        )
+                    except Exception:
+                        logger.exception("Could not notify followers for translated chapter %s", chapter["id"])
                 update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
                 continue
             if source_update_novel_id:

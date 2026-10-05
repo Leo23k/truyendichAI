@@ -84,6 +84,7 @@ from app.notification_service import (
     mark_all_notifications_read, get_notification_settings,
     update_notification_settings,
     save_push_subscription, delete_push_subscription,
+    deliver_pending_push,
 )
 from app.chapter_monitor import run_chapter_monitor
 
@@ -131,7 +132,7 @@ def _synced_chapter_entry_and_payload(slug: str, chapter_number: int) -> tuple[d
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health", "/manifest.webmanifest", "/service-worker.js", "/api/cron/check-sources"}:
+    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health", "/manifest.webmanifest", "/service-worker.js", "/api/cron/check-sources", "/api/cron/deliver-push"}:
         return await call_next(request)
     access_token = request.cookies.get("sb-access-token", "")
     request.state.user = user_from_token(access_token) if access_token else None
@@ -168,6 +169,16 @@ def cloud_chapter_monitor(request: Request):
     if len(expected) < 32 or not hmac.compare_digest(token, expected):
         raise HTTPException(401, "Invalid cron authorization")
     return run_chapter_monitor(batch_size=4)
+
+
+@app.post("/api/cron/deliver-push", include_in_schema=False)
+def cloud_push_delivery(request: Request):
+    expected = os.getenv("CRON_SECRET", "")
+    supplied = request.headers.get("authorization", "")
+    token = supplied[7:] if supplied.startswith("Bearer ") else ""
+    if len(expected) < 32 or not hmac.compare_digest(token, expected):
+        raise HTTPException(401, "Invalid cron authorization")
+    return {"push_sent": deliver_pending_push(limit=30)}
 
 @app.get("/service-worker.js", include_in_schema=False)
 def service_worker():

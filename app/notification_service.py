@@ -233,7 +233,9 @@ def delete_push_subscription(user_id: str, endpoint: str) -> None:
     )
 
 
-def notify_chapter_discovery(remote: SupabaseSync, discovery: dict, novel: dict) -> int:
+def notify_chapter_discovery(
+    remote: SupabaseSync, discovery: dict, novel: dict, *, update_existing: bool = False
+) -> int:
     """Create at most one in-app event per user/discovery and queue push."""
     novel_id = int(discovery["novel_id"])
     discovery_id = str(discovery["id"])
@@ -283,6 +285,12 @@ def notify_chapter_discovery(remote: SupabaseSync, discovery: dict, novel: dict)
         )
         created = response.json()
         if not isinstance(created, list) or not created:
+            if update_existing:
+                remote.patch_rows(
+                    "notifications",
+                    {"event_key": f"eq.{payload['event_key']}", "user_id": f"eq.{user_id}"},
+                    {"message": message},
+                )
             continue
         notification_id = created[0]["id"]
         total += 1
