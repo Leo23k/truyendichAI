@@ -22,20 +22,16 @@
     .library-sort-menu[hidden]{display:none}
     .library-sort-choice{display:block;width:100%;border-radius:.4rem;padding:.55rem .65rem;text-align:left;font-size:.8rem;color:var(--text)}
     .library-sort-choice:hover,.library-sort-choice[aria-checked="true"]{background:var(--surface-3)}
-    .follow-filter-row{display:none;gap:.35rem;overflow-x:auto}.follow-filter-row.is-visible{display:flex}
     @media(max-width:639px){
-      .library-page{padding:.75rem .45rem 4rem}.library-heading{display:none}.library-toolbar--library{margin-top:.4rem!important;gap:.45rem;padding:.45rem;border-radius:.75rem}.library-toolbar__controls{gap:.25rem}.library-toolbar__tabs{flex:1}.library-toolbar__tabs .site-nav-button,.library-toolbar__controls>.site-nav-button{min-height:2.15rem;gap:.3rem;padding:0 .55rem;font-size:.72rem}.library-toolbar__controls>.site-nav-button{flex:0 0 auto}.library-sort-toggle{height:2.15rem;width:2.15rem}.library-search{height:2.35rem;max-width:none;padding:.15rem}.library-search input{height:2rem!important;font-size:.75rem!important}.library-search>i{margin-left:.45rem!important}.library-search [data-clear-search]{height:1.8rem;width:1.8rem}
-      #library-grid{gap:.45rem}.library-card{border-radius:.55rem}.library-card .p-4{padding:.55rem}.library-card h2{min-height:1.9rem;font-size:.7rem;line-height:1rem}.library-card p{margin-top:.2rem!important;font-size:.61rem;line-height:.9rem}.library-card .library-progress{padding-top:.4rem}.library-card .library-progress-head{font-size:.5rem}.library-card .library-progress-track{margin-top:.25rem;height:.22rem}.library-card [data-book-start]{height:1.55rem;margin-top:.4rem;gap:.3rem;padding:0 .35rem;font-size:.62rem}.library-card [data-book-start] i{height:.7rem;width:.7rem}.follow-filter-row button{min-height:1.8rem;padding:0 .5rem;font-size:.65rem}
+      .library-page{padding:.75rem .45rem 4rem}.library-toolbar--library{margin-top:0!important;gap:.45rem;padding:.45rem;border-radius:.75rem}.library-toolbar__controls{gap:.25rem}.library-toolbar__tabs{flex:1}.library-toolbar__tabs .site-nav-button,.library-toolbar__controls>.site-nav-button{min-height:2.15rem;gap:.3rem;padding:0 .55rem;font-size:.72rem}.library-toolbar__controls>.site-nav-button{flex:0 0 auto}.library-sort-toggle{height:2.15rem;width:2.15rem}.library-search{height:2.35rem;max-width:none;padding:.15rem}.library-search input{height:2rem!important;font-size:.75rem!important}.library-search>i{margin-left:.45rem!important}.library-search [data-clear-search]{height:1.8rem;width:1.8rem}
+      #library-grid{gap:.45rem}.library-card{border-radius:.55rem}.library-card .p-4{padding:.55rem}.library-card h2{min-height:1.9rem;font-size:.7rem;line-height:1rem}.library-card p{margin-top:.2rem!important;font-size:.61rem;line-height:.9rem}.library-card .library-progress{padding-top:.4rem}.library-card .library-progress-head{font-size:.5rem}.library-card .library-progress-track{margin-top:.25rem;height:.22rem}.library-card [data-book-start]{height:1.55rem;margin-top:.4rem;gap:.3rem;padding:0 .35rem;font-size:.62rem}
     }
   </style>
   {% macro library_pagination() %}
     <div data-library-pagination class="mt-8"></div>
   {% endmacro %}
+  <span id="library-count" class="sr-only" aria-live="polite">{{ library_total_novels }}</span>
   <div class="relative flex flex-col gap-4">
-    <div class="library-heading pr-12 sm:pr-64">
-      <div class="flex flex-wrap items-center gap-3"><h1 class="site-title text-3xl font-semibold tracking-tight sm:text-4xl">Thư viện</h1></div>
-      <p class="site-muted mt-1">Chào mừng trở lại! Hiện đang có <span id="library-count" aria-live="polite">{{ library_total_novels }}</span> truyện.</p>
-    </div>
     <div x-data="{ open: false }" @click.outside="open = false" class="hidden">
       <button type="button" @click="open = !open" @keydown.escape.window="open = false" :aria-expanded="open" class="flex min-h-11 items-center gap-2 rounded-xl px-1.5 text-left hover:bg-stone-50" aria-label="Mở menu tài khoản">
         <span class="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-teal-700 text-sm font-semibold text-white"><span>{{ request.state.user.display_name[:1]|upper }}</span>{% if request.state.user.avatar_url %}<img src="{{ request.state.user.avatar_url }}" alt="" class="absolute inset-0 h-full w-full object-cover" onerror="this.remove()">{% endif %}</span>
@@ -47,7 +43,14 @@
         <a href="/logout" class="flex min-h-11 items-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
       </div>
     </div>
-    <div class="library-toolbar library-toolbar--library mt-6 w-full">
+    <div class="library-toolbar library-toolbar--library mt-0 w-full">
+      <form action="/" method="get" role="search" data-library-search class="library-search flex w-full items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500">
+        <span class="sr-only">Tìm trong thư viện</span>
+        <label for="source-query" class="sr-only">Tìm truyện hoặc tác giả</label>
+        <i data-lucide="search" class="ml-2 h-4 w-4 shrink-0 text-stone-400"></i>
+        <input id="source-query" name="query" value="{{ library_query or '' }}" type="text" autocomplete="off" placeholder="Tìm truyện hoặc tác giả..." class="h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-stone-900 outline-none placeholder:text-stone-400">
+        <button type="button" data-clear-search class="hidden inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700" aria-label="Xóa tìm kiếm"><i data-lucide="x" class="h-4 w-4"></i></button>
+      </form>
       <div class="library-toolbar__controls">
        <div class="library-toolbar__tabs" role="tablist" aria-label="Lọc thư viện">
         <button type="button" data-library-tab="all" class="site-nav-button {{ 'accent' if library_filter == 'all' else '' }}" role="tab" aria-selected="{{ 'true' if library_filter == 'all' else 'false' }}">Tất cả</button>
@@ -62,31 +65,6 @@
         </div>
        </div>
       </div>
-      <div data-follow-filter-row class="follow-filter-row" aria-label="Lọc truyện theo dõi">
-        <button type="button" data-follow-filter="all" class="site-nav-button">Tất cả</button>
-        <button type="button" data-follow-filter="new" class="site-nav-button">Có chương mới</button>
-        <button type="button" data-follow-filter="read" class="site-nav-button">Đã đọc</button>
-      </div>
-      <form action="/" method="get" role="search"
-        data-library-search
-        class="library-search flex w-full items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500"
-      >
-        <span class="sr-only">Tìm trong thư viện</span>
-        <label for="source-query" class="sr-only">Tìm truyện hoặc tác giả</label>
-        <i data-lucide="search" class="ml-2 h-4 w-4 shrink-0 text-stone-400"></i>
-        <input
-          id="source-query"
-          name="query"
-          value="{{ library_query or '' }}"
-          type="text"
-          autocomplete="off"
-          placeholder="Tìm truyện hoặc tác giả..."
-          class="h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-stone-900 outline-none placeholder:text-stone-400"
-        >
-        <button type="button" data-clear-search class="hidden inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700" aria-label="Xóa tìm kiếm">
-          <i data-lucide="x" class="h-4 w-4"></i>
-        </button>
-      </form>
     </div>
   </div>
 
@@ -108,7 +86,6 @@
     const searchStatus = document.querySelector("#lookup-results");
     const sortToggle = document.querySelector("[data-sort-toggle]");
     const sortMenu = document.querySelector("[data-sort-menu]");
-    const followFilterRow = document.querySelector("[data-follow-filter-row]");
     const readerStoragePrefix = `reader.${document.body.dataset.userId || "anonymous"}.`;
     const progressStorage = {
       getItem: (key) => window.localStorage.getItem(`${readerStoragePrefix}reader.${key}`),
@@ -146,7 +123,6 @@
       followedLoadState: "idle",
       searchQuery: normalize(searchInput?.value || ""),
       activeTab: ["reading", "followed"].includes(initialUrl.searchParams.get("filter")) ? initialUrl.searchParams.get("filter") : "all",
-      followFilter: ["new", "read"].includes(initialUrl.searchParams.get("follow_filter")) ? initialUrl.searchParams.get("follow_filter") : "all",
       sort: initialUrl.searchParams.get("sort") === "oldest" ? "oldest" : "newest",
       currentPage: Math.max(1, Number(initialUrl.searchParams.get("page") || 1)),
       pageSize: 10,
@@ -164,8 +140,7 @@
       if (state.activeTab === "reading") url.searchParams.set("filter", "reading");
       else if (state.activeTab === "followed") url.searchParams.set("filter", "followed");
       else url.searchParams.delete("filter");
-      if (state.activeTab === "followed" && state.followFilter !== "all") url.searchParams.set("follow_filter", state.followFilter);
-      else url.searchParams.delete("follow_filter");
+      url.searchParams.delete("follow_filter");
       if (state.sort === "oldest") url.searchParams.set("sort", "oldest");
       else url.searchParams.delete("sort");
       if (state.currentPage > 1) url.searchParams.set("page", String(state.currentPage));
@@ -179,7 +154,6 @@
       if (rawQuery) params.set("query", rawQuery);
       if (state.activeTab === "reading") params.set("filter", "reading");
       else if (state.activeTab === "followed") params.set("filter", "followed");
-      if (state.activeTab === "followed" && state.followFilter !== "all") params.set("follow_filter", state.followFilter);
       if (state.sort === "oldest") params.set("sort", "oldest");
       if (page > 1) params.set("page", String(page));
       return `/?${params.toString()}`;
@@ -306,16 +280,11 @@
 
     const render = () => {
       clearSearch.classList.toggle("hidden", !searchInput.value);
+      searchForm.classList.toggle("hidden", state.activeTab === "followed");
       document.querySelectorAll("[data-library-tab]").forEach((button) => {
         const selected = button.dataset.libraryTab === state.activeTab;
         button.classList.toggle("accent", selected);
         button.setAttribute("aria-selected", String(selected));
-      });
-      followFilterRow.classList.toggle("is-visible", state.activeTab === "followed");
-      document.querySelectorAll("[data-follow-filter]").forEach((button) => {
-        const selected = button.dataset.followFilter === state.followFilter;
-        button.classList.toggle("accent", selected);
-        button.setAttribute("aria-pressed", String(selected));
       });
       document.querySelectorAll("[data-sort-choice]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.sortChoice === state.sort)));
       if (state.isLoading) {
@@ -348,8 +317,6 @@
         .filter((novel) => {
           const slug = String(novel.slug || "");
           if (state.activeTab === "reading" && !state.readingSlugs.has(slug)) return false;
-          if (state.activeTab === "followed" && state.followFilter === "new" && Number(novel.new_chapter_count) <= 0) return false;
-          if (state.activeTab === "followed" && state.followFilter === "read" && Number(novel.new_chapter_count) > 0) return false;
           return terms.every((term) => novel._searchText.includes(term));
         });
       const totalPages = Math.max(1, Math.ceil(filtered.length / state.pageSize));
@@ -365,13 +332,12 @@
 
     document.querySelectorAll("[data-library-tab]").forEach((button) => button.addEventListener("click", () => {
       state.activeTab = button.dataset.libraryTab;
+      if (state.activeTab === "followed") {
+        searchInput.value = "";
+        state.searchQuery = "";
+      }
       state.currentPage = 1;
       if (state.activeTab === "followed" && !state.isLoading) loadFollowedNovels();
-      render();
-    }));
-    document.querySelectorAll("[data-follow-filter]").forEach((button) => button.addEventListener("click", () => {
-      state.followFilter = button.dataset.followFilter;
-      state.currentPage = 1;
       render();
     }));
     sortToggle.addEventListener("click", () => {
