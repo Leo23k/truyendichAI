@@ -307,7 +307,7 @@
         window.location.assign(`/?page=${encodeURIComponent(returnPage)}`);
         return;
       }
-      searchTimer = window.setTimeout(() => searchForm.requestSubmit(), 350);
+      searchTimer = window.setTimeout(() => searchForm.requestSubmit(), 500);
     });
     clearSearch?.addEventListener("click", () => {
       searchInput.value = "";

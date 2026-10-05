@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlparse
@@ -24,6 +25,8 @@ JSDELIVR_DATA_BASE_URL = os.getenv(
     "JSDELIVR_DATA_BASE_URL",
     "https://cdn.jsdelivr.net/gh/Leo23k/truyendichAI-data@main/data",
 ).rstrip("/")
+_NOVELS_CACHE_TTL_SECONDS = 12.0
+_novels_cache: tuple[float, list[dict]] | None = None
 
 
 class CdnDataError(RuntimeError):
@@ -283,6 +286,11 @@ def _source_name(source_url: str | None) -> str | None:
 
 
 def load_novels() -> list[dict]:
+    global _novels_cache
+    now = time.monotonic()
+    if _novels_cache and now - _novels_cache[0] < _NOVELS_CACHE_TTL_SECONDS:
+        return [dict(novel) for novel in _novels_cache[1]]
+
     if _configured():
         try:
             novels = _all_rows(
@@ -314,10 +322,13 @@ def load_novels() -> list[dict]:
                 novel["translated_chapters"] = translated_counts.get(novel["id"], 0)
                 novel["cover"] = _resolved_cover_url(novel.get("cover_url"), novel["slug"], fallback_covers)
                 novel["source_name"] = _source_name(novel.get("source_url"))
-            return novels
+            _novels_cache = (now, novels)
+            return [dict(novel) for novel in novels]
         except CdnDataError:
             pass
-    return _fallback_json("metadata.json").get("novels", [])
+    novels = _fallback_json("metadata.json").get("novels", [])
+    _novels_cache = (now, novels)
+    return [dict(novel) for novel in novels]
 
 
 def load_admin_novels() -> list[dict]:
