@@ -1036,6 +1036,15 @@ async def _crawl_and_translate_url(
             payload = json.dumps({"number": chapter["chapter_number"], "title": chapter["title"], "original_title": chapter["title"], "original_content": original, "translated_content": original if is_vietnamese else None, "content": original if is_vietnamese else None, "translated": is_vietnamese}, ensure_ascii=False).encode("utf-8")
             remote.upload_if_changed("chapters", f"{novel['slug']}/{key}.json", payload, "application/json")
             remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {"content_path": f"chapters/{novel['slug']}/{key}.json", "translated": is_vietnamese})
+            remote.patch_rows(
+                "chapter_discoveries",
+                {
+                    "novel_id": f"eq.{novel['id']}",
+                    "source_identity": f"eq.url:{str(chapter['source_url']).rstrip('/')}",
+                    "crawled_at": "is.null",
+                },
+                {"crawled_at": datetime.now(timezone.utc).isoformat()},
+            )
             if is_vietnamese:
                 update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
                 continue
