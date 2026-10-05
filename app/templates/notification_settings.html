@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Cài đặt thông báo | Leo Truyện{% endblock %}
+{% block content %}
+<section class="site-page max-w-3xl">
+  <h1 class="site-title text-3xl">Cài đặt thông báo</h1>
+  <div class="site-panel mt-6 divide-y divide-[var(--line)] px-5">
+    {% for key, label, description in [
+      ('follow_notifications','Truyện đang theo dõi','Báo khi có chương mới của truyện bạn theo dõi.'),
+      ('crawler_notifications','Thông báo crawler','Báo admin khi hệ thống phát hiện chương mới.'),
+      ('web_notifications','Thông báo trên web','Hiển thị thông báo trong hộp thư Leo Truyện.'),
+      ('push_notifications','Web Push','Gửi thông báo tới thiết bị kể cả khi không mở trang.')
+    ] %}
+    {% if key != 'crawler_notifications' or is_admin %}
+    <label class="flex items-center justify-between gap-4 py-5"><span><strong class="block">{{ label }}</strong><span class="site-muted mt-1 block text-sm">{{ description }}</span></span><input type="checkbox" data-setting="{{ key }}" {% if settings[key] %}checked{% endif %} class="h-5 w-5 accent-teal-500"></label>
+    {% endif %}{% endfor %}
+  </div>
+  <p id="settings-status" class="site-muted mt-3 text-sm" role="status"></p>
+</section>
+<script>
+(() => {
+  const status = document.querySelector('#settings-status');
+  const decodeKey = value => { const pad = '='.repeat((4 - value.length % 4) % 4); const raw = atob((value + pad).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, c => c.charCodeAt(0)); };
+  async function pushSubscription(enable) {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Trình duyệt không hỗ trợ Web Push.');
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (enable) {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Bạn chưa cấp quyền thông báo cho trình duyệt.');
+      const keyResponse = await fetch('/api/push/public-key'); const {publicKey} = await keyResponse.json();
+      if (!publicKey) throw new Error('Server chưa cấu hình VAPID_PUBLIC_KEY.');
+      subscription ||= await registration.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:decodeKey(publicKey)});
+      const value = subscription.toJSON();
+      const response = await fetch('/api/push/subscription', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});
+      if (!response.ok) throw new Error('Không lưu được Push subscription.');
+    } else if (subscription) {
+      await fetch(`/api/push/subscription?endpoint=${encodeURIComponent(subscription.endpoint)}`, {method:'DELETE'});
+      await subscription.unsubscribe();
+    }
+  }
+  document.querySelectorAll('[data-setting]').forEach(input => input.addEventListener('change', async () => {
+    input.disabled = true;
+    try {
+      if (input.dataset.setting === 'push_notifications') await pushSubscription(input.checked);
+      const response = await fetch('/api/notification-settings', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({[input.dataset.setting]:input.checked})});
+      if (!response.ok) throw new Error('Không lưu được cài đặt.');
+      status.textContent = 'Đã lưu cài đặt.';
+    } catch (error) { input.checked = !input.checked; status.textContent = error.message || 'Có lỗi xảy ra.'; }
+    finally { input.disabled = false; }
+  }));
+})();
+</script>
+{% endblock %}

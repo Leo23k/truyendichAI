@@ -82,6 +82,7 @@ from app.notification_service import (
     list_notifications, unread_notification_count, mark_notification_read,
     mark_all_notifications_read, get_notification_settings,
     update_notification_settings,
+    save_push_subscription, delete_push_subscription,
 )
 
 
@@ -1107,6 +1108,16 @@ class NotificationSettingsRequest(BaseModel):
     push_notifications: bool | None = None
 
 
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscriptionRequest(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+
+
 @app.get("/notification-settings")
 def notification_settings_page(request: Request):
     return templates.TemplateResponse(request=request, name="notification_settings.html", context={
@@ -1122,6 +1133,30 @@ def save_notification_settings(payload: NotificationSettingsRequest, request: Re
     if user.role != "admin":
         values.pop("crawler_notifications", None)
     return update_notification_settings(user.id, values)
+
+
+@app.get("/api/push/public-key")
+def push_public_key():
+    return {"publicKey": os.getenv("VAPID_PUBLIC_KEY", "")}
+
+
+@app.post("/api/push/subscription")
+def add_push_subscription(payload: PushSubscriptionRequest, request: Request):
+    user = require_authenticated(request)
+    try:
+        save_push_subscription(
+            user.id, endpoint=payload.endpoint, p256dh=payload.keys.p256dh,
+            auth=payload.keys.auth, user_agent=request.headers.get("user-agent"),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"saved": True}
+
+
+@app.delete("/api/push/subscription")
+def remove_push_subscription(request: Request, endpoint: str):
+    delete_push_subscription(require_authenticated(request).id, endpoint)
+    return {"removed": True}
 
 
 @app.get("/truyen/{slug}/chapters", include_in_schema=False)
