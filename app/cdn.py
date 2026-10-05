@@ -321,6 +321,7 @@ def load_novels() -> list[dict]:
                 novel["total_chapters"] = total_counts.get(novel["id"], 0)
                 novel["translated_chapters"] = translated_counts.get(novel["id"], 0)
                 novel["cover"] = _resolved_cover_url(novel.get("cover_url"), novel["slug"], fallback_covers)
+                novel["cover_fallback"] = fallback_covers.get(novel["slug"])
                 novel["source_name"] = _source_name(novel.get("source_url"))
             _novels_cache = (now, novels)
             return [dict(novel) for novel in novels]

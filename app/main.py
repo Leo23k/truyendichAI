@@ -328,7 +328,7 @@ def get_library_novel_metadata(request: Request) -> dict:
         novels = load_novels()
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail="Could not load novel metadata") from exc
-    fields = ("id", "slug", "title", "author", "reading_status", "cover", "latest_chapter", "updated_at", "total_chapters")
+    fields = ("id", "slug", "title", "author", "reading_status", "cover", "cover_fallback", "latest_chapter", "updated_at", "total_chapters")
     return {"items": [{field: novel.get(field) for field in fields} for novel in novels]}
 
 

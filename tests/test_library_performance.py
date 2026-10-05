@@ -46,6 +46,7 @@ def test_library_metadata_endpoint_still_returns_lightweight_fields(monkeypatch)
         "author": "Author",
         "reading_status": "ongoing",
         "cover": "https://example.test/cover.webp",
+        "cover_fallback": "https://cdn.example.test/cover.webp",
         "latest_chapter": 4,
         "updated_at": "2026-10-05T00:00:00Z",
         "total_chapters": 4,
@@ -59,7 +60,7 @@ def test_library_metadata_endpoint_still_returns_lightweight_fields(monkeypatch)
     assert response["items"] == [{
         key: rows[0].get(key)
         for key in (
-            "id", "slug", "title", "author", "reading_status", "cover",
+            "id", "slug", "title", "author", "reading_status", "cover", "cover_fallback",
             "latest_chapter", "updated_at", "total_chapters",
         )
     }]

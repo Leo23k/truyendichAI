@@ -209,7 +209,15 @@
         image.width = 320;
         image.height = 480;
         fallback.classList.add("hidden");
-        image.addEventListener("error", () => { image.classList.add("hidden"); fallback.classList.remove("hidden"); }, { once: true });
+        image.addEventListener("error", () => {
+          const backup = String(novel.cover_fallback || "");
+          if (backup && image.src !== backup) {
+            image.src = backup;
+            return;
+          }
+          image.classList.add("hidden");
+          fallback.classList.remove("hidden");
+        });
         coverFrame.append(image);
       }
       coverFrame.append(fallback);
@@ -394,7 +402,8 @@
               ...baseNovel,
               ...item,
               id: item.novel_id,
-              cover: item.cover_url || baseNovel.cover,
+              cover: baseNovel.cover || item.cover_url,
+              cover_fallback: baseNovel.cover_fallback,
               latest_chapter: item.latest_chapter ?? baseNovel.latest_chapter,
               total_chapters: item.latest_chapter ?? baseNovel.total_chapters,
               reading_status: baseNovel.reading_status || "ongoing",
