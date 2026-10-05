@@ -170,7 +170,13 @@ def save_push_subscription(
     user_id: str, *, endpoint: str, p256dh: str, auth: str, user_agent: str | None
 ) -> None:
     parsed = urlparse(endpoint)
-    if parsed.scheme != "https" or not parsed.hostname:
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    allowed_push_hosts = {
+        "fcm.googleapis.com", "updates.push.services.mozilla.com",
+        "push.services.mozilla.com", "web.push.apple.com",
+    }
+    valid_host = hostname in allowed_push_hosts or hostname.endswith(".notify.windows.com")
+    if parsed.scheme != "https" or not hostname or not valid_host or parsed.username or parsed.password or parsed.port not in {None, 443}:
         raise ValueError("Push endpoint must use HTTPS")
     if not endpoint or not p256dh or not auth:
         raise ValueError("Push subscription is incomplete")
@@ -316,6 +322,11 @@ def deliver_pending_push(limit: int = 20) -> int:
             continue
         subscription = subscriptions[0]
         notification = notifications[0]
+        if not get_notification_settings(str(subscription["user_id"])).get("push_notifications", False):
+            remote.patch_rows("push_deliveries", {"id": f"eq.{delivery['id']}"}, {
+                "attempts": 5, "last_error": "Push disabled by user",
+            })
+            continue
         try:
             webpush(
                 subscription_info={"endpoint": subscription["endpoint"], "keys": {"p256dh": subscription["p256dh"], "auth": subscription["auth"]}},

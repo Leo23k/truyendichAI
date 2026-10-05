@@ -28,6 +28,39 @@ def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
         "select": "novel_id,last_checked_at", "order": "last_checked_at.asc.nullsfirst",
         "limit": str(max(1, min(12, batch_size))),
     })
+    all_state_ids = {int(row["novel_id"]) for row in remote.all_rows("chapter_monitor_state", {"select": "novel_id"})}
+    for novel_id, novel in novels_by_id.items():
+        if novel_id in all_state_ids:
+            continue
+        # Newly added novels start from a baseline instead of announcing their
+        # entire existing source index as if it had just been published.
+        known_chapters = remote.all_rows("chapters", {
+            "select": "chapter_number,title,source_url,content_path", "novel_id": f"eq.{novel_id}",
+        })
+        if known_chapters:
+            remote.insert_many_ignore("chapter_discoveries", [
+                {
+                    "novel_id": novel_id,
+                    "source_identity": _identity(str(chapter["source_url"])),
+                    "chapter_number": max(1, int(chapter.get("chapter_number") or 1)),
+                    "chapter_title": str(chapter.get("title") or "Chapter")[:500],
+                    "source_url": chapter["source_url"],
+                    "crawled_at": datetime.now(timezone.utc).isoformat() if chapter.get("content_path") else None,
+                }
+                for chapter in known_chapters if chapter.get("source_url")
+            ], "novel_id,source_identity")
+        latest = max((int(row.get("chapter_number") or 0) for row in known_chapters), default=0)
+        latest_url = next((row.get("source_url") for row in reversed(known_chapters) if row.get("source_url")), None)
+        remote.upsert("chapter_monitor_state", {
+            "novel_id": novel_id,
+            "last_seen_source_url": latest_url,
+            "last_seen_chapter_number": latest,
+        }, "novel_id")
+    if not states:
+        states = remote.rows("chapter_monitor_state", {
+            "select": "novel_id,last_checked_at", "order": "last_checked_at.asc.nullsfirst",
+            "limit": str(max(1, min(12, batch_size))),
+        })
     counts = {"checked": 0, "discovered": 0, "errors": 0, "push_sent": 0}
     for state in states:
         novel = novels_by_id.get(int(state["novel_id"]))
@@ -43,6 +76,26 @@ def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
                 "select": "source_identity", "novel_id": f"eq.{novel_id}",
             })
             known = {str(row.get("source_identity")) for row in existing}
+            if not known and state.get("last_checked_at") is None:
+                baseline = [{
+                    "novel_id": novel_id,
+                    "source_identity": _identity(chapter.url),
+                    "chapter_number": max(1, int(chapter.chapter_number)),
+                    "chapter_title": str(chapter.title or f"Chương {chapter.chapter_number}")[:500],
+                    "source_url": chapter.url,
+                } for chapter in chapters if chapter.url]
+                if baseline:
+                    remote.insert_many_ignore("chapter_discoveries", baseline, "novel_id,source_identity")
+                    enqueue_remote_crawl(str(novel["source_url"]), str(novel.get("source_type") or "zh"),
+                        {"chapter_monitor": True, "novel_id": novel_id})
+                remote.patch_rows("chapter_monitor_state", {"novel_id": f"eq.{novel_id}"}, {
+                    "last_seen_chapter_number": max((int(ch.chapter_number) for ch in chapters), default=0),
+                    "last_seen_source_url": chapters[-1].url if chapters else None,
+                    "last_checked_at": datetime.now(timezone.utc).isoformat(),
+                    "last_error": None,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+                continue
             discoveries = []
             for chapter in chapters:
                 identity = _identity(chapter.url)
