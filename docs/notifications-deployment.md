@@ -3,7 +3,7 @@
 ## What runs where
 
 - Supabase PostgreSQL stores follows, discovery watermarks/events, notifications, push subscriptions, and delivery retries.
-- Supabase Cron calls `POST /api/cron/check-sources` every 15 minutes. The endpoint inspects a small batch of source indexes only; the PC worker still downloads chapter text and translates it through the existing job queue.
+- Supabase Cron calls `POST /api/cron/check-sources` every 6 hours (00:00, 06:00, 12:00, 18:00 UTC). The endpoint inspects a small batch of source indexes only; the PC worker still downloads chapter text and translates it through the existing job queue.
 - Vercel Hobby Cron is not used because its schedule limit is too low for periodic chapter polling. Supabase Cron is the scheduler.
 
 ## Required deployment setup
@@ -13,7 +13,7 @@
 3. In Supabase Dashboard → Vault, create two secrets with these exact names:
    - `chapter_monitor_url` = `https://<your-production-domain>/api/cron/check-sources`
    - `chapter_monitor_secret` = the same value as Vercel `CRON_SECRET`
-4. The migration schedules `chapter-monitor-15m`. Confirm it is active under Database → Cron Jobs and inspect run history after the first interval.
+4. The migrations replace the initial 15-minute schedule with `chapter-monitor-6h`. Confirm only that job is active under Database → Cron Jobs and inspect run history after the first interval.
 
 Do not commit secrets or put them in source code. If the Vault entries are absent, the scheduled database function logs a warning and safely skips its request.
 
@@ -30,7 +30,7 @@ The `py_vapid` utility installed with `pywebpush` can generate PEM key files wit
 ## Verification
 
 - Confirm the authenticated site shows `/followed`, `/notifications`, and `/notification-settings`.
-- In Supabase Cron run history, confirm `chapter-monitor-15m` runs every 15 minutes. `chapter_monitor_state.last_error` records per-novel source failures.
+- In Supabase Cron run history, confirm `chapter-monitor-6h` runs every 6 hours (UTC). `chapter_monitor_state.last_error` records per-novel source failures.
 - A newly discovered source URL is inserted once by `(novel_id, source_identity)`. Its notification uses a separate unique event key per user; the PC worker marks the discovery crawled after it persists chapter content.
 - Test Web Push with a real browser subscription on the deployed HTTPS origin. A local HTTP origin may not support Push except for localhost.
 
