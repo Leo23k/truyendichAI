@@ -3,7 +3,6 @@
 import hashlib
 import os
 from pathlib import PurePosixPath
-from urllib.parse import quote
 
 import boto3
 from botocore.client import Config
@@ -20,18 +19,12 @@ def _safe(path: str) -> str:
     return value.as_posix()
 
 
-def public_url(path: str) -> str:
-    path = _safe(path)
-    base = os.getenv("B2_PUBLIC_URL_BASE", "").rstrip("/")
-    if base:
-        return f"{base}/{quote(path, safe='/')}"
-    endpoint = os.environ["B2_ENDPOINT"].rstrip("/")
-    return f"{endpoint}/{os.environ['B2_BUCKET']}/{quote(path, safe='/')}"
-
-
 def client():
+    endpoint = os.environ["B2_ENDPOINT"].strip()
+    if not endpoint.startswith("https://"):
+        endpoint = f"https://{endpoint}"
     return boto3.client(
-        "s3", endpoint_url=os.environ["B2_ENDPOINT"],
+        "s3", endpoint_url=endpoint,
         aws_access_key_id=os.environ["B2_KEY_ID"],
         aws_secret_access_key=os.environ["B2_APPLICATION_KEY"],
         config=Config(signature_version="s3v4"),
@@ -54,3 +47,13 @@ def upload(path: str, content: bytes, content_type: str) -> bool:
 
 def download(path: str) -> bytes:
     return client().get_object(Bucket=os.environ["B2_BUCKET"], Key=_safe(path))["Body"].read()
+
+
+def presigned_download_url(path: str) -> str:
+    """Return a short-lived URL for an object in the private B2 bucket."""
+    expires_in = int(os.getenv("B2_PRESIGNED_URL_TTL_SECONDS", "900"))
+    return client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": os.environ["B2_BUCKET"], "Key": _safe(path)},
+        ExpiresIn=max(60, min(expires_in, 3600)),
+    )

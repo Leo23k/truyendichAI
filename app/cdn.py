@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from dotenv import load_dotenv
-from app.storage import configured as b2_configured, public_url as b2_public_url
+from app.storage import configured as b2_configured, presigned_download_url
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,7 +43,7 @@ def _configured() -> bool:
 
 def storage_url(bucket: str, path: str) -> str:
     if b2_configured():
-        return b2_public_url(f"{bucket}/{path}")
+        return presigned_download_url(f"{bucket}/{path}")
     if not SUPABASE_URL:
         raise CdnDataError("Supabase is not configured")
     relative = _safe_path(path)
@@ -53,7 +53,7 @@ def storage_url(bucket: str, path: str) -> str:
 def cdn_url(path: str) -> str:
     relative = _safe_path(path)
     parts = relative.parts
-    if not _configured():
+    if not _configured() and not b2_configured():
         return f"{JSDELIVR_DATA_BASE_URL}/{quote(relative.as_posix())}"
     if len(parts) >= 4 and parts[0] == "novels" and parts[2] == "audio":
         return storage_url("audio", f"{parts[1]}/{'/'.join(parts[3:])}")
