@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Truyện đang theo dõi | Leo Truyện{% endblock %}
+{% block content %}
+<section class="site-page">
+  <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div><h1 class="site-title text-3xl">Truyện đang theo dõi</h1><p class="site-muted mt-1">{{ total }} truyện</p></div>
+    <a href="/notification-settings" class="site-nav-button"><i data-lucide="settings-2" class="h-4 w-4"></i>Cài đặt thông báo</a>
+  </div>
+  <form method="get" action="/followed" class="library-toolbar mb-5">
+    <div class="flex gap-2">
+      {% for key, label in [('all','Tất cả'),('new','Có chương mới'),('read','Đã đọc')] %}
+      <button name="filter" value="{{ key }}" class="site-nav-button {% if filter_by == key %}accent{% endif %}">{{ label }}</button>
+      {% endfor %}
+    </div>
+    <input name="q" value="{{ query }}" placeholder="Tìm truyện hoặc tác giả..." class="library-search min-h-10 rounded-lg border px-3 sm:w-80">
+  </form>
+  {% if items %}
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    {% for item in items %}
+    <article class="library-card flex min-h-32 gap-3 p-3">
+      {% if item.cover_url %}<img src="{{ item.cover_url }}" alt="" class="h-28 w-20 rounded object-cover">{% endif %}
+      <div class="min-w-0 flex-1"><a href="/truyen/{{ item.slug }}" class="font-bold text-[var(--text)] hover:text-[var(--accent)]">{{ item.title }}</a>
+        <p class="mt-1 truncate text-sm">{{ item.author or 'Chưa rõ tác giả' }}</p>
+        <p class="mt-2 text-xs">Đã đọc {{ item.last_read_chapter }} / {{ item.latest_chapter }} chương</p>
+        {% if item.new_chapter_count %}<span class="mt-2 inline-flex rounded-full bg-teal-500/15 px-2 py-1 text-xs font-semibold text-teal-500">{{ item.new_chapter_count }} chương mới</span>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}<div class="site-panel site-muted p-8 text-center">Chưa có truyện phù hợp.</div>{% endif %}
+  {% if pages > 1 %}<nav class="mt-6 flex justify-center gap-2">{% for p in range(1, pages + 1) %}<a class="site-nav-button {% if p == page %}accent{% endif %}" href="/followed?q={{ query|urlencode }}&filter={{ filter_by }}&page={{ p }}">{{ p }}</a>{% endfor %}</nav>{% endif %}
+</section>
+{% endblock %}

@@ -77,6 +77,12 @@ from app.tts.edge_tts_service import (
 )
 from sync.service import SyncError, SupabaseSync, enqueue_remote_crawl, prioritize_translation, sync_once
 from app.worker_control import worker_manager
+from app.notification_service import (
+    follow_novel, unfollow_novel, is_following_novel, list_followed_novels,
+    list_notifications, unread_notification_count, mark_notification_read,
+    mark_all_notifications_read, get_notification_settings,
+    update_notification_settings,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -135,7 +141,7 @@ async def auth_guard(request: Request, call_next):
         if request.headers.get("HX-Request") == "true":
             return HTMLResponse(status_code=401)
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
-    user_mutation = path in {"/api/tts", "/api/reading-progress"} or path.startswith("/api/books/")
+    user_mutation = path in {"/api/tts", "/api/reading-progress", "/api/notifications/read-all"} or path.startswith(("/api/books/", "/api/follows/", "/api/notifications/", "/api/notification-settings"))
     admin = path.startswith(("/admin", "/restore", "/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and not user_mutation)
     if admin and request.state.user.role != "admin":
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
@@ -1043,8 +1049,79 @@ def synced_book(slug: str, request: Request, chapter_page: int = 1, chapter_sort
     return templates.TemplateResponse(
         request=request,
         name="synced_book_detail.html",
-        context={"novel": novel, **chapter_context},
+        context={"novel": novel, "is_following": bool(novel.get("id") and is_following_novel(request.state.user.id, int(novel["id"]))), **chapter_context},
     )
+
+
+@app.get("/followed")
+def followed_page(request: Request, q: str = "", filter: str = "all", page: int = 1):
+    user = require_authenticated(request)
+    rows, total = list_followed_novels(user.id, query=q, filter_by=filter, page=page, page_size=20)
+    return templates.TemplateResponse(request=request, name="followed.html", context={
+        "items": rows, "query": q, "filter_by": filter, "page": max(1, page),
+        "pages": max(1, (total + 19) // 20), "total": total,
+    })
+
+
+@app.post("/api/follows/{novel_id}")
+def add_follow(novel_id: int, request: Request):
+    user = require_authenticated(request)
+    try:
+        follow_novel(user.id, novel_id)
+    except LookupError as exc:
+        raise HTTPException(404, "Novel was not found") from exc
+    return {"following": True}
+
+
+@app.delete("/api/follows/{novel_id}")
+def remove_follow(novel_id: int, request: Request):
+    unfollow_novel(require_authenticated(request).id, novel_id)
+    return {"following": False}
+
+
+@app.get("/notifications")
+def notifications_page(request: Request, page: int = 1):
+    user = require_authenticated(request)
+    items, total = list_notifications(user.id, page=page, page_size=20)
+    return templates.TemplateResponse(request=request, name="notifications.html", context={
+        "items": items, "page": max(1, page), "pages": max(1, (total + 19) // 20),
+        "unread": unread_notification_count(user.id),
+        "settings": get_notification_settings(user.id),
+    })
+
+
+@app.post("/api/notifications/{notification_id}/read")
+def read_notification(notification_id: str, request: Request):
+    return {"updated": mark_notification_read(require_authenticated(request).id, notification_id)}
+
+
+@app.post("/api/notifications/read-all")
+def read_all_notifications(request: Request):
+    return {"updated": mark_all_notifications_read(require_authenticated(request).id)}
+
+
+class NotificationSettingsRequest(BaseModel):
+    follow_notifications: bool | None = None
+    crawler_notifications: bool | None = None
+    web_notifications: bool | None = None
+    push_notifications: bool | None = None
+
+
+@app.get("/notification-settings")
+def notification_settings_page(request: Request):
+    return templates.TemplateResponse(request=request, name="notification_settings.html", context={
+        "settings": get_notification_settings(require_authenticated(request).id),
+        "is_admin": request.state.user.role == "admin",
+    })
+
+
+@app.put("/api/notification-settings")
+def save_notification_settings(payload: NotificationSettingsRequest, request: Request):
+    user = require_authenticated(request)
+    values = payload.model_dump(exclude_none=True)
+    if user.role != "admin":
+        values.pop("crawler_notifications", None)
+    return update_notification_settings(user.id, values)
 
 
 @app.get("/truyen/{slug}/chapters", include_in_schema=False)

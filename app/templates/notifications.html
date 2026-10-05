@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Thông báo | Leo Truyện{% endblock %}
+{% block content %}
+<section class="site-page">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3"><div><h1 class="site-title text-3xl">Thông báo</h1><p class="site-muted mt-1">{{ unread }} thông báo chưa đọc</p></div>
+    <div class="flex gap-2"><button id="read-all" class="site-nav-button">Đánh dấu tất cả đã đọc</button><a href="/notification-settings" class="site-nav-button">Cài đặt</a></div>
+  </div>
+  <div class="space-y-3">
+    {% for item in items %}<a href="{{ item.url }}" data-notification-id="{{ item.id }}" class="site-panel block p-4 {% if not item.is_read %}border-l-4 border-l-[var(--accent)]{% endif %}"><div class="flex justify-between gap-4"><strong>{{ item.title }}</strong><time class="site-muted shrink-0 text-xs">{{ item.created_at }}</time></div><p class="site-muted mt-1 text-sm">{{ item.message }}</p></a>
+    {% else %}<div class="site-panel site-muted p-8 text-center">Chưa có thông báo.</div>{% endfor %}
+  </div>
+  {% if pages > 1 %}<nav class="mt-6 flex justify-center gap-2">{% for p in range(1, pages + 1) %}<a class="site-nav-button {% if p == page %}accent{% endif %}" href="/notifications?page={{ p }}">{{ p }}</a>{% endfor %}</nav>{% endif %}
+</section>
+<script>
+  document.querySelectorAll('[data-notification-id]').forEach(link => link.addEventListener('click', () => {
+    if (link.classList.contains('border-l-4')) fetch(`/api/notifications/${link.dataset.notificationId}/read`, {method:'POST', keepalive:true});
+  }));
+  document.querySelector('#read-all')?.addEventListener('click', async () => { const r = await fetch('/api/notifications/read-all', {method:'POST'}); if (r.ok) location.reload(); });
+</script>
+{% endblock %}

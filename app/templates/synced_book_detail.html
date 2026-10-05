@@ -26,6 +26,7 @@
       {% if chapters %}
       <div class="book-actions mt-7 flex flex-wrap gap-3">
         <a href="/truyen/{{ novel.slug }}/{{ first_chapter.chapter_number }}" class="book-action primary"><i data-lucide="play" class="h-4 w-4"></i><span>Đọc ngay</span></a>
+        {% if novel.id %}<button type="button" data-follow-button data-novel-id="{{ novel.id }}" data-following="{{ 'true' if is_following else 'false' }}" class="book-action"><i data-lucide="heart" class="h-4 w-4"></i><span>{{ 'Bỏ theo dõi' if is_following else 'Theo dõi truyện' }}</span></button>{% endif %}
       </div>{% endif %}
     </div>
     {% if novel.cover %}<img src="{{ novel.cover }}" alt="Bìa {{ novel.title }}" width="480" height="720" class="book-cover aspect-[2/3] w-full max-w-[240px] object-cover">{% endif %}
@@ -35,5 +36,15 @@
 <script src="/static/batch_translate.js" defer></script>
 <script>
   (() => { const key = `reader.${document.body.dataset.userId || 'anonymous'}.reader.lastUrl.book.{{ novel.slug }}`, url = localStorage.getItem(key), link = document.querySelector('[data-offline-book] .book-action.primary'); if (url && link) { link.href = url; const label = link.querySelector('span'); if (label) label.textContent = 'Đọc tiếp'; } })();
+</script>
+<script>
+  document.querySelector('[data-follow-button]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const wasFollowing = button.dataset.following === 'true';
+    const response = await fetch(`/api/follows/${button.dataset.novelId}`, { method: wasFollowing ? 'DELETE' : 'POST' });
+    if (!response.ok) return;
+    button.dataset.following = wasFollowing ? 'false' : 'true';
+    button.querySelector('span').textContent = wasFollowing ? 'Theo dõi truyện' : 'Bỏ theo dõi';
+  });
 </script>
 {% endblock %}
