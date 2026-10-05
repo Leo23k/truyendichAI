@@ -22,7 +22,7 @@
   </style>
   {% macro library_pagination() %}
     {% if library_total_pages is defined and library_total_pages > 1 %}
-    {% set query_suffix = '&query=' ~ (library_query|urlencode) if library_query else '' %}
+    {% set query_suffix = '&query=' ~ (library_query|urlencode) ~ '&return_page=' ~ library_return_page if library_query else '' %}
     <nav class="library-pagination mt-8" aria-label="Phân trang thư viện"><a href="/?page={{ library_page - 1 }}{{ query_suffix }}" {% if library_page == 1 %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang trước"><i data-lucide="chevron-left" class="h-4 w-4"></i></a>{% for item in range(1, library_total_pages + 1) %}<a href="/?page={{ item }}{{ query_suffix }}" {% if item == library_page %}aria-current="page"{% endif %}>{{ item }}</a>{% endfor %}<a href="/?page={{ library_page + 1 }}{{ query_suffix }}" {% if library_page == library_total_pages %}aria-disabled="true" class="pointer-events-none opacity-40"{% endif %} aria-label="Trang sau"><i data-lucide="chevron-right" class="h-4 w-4"></i></a></nav>
     {% endif %}
   {% endmacro %}
@@ -55,6 +55,7 @@
         data-library-search
         class="library-search flex w-full max-w-md items-center gap-1.5 rounded-lg p-1.5 transition focus-within:border-teal-500 sm:ml-auto"
       >
+        <input type="hidden" name="return_page" value="{{ library_return_page }}">
         <span class="sr-only">Tìm trong thư viện</span>
         <label for="source-query" class="sr-only">Tìm truyện hoặc tác giả</label>
         <i data-lucide="search" class="ml-2 h-4 w-4 shrink-0 text-stone-400"></i>
@@ -301,6 +302,11 @@
       activeLibraryQuery = normalizeLibrarySearch(searchInput.value);
       applyLibraryFilters();
       clearTimeout(searchTimer);
+      if (!searchInput.value.trim()) {
+        const returnPage = searchForm.elements.return_page?.value || "1";
+        window.location.assign(`/?page=${encodeURIComponent(returnPage)}`);
+        return;
+      }
       searchTimer = window.setTimeout(() => searchForm.requestSubmit(), 350);
     });
     clearSearch?.addEventListener("click", () => {
