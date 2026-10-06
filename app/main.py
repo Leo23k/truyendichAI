@@ -22,7 +22,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
-from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, get_ebook_chapter, get_original_download, list_ebooks, upload_ebook
+from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, enqueue_ebook_translation, get_ebook_chapter, get_original_download, list_ebooks, upload_ebook
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
@@ -390,6 +390,16 @@ async def upload_ebook_endpoint(request: Request, file: UploadFile = File(...)):
     finally:
         await file.close()
     return RedirectResponse("/ebooks?uploaded=1", status_code=303)
+
+
+@app.post("/api/ebooks/{ebook_id}/translate")
+def enqueue_ebook_translation_endpoint(ebook_id: str, request: Request, retranslate: bool = False):
+    user = require_authenticated(request)
+    try:
+        queued = enqueue_ebook_translation(user.id, ebook_id, retranslate=retranslate)
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return RedirectResponse(f"/ebooks?queued={queued}", status_code=303)
 
 
 @app.get("/ebooks/{ebook_id}/download")

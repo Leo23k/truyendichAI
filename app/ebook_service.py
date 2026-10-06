@@ -10,7 +10,9 @@ from pathlib import PurePosixPath
 
 from app.ebooks import EbookParseError, ParsedEbook, parse_ebook
 from app.storage import configured as b2_configured, download as b2_download, presigned_download_url, upload as b2_upload
+from app.translator.chunking import chunk_text
 from sync.service import SupabaseSync, SyncError
+from bs4 import BeautifulSoup
 
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -239,3 +241,65 @@ def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int) -> dict
         "previous": previous[0] if previous else None,
         "following": following[0] if following else None,
     }
+
+
+def enqueue_ebook_translation(owner_id: str, ebook_id: str, *, retranslate: bool = False) -> int:
+    remote = SupabaseSync()
+    try:
+        books = remote.rows("ebook_books", {
+            "select": "id,source_language", "id": f"eq.{ebook_id}",
+            "owner_id": f"eq.{owner_id}", "limit": "1",
+        })
+        if not books:
+            raise EbookServiceError("Không tìm thấy ebook.", 404)
+        if books[0].get("source_language") != "zh":
+            raise EbookServiceError("Chỉ ebook tiếng Trung có thể đưa vào pipeline dịch hiện tại.", 409)
+        chapters = remote.all_rows("ebook_chapters", {
+            "select": "id,chapter_number,title,content_path,content_index,translation_status,translated_content_path",
+            "ebook_id": f"eq.{ebook_id}", "order": "chapter_number.asc",
+        })
+        queue_rows = remote.all_rows("ebook_translation_queue", {
+            "select": "ebook_chapter_id,status", "ebook_chapter_id": f"in.({','.join(str(row['id']) for row in chapters)})" if chapters else "eq.0",
+        })
+    except SyncError as exc:
+        raise EbookServiceError("Không thể truy cập hàng đợi ebook. Hãy chạy migration ebook_translation_queue.", 503) from exc
+
+    queue_by_chapter = {str(row.get("ebook_chapter_id")): row for row in queue_rows}
+    chapter_jobs: list[dict] = []
+    chunk_rows: list[dict] = []
+    shard_cache: dict[str, dict] = {}
+    for chapter in chapters:
+        chapter_id = str(chapter["id"])
+        status = str(chapter.get("translation_status") or "pending")
+        queued = queue_by_chapter.get(chapter_id)
+        if retranslate:
+            if status not in {"translated", "failed", "unsupported"}:
+                continue
+            remote.delete_rows("ebook_translation_chunks", {"ebook_chapter_id": f"eq.{chapter_id}"})
+            remote.delete_rows("ebook_translation_queue", {"ebook_chapter_id": f"eq.{chapter_id}"})
+            remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {"translation_status": "pending", "translated_content_path": None})
+        elif status != "pending" or queued:
+            continue
+        path = str(chapter.get("content_path") or "")
+        if path not in shard_cache:
+            shard_cache[path] = remote.download_json("ebooks", path.removeprefix("ebooks/"))
+        items = shard_cache[path].get("chapters") or []
+        index = int(chapter.get("content_index", -1))
+        if index < 0 or index >= len(items):
+            raise EbookServiceError(f"Không đọc được dữ liệu chương {chapter.get('chapter_number')}.", 503)
+        raw_html = str(items[index].get("original_content") or "")
+        text = BeautifulSoup(raw_html, "html.parser").get_text("\n", strip=True)
+        parts = chunk_text(text)
+        if not parts:
+            remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {"translation_status": "failed"})
+            continue
+        chunk_rows.extend({"ebook_chapter_id": chapter_id, "chunk_index": chunk_index, "original_text": part, "status": "queued"} for chunk_index, part in enumerate(parts))
+        chapter_jobs.append({"ebook_chapter_id": chapter_id, "status": "queued", "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0})
+
+    if chunk_rows:
+        try:
+            remote.insert_many_ignore("ebook_translation_chunks", chunk_rows, "ebook_chapter_id,chunk_index")
+            remote.insert_many_ignore("ebook_translation_queue", chapter_jobs, "ebook_chapter_id")
+        except SyncError as exc:
+            raise EbookServiceError("Không thể thêm ebook vào hàng đợi dịch.", 503) from exc
+    return len(chapter_jobs)

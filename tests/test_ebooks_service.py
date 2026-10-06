@@ -22,6 +22,15 @@ class FakeRemote:
         self.calls.append(("all_rows", table, params))
         return []
 
+    def insert_many_ignore(self, table, payloads, conflict):
+        self.calls.append(("insert_many_ignore", table, payloads, conflict))
+
+    def delete_rows(self, table, params):
+        self.calls.append(("delete_rows", table, params))
+
+    def patch_rows(self, table, params, payload):
+        self.calls.append(("patch_rows", table, params, payload))
+
     def request(self, method, path, **kwargs):
         self.calls.append((method, path, kwargs))
         if self.fail_chapters and path.endswith("ebook_chapters"):
@@ -119,3 +128,18 @@ def test_ebook_reader_rejects_content_path_outside_owner_prefix(monkeypatch):
     with pytest.raises(ebook_service.EbookServiceError, match="không hợp lệ") as error:
         ebook_service.get_ebook_chapter("owner-id", "book-id", 1)
     assert error.value.status_code == 503
+
+
+def test_translation_enqueue_is_owner_scoped_and_reuses_chunker(monkeypatch):
+    remote = FakeRemote()
+    remote.rows = lambda table, params: [{"id": "book", "source_language": "zh"}] if table == "ebook_books" else []
+    remote.all_rows = lambda table, params: ([{"id": 41, "chapter_number": 1, "title": "T", "content_path": "ebooks/hash/id/chapters/0000.json", "content_index": 0, "translation_status": "pending"}] if table == "ebook_chapters" else [])
+    remote.download_json = lambda _bucket, _path: {"chapters": [{"original_content": "<p>中文正文</p>"}]}
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(ebook_service, "chunk_text", lambda text: ["translated input"] if "中文正文" in text else [])
+
+    count = ebook_service.enqueue_ebook_translation("owner", "book")
+    assert count == 1
+    writes = [call for call in remote.calls if call[0] == "insert_many_ignore"]
+    assert [call[1] for call in writes] == ["ebook_translation_chunks", "ebook_translation_queue"]
+    assert writes[0][2][0]["ebook_chapter_id"] == "41"
