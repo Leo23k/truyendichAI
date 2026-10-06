@@ -26,6 +26,8 @@ def test_crawl_job_returns_while_its_translation_is_queued(monkeypatch) -> None:
         def __init__(self) -> None:
             self.chapters: list[dict] = []
             self.queues: list[dict] = []
+            self.chunks: list[dict] = []
+            self.uploads: list[tuple[tuple, dict]] = []
 
         def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
             if table == "novels":
@@ -58,8 +60,11 @@ def test_crawl_job_returns_while_its_translation_is_queued(monkeypatch) -> None:
                 )
             elif table == "translation_queue":
                 self.queues.extend(payloads)
+            elif table == "chapter_chunks":
+                self.chunks.extend(payloads)
 
-        def upload_if_changed(self, *_args) -> None:
+        def upload_if_changed(self, *args, **kwargs) -> None:
+            self.uploads.append((args, kwargs))
             return None
 
     remote = CrawlRemote()
@@ -76,9 +81,21 @@ def test_crawl_job_returns_while_its_translation_is_queued(monkeypatch) -> None:
     )
 
     assert len(remote.queues) == 1
+    assert remote.chunks and remote.chunks[0]["original_text"]
+    assert remote.uploads[0][1]["check_existing"] is False
     assert remote.queues[0]["crawl_job_id"] == "crawl-1"
     assert statuses[-1]["status"] == "translating"
     assert not any(status.get("status") == "completed" for status in statuses)
+
+
+def test_new_b2_chapter_upload_trusts_successful_put_without_head(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(service, "b2_configured", lambda: True)
+    monkeypatch.setattr(service, "b2_upload", lambda *args, **kwargs: calls.append((args, kwargs)) or True)
+    remote = object.__new__(service.SupabaseSync)
+
+    assert remote.upload_if_changed("chapters", "novel/001.json", b"raw", "application/json", check_existing=False)
+    assert calls[0][1]["check_existing"] is False
 
 
 class FakeRemote:

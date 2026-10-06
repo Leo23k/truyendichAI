@@ -205,9 +205,9 @@ class SupabaseSync:
             if bucket not in existing:
                 self.request("POST", "/storage/v1/bucket", json={"id": bucket, "name": bucket, "public": True})
 
-    def upload_if_changed(self, bucket: str, path: str, content: bytes, content_type: str) -> bool:
+    def upload_if_changed(self, bucket: str, path: str, content: bytes, content_type: str, *, check_existing: bool = True) -> bool:
         if b2_configured() and bucket != "covers":
-            return b2_upload(f"{bucket}/{path}", content, content_type)
+            return b2_upload(f"{bucket}/{path}", content, content_type, check_existing=check_existing)
         encoded = quote(path, safe="/")
         public_path = f"/storage/v1/object/public/{bucket}/{encoded}"
         try:
@@ -665,7 +665,7 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
         },
         ensure_ascii=False,
     ).encode("utf-8")
-    remote.upload_if_changed("chapters", json_path, payload, "application/json")
+    remote.upload_if_changed("chapters", json_path, payload, "application/json", check_existing=False)
     remote.patch_rows(
         "chapters",
         {"id": f"eq.{chapter_id}"},
@@ -713,6 +713,7 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
     # The published chapter JSON is the durable raw/translated source. Chunks
     # are temporary worker state and can be recreated from that JSON later.
     remote.delete_rows("chapter_chunks", {"chapter_id": f"eq.{chapter_id}"})
+    remote.delete_rows("translation_queue", {"chapter_id": f"eq.{chapter_id}"})
     logger.info("Đã xuất bản chương %s: %s", chapter["chapter_number"], chapter["title"])
 
 
@@ -765,6 +766,17 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
                 {"current_chunk": 0, "total_chunks": total_chunks, "updated_at": datetime.now(timezone.utc).isoformat()},
             )
             job["total_chunks"] = total_chunks
+        completed_chunks = remote.rows(
+            "chapter_chunks",
+            {"select": "chunk_index", "chapter_id": f"eq.{job['chapter_id']}", "status": "eq.completed"},
+        )
+        current_chunk = sum(row.get("status") == "completed" for row in completed_chunks)
+        if current_chunk != int(job.get("current_chunk") or 0):
+            remote.patch_rows(
+                "translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"},
+                {"current_chunk": current_chunk, "updated_at": datetime.now(timezone.utc).isoformat()},
+            )
+            job["current_chunk"] = current_chunk
         logger.info("Bắt đầu dịch chương ID %s (%s đoạn).", job["chapter_id"], total_chunks)
 
         while int(job["current_chunk"]) < total_chunks:
@@ -828,11 +840,6 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
                 },
             )
 
-            if status == "completed":
-                publish_completed_translation(remote, int(job["chapter_id"]))
-                if crawl_job_id:
-                    complete_crawl_job_when_translation_finishes(remote, str(crawl_job_id))
-
             logger.info(
                 "Đã dịch chương ID %s: hoàn tất %s/%s đoạn.",
                 job["chapter_id"],
@@ -842,6 +849,9 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
 
             job["current_chunk"] = next_index
 
+        publish_completed_translation(remote, int(job["chapter_id"]))
+        if job.get("crawl_job_id"):
+            complete_crawl_job_when_translation_finishes(remote, str(job["crawl_job_id"]))
         logger.info("Hoàn tất toàn bộ chương ID %s.", job["chapter_id"])
         return True
 
@@ -909,6 +919,15 @@ def run_ebook_translation_worker_once(remote: SupabaseSync | None = None) -> boo
         })
         total_chunks = int(job.get("total_chunks") or 0)
         current_chunk = int(job.get("current_chunk") or 0)
+        completed_chunks = remote.all_rows("ebook_translation_chunks", {
+            "select": "chunk_index,status", "ebook_chapter_id": f"eq.{chapter_id}", "status": "eq.completed",
+        })
+        completed_count = sum(row.get("status") == "completed" for row in completed_chunks)
+        if completed_count != current_chunk:
+            current_chunk = completed_count
+            remote.patch_rows("ebook_translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {
+                "current_chunk": current_chunk, "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
         while current_chunk < total_chunks:
             rows = remote.rows("ebook_translation_chunks", {
                 "select": "id,chunk_index,original_text", "ebook_chapter_id": f"eq.{chapter_id}",
@@ -950,6 +969,7 @@ def run_ebook_translation_worker_once(remote: SupabaseSync | None = None) -> boo
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
         remote.delete_rows("ebook_translation_chunks", {"ebook_chapter_id": f"eq.{chapter_id}"})
+        remote.delete_rows("ebook_translation_queue", {"ebook_chapter_id": f"eq.{chapter_id}"})
         return True
     except Exception:
         logger.exception("Ebook translation failed for chapter %s", chapter_id)
@@ -1292,13 +1312,14 @@ async def _crawl_and_translate_url(
                         f"{novel['slug']}/{chapter_key(int(chapter['chapter_number']))}.json",
                         json.dumps(previous_payload, ensure_ascii=False).encode("utf-8"),
                         "application/json",
+                        check_existing=False,
                     )
                     remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {"title": translated_title})
                 update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
                 continue
             key = chapter_key(int(chapter["chapter_number"]))
             payload = json.dumps({"number": chapter["chapter_number"], "title": chapter["title"], "original_title": chapter["title"], "original_content": original, "translated_content": original if is_vietnamese else None, "content": original if is_vietnamese else None, "translated": is_vietnamese}, ensure_ascii=False).encode("utf-8")
-            remote.upload_if_changed("chapters", f"{novel['slug']}/{key}.json", payload, "application/json")
+            remote.upload_if_changed("chapters", f"{novel['slug']}/{key}.json", payload, "application/json", check_existing=False)
             remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {"content_path": f"chapters/{novel['slug']}/{key}.json", "translated": is_vietnamese})
             remote.patch_rows(
                 "chapter_discoveries",

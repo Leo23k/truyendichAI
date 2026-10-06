@@ -409,7 +409,7 @@ async def upload_ebook_endpoint(request: Request, file: UploadFile = File(...), 
                 raise HTTPException(status_code=413, detail="File vượt quá giới hạn upload 25 MB.")
         if not file.filename:
             raise HTTPException(status_code=400, detail="Vui lòng chọn file ebook.")
-        uploaded = upload_ebook(user.id, file.filename, bytes(content))
+        uploaded = upload_ebook(user.id, file.filename, bytes(content), prepare_translation=auto_translate)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     finally:
@@ -418,7 +418,7 @@ async def upload_ebook_endpoint(request: Request, file: UploadFile = File(...), 
         if uploaded.source_language != "zh":
             return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&not_chinese=1", status_code=303)
         try:
-            queued = enqueue_ebook_translation(user.id, uploaded.id)
+            queued = enqueue_ebook_translation(user.id, uploaded.id, raw_chapters=uploaded.translation_inputs)
             return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&queued={queued}", status_code=303)
         except EbookServiceError:
             return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&queue_error=1", status_code=303)
@@ -1133,11 +1133,10 @@ def retry_failed_translation(queue_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Không tìm thấy chương dịch bị lỗi.")
     queue = rows[0]
     now = datetime.now(timezone.utc).isoformat()
-    remote.delete_rows("chapter_chunks", {"chapter_id": f"eq.{queue['chapter_id']}"})
     remote.patch_rows(
         "translation_queue",
         {"id": f"eq.{queue_id}", "status": "eq.failed"},
-        {"status": "queued", "current_chunk": 0, "total_chunks": 0, "updated_at": now},
+        {"status": "queued", "updated_at": now},
     )
     response = templates.TemplateResponse(
         request=request,
@@ -1155,13 +1154,10 @@ def retry_all_failed_translations(request: Request):
     chapter_ids = sorted({int(row["chapter_id"]) for row in failed})
     if not chapter_ids:
         raise HTTPException(status_code=404, detail="Không có chương dịch lỗi để thử lại.")
-    for start in range(0, len(chapter_ids), 100):
-        batch = chapter_ids[start : start + 100]
-        remote.delete_rows("chapter_chunks", {"chapter_id": f"in.({','.join(str(chapter_id) for chapter_id in batch)})"})
     remote.patch_rows(
         "translation_queue",
         {"status": "eq.failed"},
-        {"status": "queued", "current_chunk": 0, "total_chunks": 0, "updated_at": datetime.now(timezone.utc).isoformat()},
+        {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()},
     )
     response = templates.TemplateResponse(
         request=request,

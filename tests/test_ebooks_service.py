@@ -58,11 +58,13 @@ def setup_upload(monkeypatch, remote):
 def test_upload_persists_private_paths_and_owner_scoped_metadata(monkeypatch):
     remote = FakeRemote()
     objects = setup_upload(monkeypatch, remote)
-    result = ebook_service.upload_ebook("user-id", "Chinese.txt", "第一章 开始\n这是内容。".encode())
+    result = ebook_service.upload_ebook("user-id", "Chinese.txt", "第一章 开始\n这是内容。".encode(), prepare_translation=True)
 
     assert result.chapter_count == 1
     assert result.source_language == "zh"
+    assert result.translation_inputs and 1 in result.translation_inputs
     assert len(objects) == 2
+    assert all(call[1].get("check_existing") is False for call in objects if isinstance(call[0], tuple))
     assert all("user-id" not in call[0][0] for call in objects if isinstance(call[0], tuple))
     book_write = next(call for call in remote.calls if call[0] == "POST" and call[1].endswith("ebook_books"))
     assert book_write[2]["json"]["owner_id"] == "user-id"
@@ -231,7 +233,7 @@ def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
     monkeypatch.setattr(main_app, "list_ebooks", lambda owner: [{"id": "ebook-1", "title": "Owned", "chapter_count": 1, "source_format": "txt", "source_language": "vi"}] if owner == user.id else [])
-    monkeypatch.setattr(main_app, "upload_ebook", lambda owner, filename, content: ebook_service.UploadedEbook("ebook-2", "New", 1, "vi"))
+    monkeypatch.setattr(main_app, "upload_ebook", lambda owner, filename, content, **_kwargs: ebook_service.UploadedEbook("ebook-2", "New", 1, "vi"))
 
     client = TestClient(main_app.app)
     client.cookies.set("sb-access-token", "local-test-token")
@@ -259,15 +261,34 @@ def test_translation_enqueue_is_owner_scoped_and_reuses_chunker(monkeypatch):
     remote = FakeRemote()
     remote.rows = lambda table, params: [{"id": "book", "source_language": "zh"}] if table == "ebook_books" else []
     remote.all_rows = lambda table, params: ([{"id": 41, "chapter_number": 1, "title": "T", "content_path": "ebooks/hash/id/chapters/0000.json", "content_index": 0, "translation_status": "pending"}] if table == "ebook_chapters" else [])
-    remote.download_json = lambda _bucket, _path: {"chapters": [{"original_content": "<p>中文正文</p>"}]}
+    remote.download_json = lambda *_args: pytest.fail("first translation must reuse parser output, not GET B2")
     monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
     monkeypatch.setattr(ebook_service, "chunk_text", lambda text: ["translated input"] if "中文正文" in text else [])
 
-    count = ebook_service.enqueue_ebook_translation("owner", "book")
+    count = ebook_service.enqueue_ebook_translation("owner", "book", raw_chapters={1: "<p>中文正文</p>"})
     assert count == 1
     writes = [call for call in remote.calls if call[0] == "insert_many_ignore"]
     assert [call[1] for call in writes] == ["ebook_translation_chunks", "ebook_translation_queue"]
     assert writes[0][2][0]["ebook_chapter_id"] == "41"
+
+
+def test_failed_ebook_translation_retries_from_saved_chunks_without_b2(monkeypatch):
+    remote = FakeRemote()
+    remote.rows = lambda table, _params: ([{"id": "book", "source_language": "zh"}] if table == "ebook_books" else [])
+    remote.all_rows = lambda table, _params: (
+        [{"id": 41, "chapter_number": 1, "title": "T", "content_path": "ebooks/hash/id/chapters/0000.json", "content_index": 0, "translation_status": "failed"}]
+        if table == "ebook_chapters" else
+        [{"ebook_chapter_id": "41", "status": "failed", "retry_count": 1}]
+        if table == "ebook_translation_queue" else
+        [{"chunk_index": 0, "status": "completed"}, {"chunk_index": 1, "status": "queued"}]
+    )
+    remote.download_json = lambda *_args: pytest.fail("retry must reuse retained translation chunks")
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+
+    assert ebook_service.enqueue_ebook_translation("owner", "book") == 1
+    requeued = next(call for call in remote.calls if call[0] == "patch_rows" and call[1] == "ebook_translation_queue")
+    assert requeued[3]["status"] == "queued" and requeued[3]["current_chunk"] == 1
+    assert not any(call[0] == "delete_rows" and call[1] == "ebook_translation_chunks" for call in remote.calls)
 
 
 def test_reader_can_load_owner_scoped_translated_chapter(monkeypatch):

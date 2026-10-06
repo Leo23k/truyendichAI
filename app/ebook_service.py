@@ -6,6 +6,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
 from app.ebooks import EbookParseError, ParsedEbook, parse_ebook
@@ -33,6 +34,7 @@ class UploadedEbook:
     title: str
     chapter_count: int
     source_language: str
+    translation_inputs: dict[int, str] | None = None
 
 
 def _safe_filename(filename: str) -> str:
@@ -70,7 +72,7 @@ def _rollback_objects(paths: list[str]) -> None:
         pass
 
 
-def upload_ebook(owner_id: str, filename: str, content: bytes) -> UploadedEbook:
+def upload_ebook(owner_id: str, filename: str, content: bytes, *, prepare_translation: bool = False) -> UploadedEbook:
     if not b2_configured():
         raise EbookServiceError("B2 private storage chưa được cấu hình.", 503)
     if not content or len(content) > MAX_UPLOAD_BYTES:
@@ -170,7 +172,11 @@ def upload_ebook(owner_id: str, filename: str, content: bytes) -> UploadedEbook:
         except Exception:
             pass
         raise EbookServiceError("Không thể lưu ebook. File B2 đã được dọn nếu có thể.", 503) from exc
-    return UploadedEbook(ebook_id, parsed.title, len(parsed.chapters), source_language)
+    translation_inputs = (
+        {int(chapter.number): str(chapter.content) for chapter in parsed.chapters}
+        if prepare_translation and source_language == "zh" else None
+    )
+    return UploadedEbook(ebook_id, parsed.title, len(parsed.chapters), source_language, translation_inputs)
 
 
 def list_ebooks(owner_id: str) -> list[dict]:
@@ -482,7 +488,13 @@ def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int, *, mode
     }
 
 
-def enqueue_ebook_translation(owner_id: str, ebook_id: str, *, retranslate: bool = False) -> int:
+def enqueue_ebook_translation(
+    owner_id: str,
+    ebook_id: str,
+    *,
+    retranslate: bool = False,
+    raw_chapters: dict[int, str] | None = None,
+) -> int:
     remote = SupabaseSync()
     try:
         books = remote.rows("ebook_books", {
@@ -498,7 +510,7 @@ def enqueue_ebook_translation(owner_id: str, ebook_id: str, *, retranslate: bool
             "ebook_id": f"eq.{ebook_id}", "order": "chapter_number.asc",
         })
         queue_rows = remote.all_rows("ebook_translation_queue", {
-            "select": "ebook_chapter_id,status", "ebook_chapter_id": f"in.({','.join(str(row['id']) for row in chapters)})" if chapters else "eq.0",
+            "select": "ebook_chapter_id,status,retry_count", "ebook_chapter_id": f"in.({','.join(str(row['id']) for row in chapters)})" if chapters else "eq.0",
         })
     except SyncError as exc:
         raise EbookServiceError("Không thể truy cập hàng đợi ebook. Hãy chạy migration ebook_translation_queue.", 503) from exc
@@ -517,16 +529,33 @@ def enqueue_ebook_translation(owner_id: str, ebook_id: str, *, retranslate: bool
             remote.delete_rows("ebook_translation_chunks", {"ebook_chapter_id": f"eq.{chapter_id}"})
             remote.delete_rows("ebook_translation_queue", {"ebook_chapter_id": f"eq.{chapter_id}"})
             remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {"translation_status": "pending", "translated_content_path": None})
+        elif status == "failed" and queued and queued.get("status") == "failed":
+            existing_chunks = remote.all_rows("ebook_translation_chunks", {
+                "select": "chunk_index,status", "ebook_chapter_id": f"eq.{chapter_id}",
+                "order": "chunk_index.asc",
+            })
+            if existing_chunks:
+                completed = sum(row.get("status") == "completed" for row in existing_chunks)
+                remote.patch_rows("ebook_translation_queue", {"ebook_chapter_id": f"eq.{chapter_id}", "status": "eq.failed"}, {
+                    "status": "queued", "current_chunk": completed, "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+                remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {"translation_status": "pending"})
+                chapter_jobs.append({"ebook_chapter_id": chapter_id, "status": "queued", "current_chunk": completed, "total_chunks": len(existing_chunks), "retry_count": int(queued.get("retry_count") or 0)})
+                continue
+            remote.delete_rows("ebook_translation_queue", {"ebook_chapter_id": f"eq.{chapter_id}"})
+            remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {"translation_status": "pending"})
         elif status != "pending" or queued:
             continue
-        path = str(chapter.get("content_path") or "")
-        if path not in shard_cache:
-            shard_cache[path] = remote.download_json("ebooks", path.removeprefix("ebooks/"))
-        items = shard_cache[path].get("chapters") or []
-        index = int(chapter.get("content_index", -1))
-        if index < 0 or index >= len(items):
-            raise EbookServiceError(f"Không đọc được dữ liệu chương {chapter.get('chapter_number')}.", 503)
-        raw_html = str(items[index].get("original_content") or "")
+        raw_html = (raw_chapters or {}).get(int(chapter["chapter_number"])) if not retranslate else None
+        if raw_html is None:
+            path = str(chapter.get("content_path") or "")
+            if path not in shard_cache:
+                shard_cache[path] = remote.download_json("ebooks", path.removeprefix("ebooks/"))
+            items = shard_cache[path].get("chapters") or []
+            index = int(chapter.get("content_index", -1))
+            if index < 0 or index >= len(items):
+                raise EbookServiceError("Ebook chapter source is unavailable.", 503)
+            raw_html = str(items[index].get("original_content") or "")
         text = BeautifulSoup(raw_html, "html.parser").get_text("\n", strip=True)
         parts = chunk_text(text)
         if not parts:
