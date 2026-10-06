@@ -4,10 +4,10 @@ The private ebook library keeps metadata and chapter indexes in Supabase and ori
 
 ## Supported operations
 
-- Upload EPUB, TXT, HTML, and PDF (25 MB maximum upload).
+- Upload EPUB, TXT, HTML, and PDF (100 MB maximum upload). The browser uploads the binary directly to private B2 using a short-lived presigned URL; Vercel only receives small JSON requests.
 - EPUB/TXT/HTML are normalized into chapters and can be read in the ebook reader.
 - PDF is preserved as a fixed-layout original and opened with the browser's PDF viewer. It is not text-extracted or translated.
-- Chinese ebook chapters can be queued to the existing translator worker. Translations are stored separately; the Chinese source is never overwritten.
+- Chinese ebook chapters are detected during PC-worker ingestion and can be queued to the existing translator worker. Vietnamese/unknown-language books and PDFs are not automatically queued for translation. Translations are stored separately; the source is never overwritten.
 - Reader supports original/translated modes and uses the existing `/api/tts` service.
 - Original download and EPUB/TXT/HTML exports are owner-authorized for private ebooks. Crawled novels also expose EPUB/TXT/HTML export from their detail page. Export languages: Vietnamese, source language, or bilingual.
 - Deletion removes the owner's B2 object versions and cascades ebook metadata/chapter/queue rows.
@@ -21,8 +21,13 @@ Apply migrations in timestamp order:
 3. `20261006053749_ebook_pdf_support.sql` — permits `pdf` as a source format.
 
 4. `20261006061127_ebook_cover_path.sql` — stores the private B2 object key for an EPUB cover.
+5. `20261006064449_ebook_direct_upload_ingestion_queue.sql` — tracks direct-to-B2 uploads and PC-worker ingestion.
 
-The translation worker runs in the existing sync worker process. It checks the existing novel translation queue first, then ebook jobs. Keep the worker running for translation to progress; Vercel request handlers do not perform long-running translations.
+The ingestion and translation workers run in the existing sync worker process. Keep the PC worker running for parsing and translation to progress; Vercel request handlers never receive the ebook binary or perform long-running parsing/translations.
+
+## Direct upload setup
+
+Configure the private B2 bucket's S3 CORS rules to allow browser `PUT` requests from `https://leotruyen.vercel.app` (add the local development origin only if needed). Allow the `PUT` method and request headers used by the presigned upload, at minimum `content-type` and required `x-amz-*` headers. Without this CORS rule, the browser will block the direct upload even though the presigned URL is valid.
 
 ## Storage keys
 
