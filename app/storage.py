@@ -46,17 +46,18 @@ def client():
     )
 
 
-def upload(path: str, content: bytes, content_type: str) -> bool:
+def upload(path: str, content: bytes, content_type: str, *, check_existing: bool = True) -> bool:
     path = _safe(path)
     digest = hashlib.sha256(content).hexdigest()
     compress = content_type.split(";", 1)[0] == "application/json"
     s3 = client()
-    try:
-        head = s3.head_object(Bucket=os.environ["B2_BUCKET"], Key=path)
-        if head.get("Metadata", {}).get("sha256") == digest and (not compress or head.get("ContentEncoding") == "gzip"):
-            return False
-    except Exception:
-        pass
+    if check_existing:
+        try:
+            head = s3.head_object(Bucket=os.environ["B2_BUCKET"], Key=path)
+            if head.get("Metadata", {}).get("sha256") == digest and (not compress or head.get("ContentEncoding") == "gzip"):
+                return False
+        except Exception:
+            pass
     options = {"ContentEncoding": "gzip"} if compress else {}
     s3.put_object(
         Bucket=os.environ["B2_BUCKET"], Key=path, Body=gzip.compress(content) if compress else content,
