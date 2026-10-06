@@ -72,6 +72,15 @@ $env:SYNC_AUTOSTART="true"
 .\venv\Scripts\uvicorn sync.service:app --host 127.0.0.1 --port 7862
 ```
 
+# Dừng worker 7862 và translator 7861
+$ports = 7861,7862
+
+Get-NetTCPConnection -State Listen -LocalPort $ports -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty OwningProcess -Unique |
+  ForEach-Object {
+    Stop-Process -Id $_ -Force
+  }
+
 Hoặc chạy script web có auto-reload:
 
 ```powershell
