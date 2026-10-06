@@ -22,6 +22,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
+from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, get_original_download, list_ebooks, upload_ebook
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
@@ -150,7 +151,7 @@ async def auth_guard(request: Request, call_next):
         if request.headers.get("HX-Request") == "true":
             return HTMLResponse(status_code=401)
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
-    user_mutation = path in {"/api/tts", "/api/reading-progress", "/api/notifications/read-all"} or path.startswith(("/api/books/", "/api/follows/", "/api/notifications/", "/api/notification-settings"))
+    user_mutation = path in {"/api/tts", "/api/reading-progress", "/api/notifications/read-all"} or path.startswith(("/api/books/", "/api/ebooks/", "/api/follows/", "/api/notifications/", "/api/notification-settings"))
     admin = path.startswith(("/admin", "/restore", "/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and not user_mutation)
     if admin and request.state.user.role != "admin":
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
@@ -354,6 +355,51 @@ def save_reader_progress(payload: ReadingProgressRequest, request: Request) -> d
         return {"saved": True}
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail="Could not save reading progress") from exc
+
+
+@app.get("/ebooks")
+def ebook_library_page(request: Request):
+    user = require_authenticated(request)
+    try:
+        books = list_ebooks(user.id)
+        load_error = None
+    except EbookServiceError as exc:
+        books = []
+        load_error = str(exc)
+    return templates.TemplateResponse(
+        request=request,
+        name="ebooks.html",
+        context={"ebooks": books, "load_error": load_error, "uploaded": request.query_params.get("uploaded") == "1"},
+    )
+
+
+@app.post("/api/ebooks/upload")
+async def upload_ebook_endpoint(request: Request, file: UploadFile = File(...)):
+    user = require_authenticated(request)
+    content = bytearray()
+    try:
+        while chunk := await file.read(1024 * 1024):
+            content.extend(chunk)
+            if len(content) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="File vượt quá giới hạn upload 25 MB.")
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Vui lòng chọn file ebook.")
+        upload_ebook(user.id, file.filename, bytes(content))
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    finally:
+        await file.close()
+    return RedirectResponse("/ebooks?uploaded=1", status_code=303)
+
+
+@app.get("/ebooks/{ebook_id}/download")
+def download_original_ebook(ebook_id: str, request: Request):
+    user = require_authenticated(request)
+    try:
+        url, _filename = get_original_download(user.id, ebook_id)
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store, private"})
 
 
 @app.post("/api/translation-priority/{chapter_id}")

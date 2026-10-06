@@ -88,11 +88,15 @@ def download(path: str) -> bytes:
     return gzip.decompress(content) if result.get("ContentEncoding") == "gzip" else content
 
 
-def presigned_download_url(path: str) -> str:
+def presigned_download_url(path: str, *, download_filename: str | None = None) -> str:
     """Return a short-lived URL for an object in the private B2 bucket."""
     expires_in = int(os.getenv("B2_PRESIGNED_URL_TTL_SECONDS", "900"))
+    params = {"Bucket": os.environ["B2_BUCKET"], "Key": _safe(path)}
+    if download_filename:
+        safe_name = download_filename.replace("\r", "").replace("\n", "")
+        params["ResponseContentDisposition"] = f"attachment; filename*=UTF-8''{quote(safe_name, safe='')}"
     return client().generate_presigned_url(
         "get_object",
-        Params={"Bucket": os.environ["B2_BUCKET"], "Key": _safe(path)},
+        Params=params,
         ExpiresIn=max(60, min(expires_in, 3600)),
     )

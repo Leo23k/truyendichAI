@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app import ebook_service
+from app import main as main_app
+from app.auth import CurrentUser
 
 
 class FakeRemote:
@@ -82,9 +85,24 @@ def test_original_download_query_is_scoped_to_owner(monkeypatch):
 
     remote.rows = rows
     monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
-    monkeypatch.setattr(ebook_service, "presigned_download_url", lambda path: "signed:" + path)
+    monkeypatch.setattr(ebook_service, "presigned_download_url", lambda path, **_kwargs: "signed:" + path)
 
     url, filename = ebook_service.get_original_download("owner-a", "ebook-id")
     assert url.endswith("original.epub") and filename == "private.epub"
     query = remote.calls[0][2]
     assert query["owner_id"] == "eq.owner-a"
+
+
+def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
+    user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
+    monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
+    monkeypatch.setattr(main_app, "list_ebooks", lambda owner: [{"id": "ebook-1", "title": "Owned", "chapter_count": 1, "source_format": "txt", "source_language": "vi"}] if owner == user.id else [])
+    monkeypatch.setattr(main_app, "upload_ebook", lambda owner, filename, content: ebook_service.UploadedEbook("ebook-2", "New", 1, "vi"))
+
+    client = TestClient(main_app.app)
+    client.cookies.set("sb-access-token", "local-test-token")
+    page = client.get("/ebooks")
+    response = client.post("/api/ebooks/upload", files={"file": ("new.txt", b"some text", "text/plain")}, follow_redirects=False)
+
+    assert page.status_code == 200 and "Owned" in page.text
+    assert response.status_code == 303 and response.headers["location"] == "/ebooks?uploaded=1"

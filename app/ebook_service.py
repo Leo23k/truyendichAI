@@ -169,7 +169,7 @@ def list_ebooks(owner_id: str) -> list[dict]:
             "owner_id": f"eq.{owner_id}", "order": "created_at.desc",
         })
     except SyncError as exc:
-        raise EbookServiceError("Không thể tải thư viện ebook.", 503) from exc
+        raise EbookServiceError("Không thể tải thư viện ebook. Kiểm tra kết nối Supabase và migration ebook_private_library.", 503) from exc
     return books
 
 
@@ -182,6 +182,7 @@ def get_original_download(owner_id: str, ebook_id: str) -> tuple[str, str]:
         if not rows:
             raise EbookServiceError("Không tìm thấy ebook.", 404)
         row = rows[0]
-        return presigned_download_url(str(row["original_file_path"])), str(row["file_name"])
+        filename = str(row["file_name"])
+        return presigned_download_url(str(row["original_file_path"]), download_filename=filename), filename
     except SyncError as exc:
         raise EbookServiceError("Không thể tạo liên kết tải ebook.", 503) from exc

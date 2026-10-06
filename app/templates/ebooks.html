@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Ebook cá nhân · Leo Truyện{% endblock %}
+{% block content %}
+<main class="site-page">
+  <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div><p class="site-muted text-sm">Không hiển thị trong Library công khai</p><h1 class="site-title text-3xl">Ebook cá nhân</h1></div>
+    <a href="/" class="site-nav-button">← Thư viện truyện</a>
+  </header>
+  {% if uploaded %}<p role="status" class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm">Đã tải và xử lý ebook thành công.</p>{% endif %}
+  {% if load_error %}<p role="alert" class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">{{ load_error }}{% if 'migration' in load_error|lower %} Hãy chạy migration Supabase trước khi upload.{% endif %}</p>{% endif %}
+  <section class="site-panel mb-7 p-5">
+    <h2 class="mb-1 text-lg font-bold">Tải ebook lên</h2>
+    <p class="site-muted mb-4 text-sm">Hỗ trợ EPUB, TXT và HTML; giới hạn 25 MB. File gốc được giữ trong B2 private.</p>
+    <form action="/api/ebooks/upload" method="post" enctype="multipart/form-data" class="flex flex-wrap items-center gap-3">
+      <input type="file" name="file" accept=".epub,.txt,.html,.htm" required class="max-w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2 text-sm">
+      <button type="submit" class="site-nav-button accent">Tải lên và phân tích</button>
+    </form>
+  </section>
+  <section aria-label="Danh sách ebook" class="space-y-3">
+    {% for book in ebooks %}
+    <article class="site-panel flex flex-wrap items-center justify-between gap-4 p-4">
+      <div class="min-w-0"><h2 class="truncate font-bold">{{ book.title }}</h2><p class="site-muted mt-1 text-sm">{{ book.author or 'Chưa rõ tác giả' }} · {{ book.chapter_count }} chương · {{ book.source_format|upper }} · {% if book.source_language == 'zh' %}Tiếng Trung{% elif book.source_language == 'vi' %}Tiếng Việt{% else %}Chưa xác định ngôn ngữ{% endif %}</p></div>
+      <a class="site-nav-button" href="/ebooks/{{ book.id }}/download">Tải file gốc</a>
+    </article>
+    {% else %}
+    {% if not load_error %}<div class="site-panel site-muted p-8 text-center">Chưa có ebook nào. File upload chỉ hiển thị với tài khoản của bạn.</div>{% endif %}
+    {% endfor %}
+  </section>
+</main>
+{% endblock %}
