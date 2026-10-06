@@ -4,6 +4,12 @@
 {% block footer %}{% endblock %}
 {% block main_class %}min-h-screen{% endblock %}
 {% block content %}
+<style>
+  .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}.reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}.reader-sheet{transform:translateY(100%);transition:transform 210ms ease}.reader-sheet-backdrop.is-open .reader-sheet{transform:translateY(0)}
+  .reader-player-shell{border-color:rgba(140,145,142,.22)!important;border-radius:1rem!important;background:rgba(255,255,255,.98)!important;box-shadow:0 20px 45px rgba(0,0,0,.24)!important}.reader-player-shell [data-play-toggle]{width:3.1rem;height:3.1rem;background:#0f9d92;box-shadow:0 8px 20px rgba(15,157,146,.28)}
+  .reader-player-track{display:grid;grid-template-columns:2.4rem minmax(0,1fr) 2.4rem;align-items:center;gap:.65rem;color:#687078;font-size:.65rem;font-weight:600}.reader-player-track input{height:.35rem;width:100%;cursor:pointer;accent-color:#11a89d}.reader-player-controls{display:flex;min-width:0;align-items:center;gap:.65rem;margin-top:.45rem}.reader-player-controls .reader-player-actions{display:flex;min-width:0;margin-left:auto;align-items:center;justify-content:flex-end;gap:.55rem;color:#697078;font-size:.72rem}.reader-player-status{display:inline-flex;flex:0 0 auto;width:max-content;border-radius:.35rem;background:#f5f7f7;padding:.25rem .45rem;font-size:.58rem;font-weight:800;letter-spacing:.05em;color:#697078}
+  @media(max-width:639px){.reader-player-shell{bottom:.65rem!important;width:calc(100% - 1rem)!important;padding:.65rem .75rem!important}.reader-player-controls{display:grid;grid-template-columns:1fr auto 1fr auto;gap:.4rem;margin-top:.45rem}.reader-player-controls [data-segment-prev]{justify-self:end}.reader-player-controls [data-play-toggle]{grid-column:2;width:2.75rem;height:2.75rem}.reader-player-controls [data-segment-next]{grid-column:3;justify-self:start}.reader-player-controls .reader-player-actions{grid-column:4;margin:0;gap:.35rem;justify-self:end}.reader-player-status{display:none}.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:flex}.reader-player-controls [data-rate-control]{width:2.5rem}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}}
+</style>
 <div x-data="{ theme: localStorage.getItem('reader-theme') || 'dark', size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', settings: false }"
      x-init="$watch('theme', value => localStorage.setItem('reader-theme', value)); $watch('size', value => localStorage.setItem('reader-size', value)); $watch('lineHeight', value => localStorage.setItem('reader-line-height-v5', value)); $watch('font', value => localStorage.setItem('reader-font', value))"
      :class="theme === 'dark' ? 'bg-[#1d211f] text-[#deddd2]' : theme === 'sepia' ? 'bg-[#ebe1ca] text-[#493d30]' : 'bg-[#faf8f3] text-[#302d28]'" class="min-h-screen pb-28 transition-colors">
@@ -16,14 +22,16 @@
       </div>
       <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
         <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" @click="theme = theme === 'paper' ? 'sepia' : theme === 'sepia' ? 'dark' : 'paper'" aria-label="Đổi nền đọc"><i data-lucide="palette" class="h-5 w-5"></i></button>
+        <button type="button" data-toc-button class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Mục lục"><i data-lucide="list" class="h-5 w-5"></i></button>
         <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" @click="settings = !settings" aria-label="Cài đặt đọc"><i data-lucide="type" class="h-5 w-5"></i></button>
-        <a href="{{ back_url }}" class="icon-button hidden h-10 w-10 sm:inline-flex" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Mục lục Ebook"><i data-lucide="list" class="h-5 w-5"></i></a>
         <a href="/ebooks/{{ book.url_slug }}/download" class="icon-button hidden h-10 w-10 sm:inline-flex" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Tải Ebook gốc"><i data-lucide="download" class="h-5 w-5"></i></a>
       </div>
       <section x-cloak x-show="settings" @click.outside="settings = false" class="absolute right-3 top-full mt-2 w-64 rounded-lg border border-stone-200 bg-white p-3 text-stone-900 shadow-xl sm:right-[max(1rem,calc((100vw-64rem)/2))]">
         <div class="flex items-center justify-between gap-2"><button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.max(14, size - 1)">A-</button><span class="text-sm" x-text="size + 'px'"></span><button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.min(32, size + 1)">A+</button></div>
         <label class="mt-4 block text-xs font-medium text-stone-600">Giãn dòng <span class="float-right" x-text="lineHeight.toFixed(2)"></span><input class="mt-2 w-full accent-teal-600" type="range" min="1.5" max="2.1" step="0.05" x-model.number="lineHeight"></label>
         <label class="mt-4 block text-xs font-medium text-stone-600">Phông chữ<select class="mt-2 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm" x-model="font"><option value="Segoe UI, Noto Sans, Arial, sans-serif">Sans hiện đại</option><option value="Georgia, Noto Serif, serif">Georgia</option><option value="Cambria, Palatino Linotype, serif">Cambria</option></select></label>
+        <label class="mt-3 flex items-center gap-2 text-xs text-stone-700"><input type="checkbox" data-follow-text checked> Theo dõi đoạn đang đọc</label>
+        <label class="mt-2 flex items-center gap-2 text-xs text-stone-700"><input type="checkbox" data-highlight-text checked> Tô sáng đoạn đang đọc</label>
       </section>
     </div>
   </header>
@@ -32,9 +40,7 @@
   <div class="mx-auto mt-5 flex max-w-3xl flex-wrap items-center justify-center gap-2 px-4">
     <a class="site-nav-button{% if mode == 'original' %} accent{% endif %}" href="?mode=original">Bản gốc</a>
     {% if chapter.translation_status == 'translated' %}<a class="site-nav-button{% if mode == 'translated' %} accent{% endif %}" href="?mode=translated">Bản dịch</a>{% elif chapter.translation_status == 'processing' %}<span class="self-center text-sm opacity-65">Đang dịch…</span>{% endif %}
-    <button id="ebook-tts-play" type="button" class="site-nav-button">▶ Đọc bằng giọng nói</button><button id="ebook-tts-stop" type="button" class="site-nav-button">Dừng</button>
   </div>
-  <p id="ebook-tts-status" class="mx-auto mt-2 min-h-5 max-w-3xl px-4 text-center text-xs opacity-65" role="status"></p>
   {% if translated and mode == 'translated' %}<p class="mx-auto max-w-3xl px-5 text-center text-xs opacity-60">Đang đọc bản dịch tiếng Việt · Bản gốc vẫn được giữ nguyên</p>{% endif %}
 
   <article id="ebook-reader-content" class="reader-content mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-12" :style="`font-size:${size}px;line-height:${lineHeight};font-family:${font}`">
@@ -46,6 +52,21 @@
     <span class="text-center" data-ebook-reading-progress><strong class="reader-progress-number">0%</strong><small class="reader-progress-label">TIẾN TRÌNH ĐỌC</small></span>
     {% if following %}<a href="/ebooks/{{ book.url_slug }}/read/{{ following.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center justify-end gap-2 rounded-lg border border-current/15 px-3 py-2 text-right hover:border-teal-500/60"><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG SAU</small><strong class="block truncate text-xs sm:text-sm">{{ following.title }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% endif %}
   </nav>
+  <div data-ebook-player class="reader-player-shell fixed bottom-4 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-4xl -translate-x-1/2 border px-3 py-3 text-stone-900 backdrop-blur sm:px-5">
+    <audio data-ebook-audio preload="none"></audio>
+    <div class="reader-player-track"><span data-current-time>0:00</span><input data-audio-progress type="range" min="0" max="1000" value="0" aria-label="Tiến trình audio"><span class="text-right" data-duration>0:00</span></div>
+    <div class="reader-player-controls"><span class="reader-player-status" data-player-status>SẴN SÀNG</span>
+      <button type="button" data-segment-prev class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đoạn trước"><i data-lucide="skip-back" class="h-4 w-4"></i></button>
+      <button type="button" data-play-toggle class="inline-flex items-center justify-center rounded-full text-white" aria-label="Phát hoặc tạm dừng"><i data-play-icon="play" data-lucide="play" class="h-5 w-5"></i><i data-play-icon="pause" data-lucide="pause" class="hidden h-5 w-5"></i><i data-play-icon="loading" data-lucide="loader-circle" class="hidden h-5 w-5 animate-spin"></i></button>
+      <button type="button" data-segment-next class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đoạn tiếp theo"><i data-lucide="skip-forward" class="h-4 w-4"></i></button>
+      <div class="reader-player-actions"><button type="button" data-voice-button class="rounded px-1 hover:bg-stone-100">Giọng đọc</button><span data-rate-status>1.0x</span><button type="button" data-sleep-button class="rounded px-1 hover:bg-stone-100">Hẹn giờ</button><span data-sleep-countdown class="hidden rounded bg-teal-50 px-1.5 py-0.5 text-teal-700"></span><label title="Tốc độ" class="hidden items-center gap-1 sm:flex"><i data-lucide="gauge" class="h-3.5 w-3.5"></i><input data-rate-control class="w-14 accent-teal-600" type="range" min="0.75" max="2" step="0.05" value="1"></label><label title="Âm lượng" class="flex items-center gap-1"><i data-lucide="volume-2" class="h-3.5 w-3.5"></i><input data-volume-control class="w-14 accent-teal-600" type="range" min="0" max="1" step="0.05" value="0.9"></label></div>
+    </div>
+  </div>
+  <div data-sheet-backdrop class="reader-sheet-backdrop fixed inset-0 z-50 bg-stone-950/25">
+    <section data-sheet="voice" class="reader-sheet absolute inset-x-0 bottom-0 rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl"><div class="mx-auto max-w-lg"><div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Giọng đọc</h2><button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div><div class="grid gap-2"><button type="button" data-voice-option="vi-VN-NamMinhNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button><button type="button" data-voice-option="vi-VN-HoaiMyNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button></div></div></section>
+    <section data-sheet="sleep" class="reader-sheet absolute inset-x-0 bottom-0 hidden rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl"><div class="mx-auto max-w-lg"><div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Hẹn giờ</h2><button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div><div class="grid gap-2"><button type="button" data-sleep-option="15" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">15 phút</button><button type="button" data-sleep-option="30" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">30 phút</button><button type="button" data-sleep-option="45" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">45 phút</button><button type="button" data-sleep-option="60" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">60 phút</button><button type="button" data-sleep-option="chapter" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hết chương hiện tại</button><button type="button" data-sleep-option="off" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Tắt hẹn giờ</button></div></div></section>
+    <section data-sheet="toc" class="reader-sheet absolute inset-x-0 bottom-0 hidden h-[80vh] rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl"><div class="mx-auto flex h-full max-w-lg flex-col"><div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Mục lục</h2><button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div><div class="mb-3 flex justify-end"><select data-toc-sort class="h-9 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700" aria-label="Sắp xếp chương"><option value="asc">Cũ nhất</option><option value="desc">Mới nhất</option></select></div><div data-toc-list class="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-md border border-stone-100">{% for item in chapter_list %}<a href="/ebooks/{{ book.url_slug }}/read/{{ item.chapter_number }}?mode={{ mode }}" data-toc-item data-number="{{ item.chapter_number }}" {% if item.chapter_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex min-h-12 items-center border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50"><span class="mr-2 shrink-0 text-sm text-stone-400">#{{ item.chapter_number }}</span><span class="min-w-0 truncate text-sm {% if item.chapter_number == chapter.chapter_number %}font-semibold text-teal-700{% endif %}">{{ item.title }}</span></a>{% endfor %}</div></div></section>
+  </div>
 </div>
 <script>
 (() => {
@@ -104,28 +125,175 @@
   window.addEventListener('pagehide', saveProgress);
   window.setTimeout(updateProgress, 0);
 
-  const play = document.getElementById('ebook-tts-play');
-  const stop = document.getElementById('ebook-tts-stop');
-  const status = document.getElementById('ebook-tts-status');
-  const paragraphs = [...document.querySelectorAll('#ebook-reader-content p, #ebook-reader-content h1, #ebook-reader-content h2, #ebook-reader-content h3, #ebook-reader-content li, #ebook-reader-content blockquote')].filter(node => node.innerText.trim());
-  let cancelled = false;
-  let audio = null;
-  stop.addEventListener('click', () => { cancelled = true; audio?.pause(); audio = null; status.textContent = 'Đã dừng'; });
-  play.addEventListener('click', async () => {
-    cancelled = false; play.disabled = true;
+  const player = document.querySelector('[data-ebook-player]');
+  const audio = player.querySelector('[data-ebook-audio]');
+  const playButton = player.querySelector('[data-play-toggle]');
+  const previousButton = player.querySelector('[data-segment-prev]');
+  const nextButton = player.querySelector('[data-segment-next]');
+  const seek = player.querySelector('[data-audio-progress]');
+  const currentLabel = player.querySelector('[data-current-time]');
+  const durationLabel = player.querySelector('[data-duration]');
+  const playerStatus = player.querySelector('[data-player-status]');
+  const rateControl = player.querySelector('[data-rate-control]');
+  const volumeControl = player.querySelector('[data-volume-control]');
+  const rateStatus = player.querySelector('[data-rate-status]');
+  const sleepButton = player.querySelector('[data-sleep-button]');
+  const voiceButton = player.querySelector('[data-voice-button]');
+  const sleepCountdown = player.querySelector('[data-sleep-countdown]');
+  const sheetBackdrop = document.querySelector('[data-sheet-backdrop]');
+  const tocButton = document.querySelector('[data-toc-button]');
+  const tocList = document.querySelector('[data-toc-list]');
+  const tocSort = document.querySelector('[data-toc-sort]');
+  const followText = document.querySelector('[data-follow-text]');
+  const highlightText = document.querySelector('[data-highlight-text]');
+  const storage = { get: key => localStorage.getItem(`${prefix}reader.${key}`), set: (key, value) => localStorage.setItem(`${prefix}reader.${key}`, value) };
+  const defaultVoice = 'vi-VN-NamMinhNeural';
+  const voices = new Set(['vi-VN-NamMinhNeural', 'vi-VN-HoaiMyNeural']);
+  let selectedVoice = storage.get('voice') || defaultVoice;
+  if (!voices.has(selectedVoice)) selectedVoice = defaultVoice;
+  let rate = Math.max(.75, Math.min(2, Number(storage.get('rate') || 1)));
+  let volume = Math.max(0, Math.min(1, Number(storage.get('volume') || .9)));
+  let segments = [];
+  let segmentIndex = 0;
+  let loadingToken = 0;
+  let wantToPlay = false;
+  let followPausedUntil = 0;
+  let sleepMode = storage.get('sleepMode') || 'off';
+  let sleepUntil = Number(storage.get('sleepUntil') || 0);
+  let sleepTimer;
+  let progressTimer;
+
+  const formatTime = value => { const seconds = Math.max(0, Math.floor(Number(value) || 0)); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; };
+  const setPlayerState = state => {
+    const iconState = state === 'loading' ? 'loading' : state === 'playing' ? 'pause' : 'play';
+    player.querySelectorAll('[data-play-icon]').forEach(icon => icon.classList.toggle('hidden', icon.dataset.playIcon !== iconState));
+    playerStatus.textContent = state === 'loading' ? 'ĐANG TẢI AUDIO' : state === 'playing' ? 'ĐANG PHÁT ÂM THANH' : state === 'error' ? 'LỖI TTS' : state === 'ended' ? 'ĐÃ ĐỌC XONG' : 'SẴN SÀNG';
+  };
+  const splitText = (text, element) => {
+    const sentences = text.replace(/\s+/g, ' ').match(/[^.!?。！？]+[.!?。！？]?/gu) || [text];
+    let buffer = '';
+    sentences.forEach(sentence => {
+      const part = sentence.trim();
+      if (!part) return;
+      if (buffer && buffer.length + part.length > 700) { segments.push({text: buffer, element, url: null, duration: Math.max(1, buffer.length / (14 * rate))}); buffer = ''; }
+      if (part.length > 700) {
+        for (let offset = 0; offset < part.length; offset += 700) segments.push({text: part.slice(offset, offset + 700), element, url: null, duration: Math.max(1, Math.min(700, part.length - offset) / (14 * rate))});
+      } else buffer += `${buffer ? ' ' : ''}${part}`;
+    });
+    if (buffer) segments.push({text: buffer, element, url: null, duration: Math.max(1, buffer.length / (14 * rate))});
+  };
+  readerContent.querySelectorAll('p, li, blockquote').forEach(element => { const text = element.innerText.trim(); if (text) splitText(text, element); });
+  if (followText) followText.checked = storage.get('followText') !== 'false';
+  if (highlightText) highlightText.checked = storage.get('highlightText') !== 'false';
+  rateControl.value = String(rate); volumeControl.value = String(volume); rateStatus.textContent = `${rate.toFixed(1)}x`; audio.volume = volume;
+  const totalDuration = () => segments.reduce((sum, segment) => sum + segment.duration, 0);
+  const elapsedBefore = index => segments.slice(0, index).reduce((sum, segment) => sum + segment.duration, 0);
+  const updateTimeline = () => {
+    const duration = totalDuration();
+    const current = Math.min(duration, elapsedBefore(segmentIndex) + (audio.currentTime || 0));
+    currentLabel.textContent = formatTime(current); durationLabel.textContent = formatTime(duration);
+    seek.value = duration ? String(Math.round(current / duration * 1000)) : '0';
+    previousButton.disabled = segmentIndex <= 0 && audio.currentTime < 1;
+    nextButton.disabled = segmentIndex >= segments.length - 1;
+  };
+  const markSegment = index => {
+    document.querySelectorAll('.reader-tts-active').forEach(node => node.classList.remove('reader-tts-active'));
+    const node = segments[index]?.element;
+    if (!node || !highlightText?.checked) return;
+    node.classList.add('reader-tts-active');
+    const rect = node.getBoundingClientRect();
+    if (followText?.checked && Date.now() >= followPausedUntil && (rect.top < innerHeight * .18 || rect.bottom > innerHeight * .82)) node.scrollIntoView({behavior:'smooth', block:'center'});
+  };
+  const fetchSegment = async (index, autoplay, resumeAt = 0) => {
+    const segment = segments[index]; if (!segment) return;
+    segmentIndex = index; const token = ++loadingToken;
+    wantToPlay = Boolean(autoplay); setPlayerState('loading'); markSegment(index);
     try {
-      for (let i = 0; i < paragraphs.length && !cancelled; i++) {
-        const text = paragraphs[i].innerText.trim(); if (!text) continue;
-        status.textContent = `Đang đọc ${i + 1}/${paragraphs.length}`;
-        const response = await fetch('/api/tts', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
-        if (!response.ok) throw new Error('TTS hiện không khả dụng.');
-        const data = await response.json(); audio = new Audio(data.audio_url);
-        await new Promise((resolve, reject) => { audio.onended = resolve; audio.onerror = () => reject(new Error('Không phát được audio.')); audio.play().catch(reject); });
+      if (!segment.url) {
+        const response = await fetch('/api/tts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:segment.text, voice:selectedVoice, rate})});
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.audio_url) throw new Error(result.detail || 'TTS hiện không khả dụng.');
+        segment.url = result.audio_url;
       }
-      if (!cancelled) status.textContent = 'Đã đọc xong';
-    } catch (error) { status.textContent = error.message || 'Lỗi TTS'; }
-    finally { play.disabled = false; }
+      if (token !== loadingToken) return;
+      audio.pause();
+      const metadataReady = new Promise(resolve => { audio.addEventListener('loadedmetadata', resolve, {once:true}); audio.addEventListener('error', resolve, {once:true}); });
+      audio.src = segment.url; audio.load();
+      if (resumeAt > 0) { await metadataReady; if (token !== loadingToken) return; audio.currentTime = Math.min(resumeAt, Math.max(0, (audio.duration || resumeAt) - .2)); }
+      if (autoplay) {
+        const playResult = audio.play();
+        if (playResult) await playResult;
+        if (token === loadingToken) setPlayerState('playing');
+      } else setPlayerState('paused');
+      updateTimeline();
+    } catch (error) { if (token === loadingToken) { wantToPlay = false; setPlayerState('error'); playerStatus.title = error.message || ''; } }
+  };
+  const visibleSegment = () => {
+    const target = innerHeight * .38;
+    return Math.max(0, segments.findIndex(segment => { const rect = segment.element.getBoundingClientRect(); return rect.bottom >= target; }));
+  };
+  const playCurrent = () => {
+    if (!segments.length) return setPlayerState('error');
+    if (audio.src && !audio.paused) { wantToPlay = false; audio.pause(); setPlayerState('paused'); return; }
+    if (audio.src && audio.paused && segments[segmentIndex]?.url) { wantToPlay = true; audio.play().then(() => setPlayerState('playing')).catch(() => fetchSegment(segmentIndex, true)); return; }
+    segmentIndex = visibleSegment(); fetchSegment(segmentIndex, true);
+  };
+  audio.addEventListener('timeupdate', updateTimeline);
+  audio.addEventListener('loadedmetadata', () => { if (Number.isFinite(audio.duration) && audio.duration > 0 && segments[segmentIndex]) segments[segmentIndex].duration = audio.duration; updateTimeline(); });
+  audio.addEventListener('playing', () => { wantToPlay = true; setPlayerState('playing'); markSegment(segmentIndex); });
+  audio.addEventListener('error', () => { if (segments.length) setPlayerState('error'); });
+  audio.addEventListener('pause', () => { if (!wantToPlay) setPlayerState('paused'); });
+  audio.addEventListener('ended', () => { if (sleepMode === 'chapter' || segmentIndex >= segments.length - 1) { wantToPlay = false; setPlayerState('ended'); return; } fetchSegment(segmentIndex + 1, true); });
+  playButton.addEventListener('click', playCurrent);
+  previousButton.addEventListener('click', () => { if (audio.currentTime > 3) { audio.currentTime = 0; return; } fetchSegment(Math.max(0, segmentIndex - 1), !audio.paused); });
+  nextButton.addEventListener('click', () => fetchSegment(Math.min(segments.length - 1, segmentIndex + 1), !audio.paused));
+  seek.addEventListener('input', () => {
+    let target = Number(seek.value) / 1000 * totalDuration();
+    for (let index = 0; index < segments.length; index++) {
+      if (target <= segments[index].duration || index === segments.length - 1) {
+        const offset = Math.min(target, segments[index].duration); const autoplay = !audio.paused;
+        if (index === segmentIndex && audio.src) audio.currentTime = offset;
+        else fetchSegment(index, autoplay, offset);
+        break;
+      }
+      target -= segments[index].duration;
+    }
   });
+  const reloadVoice = async () => { const index = segmentIndex; const offset = audio.currentTime || 0; const autoplay = !audio.paused; segments.forEach(segment => { segment.url = null; segment.duration = Math.max(1, segment.text.length / (14 * rate)); }); audio.pause(); audio.removeAttribute('src'); if (segments[index]) await fetchSegment(index, autoplay, offset); };
+  rateControl.addEventListener('input', () => { rate = Number(rateControl.value); storage.set('rate', String(rate)); rateStatus.textContent = `${rate.toFixed(1)}x`; reloadVoice(); });
+  volumeControl.addEventListener('input', () => { audio.volume = Number(volumeControl.value); storage.set('volume', String(audio.volume)); });
+  followText?.addEventListener('change', () => storage.set('followText', String(followText.checked)));
+  highlightText?.addEventListener('change', () => { storage.set('highlightText', String(highlightText.checked)); markSegment(segmentIndex); });
+  window.addEventListener('scroll', () => { followPausedUntil = Date.now() + 8000; }, {passive:true});
+
+  const openSheet = name => { sheetBackdrop.querySelectorAll('[data-sheet]').forEach(sheet => sheet.classList.toggle('hidden', sheet.dataset.sheet !== name)); sheetBackdrop.classList.add('is-open'); if (name === 'toc') document.querySelector('[data-current="true"]')?.scrollIntoView({block:'center'}); };
+  const closeSheet = () => sheetBackdrop.classList.remove('is-open');
+  tocButton.addEventListener('click', () => openSheet('toc'));
+  voiceButton.addEventListener('click', () => openSheet('voice'));
+  sleepButton.addEventListener('click', () => openSheet('sleep'));
+  sheetBackdrop.addEventListener('click', event => { if (event.target === sheetBackdrop || event.target.closest('[data-close-sheet]')) closeSheet(); });
+  sheetBackdrop.querySelectorAll('[data-voice-option]').forEach(button => button.addEventListener('click', () => { selectedVoice = button.dataset.voiceOption; storage.set('voice', selectedVoice); reloadVoice(); closeSheet(); }));
+  const updateSleep = () => {
+    if (sleepMode === 'chapter') { sleepCountdown.textContent = 'Hết chương'; sleepCountdown.classList.remove('hidden'); return; }
+    if (sleepMode !== 'timer' || !sleepUntil) { sleepCountdown.classList.add('hidden'); return; }
+    const remaining = Math.max(0, Math.ceil((sleepUntil - Date.now()) / 1000));
+    if (!remaining) { wantToPlay = false; audio.pause(); sleepMode = 'off'; storage.set('sleepMode', 'off'); localStorage.removeItem(`${prefix}reader.sleepUntil`); sleepCountdown.classList.add('hidden'); return; }
+    sleepCountdown.textContent = formatTime(remaining); sleepCountdown.classList.remove('hidden');
+  };
+  sheetBackdrop.querySelectorAll('[data-sleep-option]').forEach(button => button.addEventListener('click', () => {
+    const value = button.dataset.sleepOption;
+    if (value === 'off') { sleepMode = 'off'; sleepUntil = 0; storage.set('sleepMode', 'off'); localStorage.removeItem(`${prefix}reader.sleepUntil`); }
+    else if (value === 'chapter') { sleepMode = 'chapter'; storage.set('sleepMode', 'chapter'); localStorage.removeItem(`${prefix}reader.sleepUntil`); }
+    else { sleepMode = 'timer'; sleepUntil = Date.now() + Number(value) * 60000; storage.set('sleepMode', 'timer'); storage.set('sleepUntil', String(sleepUntil)); }
+    updateSleep(); closeSheet();
+  }));
+  updateTimeline();
+  tocSort.addEventListener('change', () => {
+    const rows = [...tocList.querySelectorAll('[data-toc-item]')].sort((a,b) => Number(a.dataset.number)-Number(b.dataset.number));
+    if (tocSort.value === 'desc') rows.reverse(); rows.forEach(row => tocList.append(row)); tocList.scrollTop = 0;
+  });
+  startSleepTimer();
+  function startSleepTimer() { updateSleep(); clearInterval(sleepTimer); sleepTimer = setInterval(updateSleep, 1000); }
 })();
 </script>
 {% endblock %}

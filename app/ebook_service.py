@@ -615,14 +615,13 @@ def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int, *, mode
         payload = items[index]
         if int(payload.get("chapter_number", 0)) != chapter_number:
             raise EbookServiceError("Mục lục và nội dung chương không khớp.", 503)
-        previous = remote.rows("ebook_chapters", {
+        chapter_list = remote.all_rows("ebook_chapters", {
             "select": "chapter_number,title", "ebook_id": f"eq.{ebook_id}",
-            "chapter_number": f"lt.{chapter_number}", "order": "chapter_number.desc", "limit": "1",
+            "order": "chapter_number.asc",
         })
-        following = remote.rows("ebook_chapters", {
-            "select": "chapter_number,title", "ebook_id": f"eq.{ebook_id}",
-            "chapter_number": f"gt.{chapter_number}", "order": "chapter_number.asc", "limit": "1",
-        })
+        current_index = next((index for index, item in enumerate(chapter_list) if int(item["chapter_number"]) == chapter_number), -1)
+        previous = chapter_list[current_index - 1] if current_index > 0 else None
+        following = chapter_list[current_index + 1] if 0 <= current_index < len(chapter_list) - 1 else None
         content = str(payload.get("original_content") or "")
         translated = False
         translated_path = str(chapter.get("translated_content_path") or "")
@@ -644,8 +643,9 @@ def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int, *, mode
         "chapter": chapter,
         "content": content,
         "translated": translated,
-        "previous": previous[0] if previous else None,
-        "following": following[0] if following else None,
+        "previous": previous,
+        "following": following,
+        "chapter_list": chapter_list,
     }
 
 
