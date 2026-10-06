@@ -224,7 +224,7 @@ def test_ebook_translation_worker_publishes_separate_translation(monkeypatch):
         "ebook_books": [{"id": "book-1", "owner_id": "owner-1", "source_language": "zh"}],
         "ebook_translation_chunks": [{"id": "chunk-1", "original_text": "Chinese"}],
     }.get(table, [])
-    remote.patch_rows = lambda table, _params, payload: ([{**job, **payload}] if table == "ebook_translation_queue" else [])
+    remote.patch_rows = lambda table, params, payload: (remote.calls.append(("patch_rows", table, params, payload)) or ([{**job, **payload}] if table == "ebook_translation_queue" and params.get("status") == "eq.queued" else []))
     remote.all_rows = lambda _table, _params: [{"chunk_index": 0, "translated_text": "Vietnamese", "status": "completed"}]
     monkeypatch.setattr(sync_service, "SupabaseSync", lambda: remote)
     monkeypatch.setattr(sync_service, "reclaim_stale_ebook_translation_jobs", lambda _remote: 0)
@@ -235,6 +235,7 @@ def test_ebook_translation_worker_publishes_separate_translation(monkeypatch):
     assert sync_service.run_ebook_translation_worker_once(remote) is True
     assert uploaded and "translations/000001.json" in uploaded[0][0][0]
     assert any(call[0] == "delete_rows" and call[1] == "ebook_translation_chunks" for call in remote.calls)
+    assert any(call[0] == "patch_rows" and call[1] == "ebook_chapters" and call[3]["translation_status"] == "processing" for call in remote.calls)
 
 
 def test_export_epub_preserves_chapter_order_and_translated_content(monkeypatch):

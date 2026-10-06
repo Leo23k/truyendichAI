@@ -905,7 +905,7 @@ def run_ebook_translation_worker_once(remote: SupabaseSync | None = None) -> boo
         if not books or books[0].get("source_language") != "zh":
             raise SyncError(f"Ebook {chapter['ebook_id']} is missing or is not a Chinese source.")
         remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {
-            "translation_status": "translating", "updated_at": datetime.now(timezone.utc).isoformat(),
+            "translation_status": "processing", "updated_at": datetime.now(timezone.utc).isoformat(),
         })
         total_chunks = int(job.get("total_chunks") or 0)
         current_chunk = int(job.get("current_chunk") or 0)

@@ -13,7 +13,7 @@
     <div class="mt-4 flex flex-wrap justify-center gap-2">
       <a class="site-nav-button{% if mode == 'original' %} accent{% endif %}" href="?mode=original">Bản gốc</a>
       {% if chapter.translation_status == 'translated' %}<a class="site-nav-button{% if mode == 'translated' %} accent{% endif %}" href="?mode=translated">Bản dịch</a>
-      {% elif chapter.translation_status in ['pending', 'translating'] %}<span class="site-muted self-center text-sm">{% if chapter.translation_status == 'translating' %}Đang dịch…{% else %}Đang chờ dịch{% endif %}</span>{% endif %}
+      {% elif chapter.translation_status in ['pending', 'processing'] %}<span class="site-muted self-center text-sm">{% if chapter.translation_status == 'processing' %}Đang dịch…{% else %}Đang chờ dịch{% endif %}</span>{% endif %}
     </div>
     {% if translated and mode == 'translated' %}<p class="site-muted mt-2 text-xs">Đang đọc bản dịch tiếng Việt · Bản gốc vẫn được giữ nguyên</p>{% endif %}
   </header>
