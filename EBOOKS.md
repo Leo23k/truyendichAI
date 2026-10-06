@@ -20,6 +20,8 @@ Apply migrations in timestamp order:
 2. `20261006051941_ebook_translation_queue.sql` — separate ebook translation queue/chunks and translated-object path.
 3. `20261006053749_ebook_pdf_support.sql` — permits `pdf` as a source format.
 
+4. `20261006061127_ebook_cover_path.sql` — stores the private B2 object key for an EPUB cover.
+
 The translation worker runs in the existing sync worker process. It checks the existing novel translation queue first, then ebook jobs. Keep the worker running for translation to progress; Vercel request handlers do not perform long-running translations.
 
 ## Storage keys
@@ -28,6 +30,7 @@ The translation worker runs in the existing sync worker process. It checks the e
 ebooks/{sha256(owner_id)[:32]}/{ebook_uuid}/original.{ext}
 ebooks/{sha256(owner_id)[:32]}/{ebook_uuid}/chapters/{shard:04d}.json
 ebooks/{sha256(owner_id)[:32]}/{ebook_uuid}/translations/{chapter:06d}.json
+ebooks/{sha256(owner_id)[:32]}/{ebook_uuid}/assets/cover.{jpg|png|gif|webp}
 ```
 
 ## Tests
@@ -39,6 +42,6 @@ ebooks/{sha256(owner_id)[:32]}/{ebook_uuid}/translations/{chapter:06d}.json
 ## Current scope limits
 
 - PDF remains fixed-layout; no text extraction, translation, or generated PDF export.
-- EPUB images/covers are not extracted into the private storage model. Active HTML and external embedded content are stripped by the parser.
+- EPUB cover art is extracted (up to 5 MB) and stored privately in B2; the UI uses a short-lived signed URL. Other embedded chapter images are not extracted. Active HTML and external embedded content are stripped by the parser.
 - Export generation buffers its result in process memory; very large books should be capped or moved to a streaming/background export path before broad use.
 - MOBI/AZW/FB2/CBZ/DOCX and similar formats are not supported yet.
