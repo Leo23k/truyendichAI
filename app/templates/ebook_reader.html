@@ -1,31 +1,52 @@
 {% extends "base.html" %}
 {% block title %}{{ chapter.title }} · {{ book.title }}{% endblock %}
+{% block header %}{% endblock %}
+{% block footer %}{% endblock %}
+{% block main_class %}min-h-screen{% endblock %}
 {% block content %}
-<main class="mx-auto min-h-screen max-w-4xl px-4 py-5 pb-20 sm:px-6">
-  <nav class="mb-6 flex flex-wrap items-center justify-between gap-3">
-    <a href="{{ back_url }}" class="site-nav-button">← Ebook cá nhân</a>
-    <a href="/ebooks/{{ book.id }}/download" class="site-nav-button">Tải file gốc</a>
-  </nav>
-  <header class="mb-8 border-b border-[var(--line)] pb-5 text-center">
-    <p class="site-muted text-sm">{{ book.title }}{% if book.author %} · {{ book.author }}{% endif %}</p>
-    <h1 class="site-title mt-2 text-2xl">{{ chapter.title }}</h1>
-    <p class="site-muted mt-2 text-xs">Chương {{ chapter.chapter_number }} / {{ book.chapter_count }} · Nội dung riêng tư</p>
-    <div class="mt-4 flex flex-wrap justify-center gap-2">
-      <a class="site-nav-button{% if mode == 'original' %} accent{% endif %}" href="?mode=original">Bản gốc</a>
-      {% if chapter.translation_status == 'translated' %}<a class="site-nav-button{% if mode == 'translated' %} accent{% endif %}" href="?mode=translated">Bản dịch</a>
-      {% elif chapter.translation_status in ['pending', 'processing'] %}<span class="site-muted self-center text-sm">{% if chapter.translation_status == 'processing' %}Đang dịch…{% else %}Đang chờ dịch{% endif %}</span>{% endif %}
+<div x-data="{ theme: localStorage.getItem('reader-theme') || 'dark', size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', settings: false }"
+     x-init="$watch('theme', value => localStorage.setItem('reader-theme', value)); $watch('size', value => localStorage.setItem('reader-size', value)); $watch('lineHeight', value => localStorage.setItem('reader-line-height-v5', value)); $watch('font', value => localStorage.setItem('reader-font', value))"
+     :class="theme === 'dark' ? 'bg-[#1d211f] text-[#deddd2]' : theme === 'sepia' ? 'bg-[#ebe1ca] text-[#493d30]' : 'bg-[#faf8f3] text-[#302d28]'" class="min-h-screen pb-28 transition-colors">
+  <header class="sticky top-0 z-30 border-b backdrop-blur" :style="theme === 'paper' ? 'background-color:rgba(250,248,243,.92);border-color:rgba(220,214,203,.8)' : theme === 'sepia' ? 'background-color:rgba(235,225,202,.92);border-color:rgba(190,168,136,.7)' : 'background-color:rgba(29,33,31,.92);border-color:rgba(75,82,77,.8)'">
+    <div class="mx-auto grid max-w-5xl grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 sm:flex sm:justify-between sm:gap-4 sm:px-6 sm:py-3">
+      <a href="{{ back_url }}" class="icon-button" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Quay lại chi tiết Ebook"><i data-lucide="arrow-left" class="h-5 w-5"></i></a>
+      <div class="min-w-0 flex-1 text-center sm:text-left">
+        <h1 class="line-clamp-1 text-sm font-semibold sm:text-base" :class="theme === 'dark' ? 'text-stone-100' : 'text-stone-900'">{{ chapter.title }}</h1>
+        <p class="mt-0.5 truncate text-xs" :class="theme === 'dark' ? 'text-stone-300' : 'text-stone-500'">{{ book.title }} · Chương {{ chapter.chapter_number }}/{{ book.chapter_count }} · {% if mode == 'translated' %}Bản dịch{% else %}Bản gốc{% endif %}</p>
+      </div>
+      <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
+        <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" @click="theme = theme === 'paper' ? 'sepia' : theme === 'sepia' ? 'dark' : 'paper'" aria-label="Đổi nền đọc"><i data-lucide="palette" class="h-5 w-5"></i></button>
+        <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" @click="settings = !settings" aria-label="Cài đặt đọc"><i data-lucide="type" class="h-5 w-5"></i></button>
+        <a href="/ebooks/{{ book.id }}" class="icon-button hidden h-10 w-10 sm:inline-flex" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Mục lục Ebook"><i data-lucide="list" class="h-5 w-5"></i></a>
+        <a href="/ebooks/{{ book.id }}/download" class="icon-button hidden h-10 w-10 sm:inline-flex" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Tải Ebook gốc"><i data-lucide="download" class="h-5 w-5"></i></a>
+      </div>
+      <section x-cloak x-show="settings" @click.outside="settings = false" class="absolute right-3 top-full mt-2 w-64 rounded-lg border border-stone-200 bg-white p-3 text-stone-900 shadow-xl sm:right-[max(1rem,calc((100vw-64rem)/2))]">
+        <div class="flex items-center justify-between gap-2"><button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.max(14, size - 1)">A-</button><span class="text-sm" x-text="size + 'px'"></span><button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.min(32, size + 1)">A+</button></div>
+        <label class="mt-4 block text-xs font-medium text-stone-600">Giãn dòng <span class="float-right" x-text="lineHeight.toFixed(2)"></span><input class="mt-2 w-full accent-teal-600" type="range" min="1.5" max="2.1" step="0.05" x-model.number="lineHeight"></label>
+        <label class="mt-4 block text-xs font-medium text-stone-600">Phông chữ<select class="mt-2 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm" x-model="font"><option value="Segoe UI, Noto Sans, Arial, sans-serif">Sans hiện đại</option><option value="Georgia, Noto Serif, serif">Georgia</option><option value="Cambria, Palatino Linotype, serif">Cambria</option></select></label>
+      </section>
     </div>
-    {% if translated and mode == 'translated' %}<p class="site-muted mt-2 text-xs">Đang đọc bản dịch tiếng Việt · Bản gốc vẫn được giữ nguyên</p>{% endif %}
   </header>
-  <div class="mx-auto mb-5 flex max-w-3xl items-center gap-2"><button id="ebook-tts-play" type="button" class="site-nav-button">▶ Đọc bằng giọng nói</button><button id="ebook-tts-stop" type="button" class="site-nav-button">Dừng</button><span id="ebook-tts-status" class="site-muted text-sm" role="status"></span></div>
-  <article id="ebook-reader-content" class="mx-auto max-w-3xl text-lg leading-[1.9] [&_p]:mb-6 [&_blockquote]:border-l-4 [&_blockquote]:border-teal-500 [&_blockquote]:pl-4 [&_h1]:my-6 [&_h2]:my-5 [&_h3]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6">
-    {{ content|safe }}
+
+  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pt-5 text-xs sm:px-8 sm:text-sm" aria-label="Breadcrumb"><a href="{{ back_url }}" class="opacity-70 hover:text-teal-500">← Ebook</a><span class="opacity-40">›</span><a href="{{ back_url }}" class="max-w-44 truncate opacity-70 hover:text-teal-500">{{ book.title }}</a><span class="opacity-40">›</span><span class="truncate font-medium">{{ chapter.title }}</span></nav>
+  <div class="mx-auto mt-5 flex max-w-3xl flex-wrap items-center justify-center gap-2 px-4">
+    <a class="site-nav-button{% if mode == 'original' %} accent{% endif %}" href="?mode=original">Bản gốc</a>
+    {% if chapter.translation_status == 'translated' %}<a class="site-nav-button{% if mode == 'translated' %} accent{% endif %}" href="?mode=translated">Bản dịch</a>{% elif chapter.translation_status in ['pending', 'processing'] %}<span class="self-center text-sm opacity-65">{% if chapter.translation_status == 'processing' %}Đang dịch…{% else %}Đang chờ dịch{% endif %}</span>{% endif %}
+    <button id="ebook-tts-play" type="button" class="site-nav-button">▶ Đọc bằng giọng nói</button><button id="ebook-tts-stop" type="button" class="site-nav-button">Dừng</button>
+  </div>
+  <p id="ebook-tts-status" class="mx-auto mt-2 min-h-5 max-w-3xl px-4 text-center text-xs opacity-65" role="status"></p>
+  {% if translated and mode == 'translated' %}<p class="mx-auto max-w-3xl px-5 text-center text-xs opacity-60">Đang đọc bản dịch tiếng Việt · Bản gốc vẫn được giữ nguyên</p>{% endif %}
+
+  <article id="ebook-reader-content" class="reader-content mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-12" :style="`font-size:${size}px;line-height:${lineHeight};font-family:${font}`">
+    <h2 class="mb-12 text-center text-3xl font-extrabold leading-tight tracking-tight sm:mb-14 sm:text-5xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#242522]'">{{ chapter.title }}<span class="mx-auto mt-5 block h-1 w-20 rounded-full bg-teal-500/60"></span></h2>
+    <div class="reader-prose [&_p]:mb-5 [&_blockquote]:border-l-4 [&_blockquote]:border-teal-500 [&_blockquote]:pl-4 [&_h1]:my-6 [&_h2]:my-5 [&_h3]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6">{{ content|safe }}</div>
   </article>
-  <nav class="mt-12 flex justify-between gap-4 border-t border-[var(--line)] pt-5" aria-label="Điều hướng chương">
-    {% if previous %}<a class="site-nav-button max-w-[48%] truncate" href="/ebooks/{{ book.id }}/read/{{ previous.chapter_number }}">← {{ previous.title }}</a>{% else %}<span></span>{% endif %}
-    {% if following %}<a class="site-nav-button max-w-[48%] truncate" href="/ebooks/{{ book.id }}/read/{{ following.chapter_number }}">{{ following.title }} →</a>{% endif %}
+  <nav class="mx-auto mb-24 grid max-w-4xl grid-cols-2 gap-3 border-t border-current/10 px-5 pt-5 sm:mb-32 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center sm:px-8" aria-label="Chuyển chương">
+    {% if previous %}<a href="/ebooks/{{ book.id }}/read/{{ previous.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center gap-2 rounded-lg border border-current/15 px-3 py-2 hover:border-teal-500/60"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG TRƯỚC</small><strong class="block truncate text-xs sm:text-sm">{{ previous.title }}</strong></span></a>{% else %}<span></span>{% endif %}
+    <a href="{{ back_url }}" class="hidden text-center text-xs font-semibold uppercase tracking-[.15em] text-teal-500 sm:block">Mục lục</a>
+    {% if following %}<a href="/ebooks/{{ book.id }}/read/{{ following.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center justify-end gap-2 rounded-lg border border-current/15 px-3 py-2 text-right hover:border-teal-500/60"><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG SAU</small><strong class="block truncate text-xs sm:text-sm">{{ following.title }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% endif %}
   </nav>
-</main>
+</div>
 <script>
 (() => {
   const play = document.getElementById('ebook-tts-play');
@@ -36,17 +57,14 @@
   let audio = null;
   stop.addEventListener('click', () => { cancelled = true; audio?.pause(); audio = null; status.textContent = 'Đã dừng'; });
   play.addEventListener('click', async () => {
-    cancelled = false;
-    play.disabled = true;
+    cancelled = false; play.disabled = true;
     try {
       for (let i = 0; i < paragraphs.length && !cancelled; i++) {
-        const text = paragraphs[i].innerText.trim();
-        if (!text) continue;
+        const text = paragraphs[i].innerText.trim(); if (!text) continue;
         status.textContent = `Đang đọc ${i + 1}/${paragraphs.length}`;
         const response = await fetch('/api/tts', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
         if (!response.ok) throw new Error('TTS hiện không khả dụng.');
-        const data = await response.json();
-        audio = new Audio(data.audio_url);
+        const data = await response.json(); audio = new Audio(data.audio_url);
         await new Promise((resolve, reject) => { audio.onended = resolve; audio.onerror = () => reject(new Error('Không phát được audio.')); audio.play().catch(reject); });
       }
       if (!cancelled) status.textContent = 'Đã đọc xong';
