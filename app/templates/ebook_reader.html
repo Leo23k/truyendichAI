@@ -6,7 +6,7 @@
 {% block content %}
 <style>
   .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}.reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}.reader-sheet{transform:translateY(100%);transition:transform 210ms ease}.reader-sheet-backdrop.is-open .reader-sheet{transform:translateY(0)}
-  .reader-progress-chip{position:fixed;z-index:35;top:calc(env(safe-area-inset-top,0px) + 4.25rem);right:max(.65rem,calc((100vw - 64rem)/2));display:inline-flex;align-items:center;border:1px solid rgba(130,145,140,.38);border-radius:9999px;background:rgba(29,33,31,.9);padding:.27rem .55rem;color:#f0eee3;font-size:.72rem;font-weight:700;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.16);backdrop-filter:blur(8px);pointer-events:none}
+  .reader-progress-chip{position:fixed;z-index:35;top:calc(env(safe-area-inset-top,0px) + .55rem);right:max(.65rem,calc((100vw - 64rem)/2));display:inline-flex;align-items:center;border:1px solid rgba(130,145,140,.38);border-radius:9999px;background:rgba(29,33,31,.9);padding:.27rem .55rem;color:#f0eee3;font-size:.72rem;font-weight:700;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.16);backdrop-filter:blur(8px);pointer-events:none}
   [data-ebook-reader-header], [data-ebook-player]{transition:transform 190ms ease,opacity 190ms ease}
   [data-ebook-reader-header].is-hidden{opacity:0;transform:translateY(-110%);pointer-events:none}
   [data-ebook-player].is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem));pointer-events:none}
@@ -24,7 +24,7 @@
         <h1 class="line-clamp-1 text-sm font-semibold sm:text-base" :class="theme === 'dark' ? 'text-stone-100' : 'text-stone-900'">{{ chapter.title }}</h1>
         <p class="mt-0.5 truncate text-xs" :class="theme === 'dark' ? 'text-stone-300' : 'text-stone-500'">{{ book.title }} · Chương {{ chapter.chapter_number }}/{{ book.chapter_count }} · {% if mode == 'translated' %}Bản dịch{% else %}Bản gốc{% endif %}</p>
       </div>
-      <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
+      <div class="mr-12 flex shrink-0 items-center gap-0.5 sm:gap-1">
         <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" @click="theme = theme === 'paper' ? 'sepia' : theme === 'sepia' ? 'dark' : 'paper'" aria-label="Đổi nền đọc"><i data-lucide="palette" class="h-5 w-5"></i></button>
         <button type="button" data-toc-button class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Mục lục"><i data-lucide="list" class="h-5 w-5"></i></button>
         <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" @click="settings = !settings" aria-label="Cài đặt đọc"><i data-lucide="type" class="h-5 w-5"></i></button>
