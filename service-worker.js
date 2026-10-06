@@ -1,4 +1,5 @@
-const CACHE = "novel-reader-static-v3";
+const CACHE = "novel-reader-static-v4";
+const MEDIA_CACHE = "novel-reader-media-v1";
 const STATIC = ["/static/offline.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(STATIC)).then(() => self.skipWaiting())));
@@ -34,9 +35,24 @@ self.addEventListener("notificationclick", event => {
 self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
-  if (request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (request.method !== "GET") return;
+  if (request.destination === "image" && url.origin !== self.location.origin) {
+    event.respondWith(caches.open(MEDIA_CACHE).then(async cache => {
+      const cached = await cache.match(request);
+      try { const response = await fetch(request); if (response.ok || response.type === "opaque") await cache.put(request, response.clone()); return response.ok || response.type === "opaque" ? response : cached || response; }
+      catch { return cached || Response.error(); }
+    }));
+    return;
+  }
+  if (url.origin !== self.location.origin) return;
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).catch(() => {
+      if (url.pathname === "/" || url.pathname === "/ebooks") {
+        return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thư viện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineHome())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      }
+      if (url.pathname === "/ebooks/offline") {
+        return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookLibrary())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      }
       if (/^\/ebooks\/[^/]+\/read\/\d+$/.test(url.pathname)) {
         return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookReader())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
       }
@@ -49,7 +65,18 @@ self.addEventListener("fetch", event => {
       if (/^\/truyen\/[^/]+$/.test(url.pathname)) {
         return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Truyện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineBook())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
       }
-      return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thư viện Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookLibrary())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thư viện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineHome())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }));
+    return;
+  }
+  if (request.destination === "image") {
+    event.respondWith(caches.open(MEDIA_CACHE).then(async cache => {
+      const cached = await cache.match(request);
+      try {
+        const response = await fetch(request);
+        if (response.ok || response.type === "opaque") await cache.put(request, response.clone());
+        return response.ok || response.type === "opaque" ? response : cached || response;
+      } catch { return cached || Response.error(); }
     }));
     return;
   }
