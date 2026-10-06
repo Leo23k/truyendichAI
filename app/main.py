@@ -22,8 +22,8 @@ from markupsafe import Markup, escape
 from starlette.templating import Jinja2Templates
 
 from app.config import settings
-from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
-from app.ebook_service import EbookServiceError, begin_ebook_upload, complete_ebook_upload, delete_ebook, ebook_upload_status, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_ebook_detail, get_original_download, get_pdf_view_url, list_ebooks
+from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_admin, require_authenticated, user_from_token
+from app.ebook_service import EbookServiceError, begin_ebook_upload, complete_ebook_upload, delete_ebook, ebook_upload_status, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_ebook_detail, get_original_download, get_pdf_view_url, list_ebooks, publish_ebook
 from app.ebook_export import build_ebook_export
 from app.cdn import (
     CdnDataError,
@@ -497,6 +497,17 @@ def enqueue_ebook_translation_endpoint(ebook_id: str, request: Request, retransl
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return RedirectResponse(f"/ebooks/{ebook_id}?queued={queued}", status_code=303)
+
+
+@app.post("/admin/ebooks/{ebook_id}/publish")
+def publish_ebook_endpoint(ebook_id: str, request: Request):
+    user = require_admin(request)
+    try:
+        resolved_id, _ = _resolve_ebook_route_id(user.id, ebook_id)
+        novel = publish_ebook(user.id, resolved_id)
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return RedirectResponse(f"/ebooks/{ebook_id}?published=1", status_code=303)
 
 
 @app.post("/api/ebooks/{ebook_id}/delete")

@@ -14,7 +14,7 @@ from app.ebooks import EbookParseError, ParsedEbook, parse_ebook
 from app.ebook_export import build_ebook_export
 from app.storage import configured as b2_configured, download as b2_download, presigned_download_url, upload as b2_upload
 from app.translator.chunking import chunk_text
-from sync.service import SupabaseSync, SyncError
+from sync.service import SupabaseSync, SyncError, unique_slug
 from bs4 import BeautifulSoup
 
 
@@ -27,6 +27,18 @@ class EbookServiceError(RuntimeError):
     def __init__(self, message: str, status_code: int = 400):
         super().__init__(message)
         self.status_code = status_code
+
+
+def _published_ebook_novel(remote: SupabaseSync, ebook_id: str) -> dict | None:
+    markers = remote.rows("chapters", {
+        "select": "novel_id", "source_url": f"like.ebook://{ebook_id}/%", "limit": "1",
+    })
+    if not markers:
+        return None
+    novels = remote.rows("novels", {
+        "select": "id,slug,title", "id": f"eq.{markers[0]['novel_id']}", "limit": "1",
+    })
+    return novels[0] if novels else None
 
 
 @dataclass(frozen=True)
@@ -388,6 +400,7 @@ def get_ebook_detail(owner_id: str, ebook_id: str) -> dict:
         if not books:
             raise EbookServiceError("Không tìm thấy ebook.", 404)
         book = books[0]
+        published_novel = _published_ebook_novel(remote, ebook_id)
         chapters = remote.all_rows("ebook_chapters", {
             "select": "id,chapter_number,title,translation_status,translated_content_path",
             "ebook_id": f"eq.{ebook_id}", "order": "chapter_number.asc",
@@ -415,7 +428,95 @@ def get_ebook_detail(owner_id: str, ebook_id: str) -> dict:
         "translation_percent": round(translated * 100 / max(1, int(book.get("chapter_count") or 0))),
     })
     book["cover_url"] = _private_cover_url(owner_id, ebook_id, book.get("cover_path"))
+    book["published_novel"] = published_novel
     return {"book": book, "chapters": chapters}
+
+
+def publish_ebook(owner_id: str, ebook_id: str) -> dict:
+    """Copy an owned, chapter-based Ebook into the public novel library; keep its private copy."""
+    remote = SupabaseSync()
+    existing = _published_ebook_novel(remote, ebook_id)
+    if existing:
+        return existing
+    books = remote.rows("ebook_books", {
+        "select": "id,title,author,description,source_format,source_language,chapter_count",
+        "id": f"eq.{ebook_id}", "owner_id": f"eq.{owner_id}", "limit": "1",
+    })
+    if not books:
+        raise EbookServiceError("Không tìm thấy Ebook của tài khoản này.", 404)
+    book = books[0]
+    if book.get("source_format") == "pdf" or book.get("source_language") not in {"zh", "vi"}:
+        raise EbookServiceError("Chỉ có thể đăng công khai Ebook dạng chương, nhận diện tiếng Trung hoặc tiếng Việt.")
+    chapters = remote.all_rows("ebook_chapters", {
+        "select": "chapter_number,title,content_path,content_index,translation_status,translated_content_path",
+        "ebook_id": f"eq.{ebook_id}", "order": "chapter_number.asc",
+    })
+    if not chapters:
+        raise EbookServiceError("Ebook chưa có chương để đăng công khai.")
+    slugs = {str(row["slug"]) for row in remote.all_rows("novels", {"select": "slug"}) if row.get("slug")}
+    slug = unique_slug(str(book.get("title") or "Ebook"), slugs)
+    novel_source = f"ebook://{ebook_id}"
+    owner_key = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:32]
+    private_prefix = f"ebooks/{owner_key}/{ebook_id}/"
+    chapter_rows: list[dict] = []
+    novel_id: int | None = None
+    try:
+        shard_cache: dict[str, dict] = {}
+        for chapter in chapters:
+            content_path = str(chapter.get("content_path") or "")
+            if not content_path.startswith(private_prefix + "chapters/"):
+                raise EbookServiceError("Đường dẫn chương Ebook không hợp lệ.", 503)
+            if content_path not in shard_cache:
+                shard_cache[content_path] = remote.download_json("ebooks", content_path.removeprefix("ebooks/"))
+            items = shard_cache[content_path].get("chapters") or []
+            index = int(chapter.get("content_index", -1))
+            number = int(chapter["chapter_number"])
+            if index < 0 or index >= len(items) or int(items[index].get("chapter_number", 0)) != number:
+                raise EbookServiceError(f"Không đọc được nội dung chương {number}.", 503)
+            original = str(items[index].get("original_content") or "")
+            translated = ""
+            translated_path = str(chapter.get("translated_content_path") or "")
+            if chapter.get("translation_status") == "translated" and translated_path:
+                if not translated_path.startswith(private_prefix + "translations/"):
+                    raise EbookServiceError("Đường dẫn bản dịch Ebook không hợp lệ.", 503)
+                translated = str(remote.download_json("ebooks", translated_path.removeprefix("ebooks/")).get("translated_content") or "")
+            if book["source_language"] == "vi":
+                translated = original
+            is_translated = bool(translated)
+            payload = {
+                "number": number, "title": str(chapter.get("title") or f"Chương {number}"),
+                "original_title": str(chapter.get("title") or f"Chương {number}"),
+                "original_content": original, "translated_content": translated,
+                "content": translated or original, "translated": is_translated, "audio": None,
+            }
+            path = f"{slug}/{number:03d}.json"
+            remote.upload_if_changed("chapters", path, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json", check_existing=False)
+            chapter_rows.append({
+                "chapter_number": number, "title": payload["title"],
+                "source_url": f"{novel_source}/{number}", "translated": is_translated,
+                "content_path": f"chapters/{path}",
+            })
+        novel = remote.insert("novels", {
+            "slug": slug, "title": str(book.get("title") or "Ebook"),
+            "author": book.get("author"), "description": book.get("description"),
+            # Null source_url keeps the Chapter Monitor from treating this public Ebook as a crawl source.
+            "source_url": None, "source_type": book["source_language"],
+            "latest_chapter": max(int(item["chapter_number"]) for item in chapter_rows),
+        })
+        novel_id = int(novel["id"])
+        for row in chapter_rows:
+            row["novel_id"] = novel_id
+        remote.insert_many_ignore("chapters", chapter_rows, "novel_id,source_url")
+        return novel
+    except EbookServiceError:
+        raise
+    except Exception as exc:
+        if novel_id is not None:
+            try:
+                remote.delete_rows("novels", {"id": f"eq.{novel_id}"})
+            except Exception:
+                pass
+        raise EbookServiceError("Không thể đăng Ebook vào thư viện công khai.", 503) from exc
 
 
 def _private_cover_url(owner_id: str, ebook_id: str, path: object) -> str | None:

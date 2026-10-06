@@ -8,10 +8,10 @@
   </header>
   {% if load_error %}<p role="alert" class="site-panel mb-5 border-amber-500/30 p-4 text-amber-500">{{ load_error }}</p>{% endif %}
   {% if ebooks %}
-  <section class="site-panel mb-6 grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_12rem_12rem]" aria-label="Tìm và lọc ebook">
-    <label class="sr-only" for="ebook-search">Tìm ebook</label><input id="ebook-search" type="search" placeholder="Tìm tên ebook hoặc tác giả..." class="min-h-11 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 text-sm">
-    <label class="sr-only" for="ebook-filter">Lọc ebook</label><select id="ebook-filter" class="min-h-11 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 text-sm"><option value="all">Tất cả ebook</option><option value="zh">Tiếng Trung</option><option value="vi">Tiếng Việt</option><option value="translated">Đã dịch</option><option value="pending">Chưa dịch xong</option></select>
-    <label class="sr-only" for="ebook-sort">Sắp xếp</label><select id="ebook-sort" class="min-h-11 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 text-sm"><option value="new">Mới thêm</option><option value="updated">Mới cập nhật</option><option value="title">Tên A–Z</option></select>
+  <section class="site-panel mb-5 grid min-w-0 grid-cols-2 gap-2 p-2.5 sm:mb-6 sm:grid-cols-[minmax(0,1fr)_12rem_12rem] sm:gap-3 sm:p-4" aria-label="Tìm và lọc ebook">
+    <label class="sr-only" for="ebook-search">Tìm ebook</label><input id="ebook-search" type="search" placeholder="Tìm tên ebook hoặc tác giả..." class="col-span-2 min-h-10 min-w-0 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 text-sm sm:col-span-1 sm:min-h-11 sm:px-4">
+    <label class="sr-only" for="ebook-filter">Lọc ebook</label><select id="ebook-filter" class="min-h-10 min-w-0 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-2 text-xs sm:min-h-11 sm:px-3 sm:text-sm"><option value="all">Tất cả ebook</option><option value="zh">Tiếng Trung</option><option value="vi">Tiếng Việt</option><option value="translated">Đã dịch</option><option value="pending">Chưa dịch xong</option></select>
+    <label class="sr-only" for="ebook-sort">Sắp xếp</label><select id="ebook-sort" class="min-h-10 min-w-0 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-2 text-xs sm:min-h-11 sm:px-3 sm:text-sm"><option value="new">Mới thêm</option><option value="updated">Mới cập nhật</option><option value="title">Tên A–Z</option></select>
   </section>
   <section id="ebook-grid" class="grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Danh sách ebook">
     {% for book in ebooks %}
