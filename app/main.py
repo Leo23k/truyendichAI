@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import threading
+import unicodedata
 import uuid
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -358,11 +359,57 @@ def save_reader_progress(payload: ReadingProgressRequest, request: Request) -> d
         raise HTTPException(status_code=503, detail="Could not save reading progress") from exc
 
 
+def _ebook_slug(title: str) -> str:
+    normalized = unicodedata.normalize("NFD", title.casefold().replace("đ", "d"))
+    ascii_text = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", ascii_text)).strip("-") or "ebook"
+
+
+def _ebook_url_slugs(books: list[dict]) -> None:
+    counts: dict[str, int] = {}
+    for book in books:
+        slug = _ebook_slug(str(book.get("title") or "Ebook"))
+        counts[slug] = counts.get(slug, 0) + 1
+    for book in books:
+        slug = _ebook_slug(str(book.get("title") or "Ebook"))
+        book["url_slug"] = f"{slug}-{str(book.get('id') or '')[:8]}" if counts[slug] > 1 else slug
+
+
+def _ebook_owner_slugs(owner_id: str) -> list[dict]:
+    try:
+        books = SupabaseSync().all_rows("ebook_books", {
+            "select": "id,title", "owner_id": f"eq.{owner_id}", "order": "created_at.asc",
+        })
+    except SyncError as exc:
+        raise EbookServiceError("Không thể tra cứu slug ebook.", 503) from exc
+    _ebook_url_slugs(books)
+    return books
+
+
+def _resolve_ebook_route_id(owner_id: str, route_key: str) -> tuple[str, str | None]:
+    try:
+        uuid.UUID(route_key)
+        return route_key, None
+    except (ValueError, AttributeError):
+        pass
+    try:
+        books = _ebook_owner_slugs(owner_id)
+    except EbookServiceError as exc:
+        if exc.status_code == 503:
+            return route_key, None
+        raise
+    match = next((book for book in books if book.get("url_slug") == route_key), None)
+    if not match:
+        raise EbookServiceError("Không tìm thấy ebook.", 404)
+    return str(match["id"]), str(match["url_slug"])
+
+
 @app.get("/ebooks")
 def ebook_library_page(request: Request):
     user = require_authenticated(request)
     try:
         books = list_ebooks(user.id)
+        _ebook_url_slugs(books)
         load_error = None
     except EbookServiceError as exc:
         books = []
@@ -386,7 +433,9 @@ def ebook_upload_page(request: Request):
 def ebook_detail_page(ebook_id: str, request: Request):
     user = require_authenticated(request)
     try:
-        result = get_ebook_detail(user.id, ebook_id)
+        resolved_id, url_slug = _resolve_ebook_route_id(user.id, ebook_id)
+        result = get_ebook_detail(user.id, resolved_id)
+        result["book"]["url_slug"] = url_slug or _ebook_slug(str(result["book"].get("title") or "Ebook"))
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return templates.TemplateResponse(request=request, name="ebook_pages.html", context={
@@ -443,7 +492,8 @@ def ebook_upload_status_endpoint(upload_id: str, request: Request):
 def enqueue_ebook_translation_endpoint(ebook_id: str, request: Request, retranslate: bool = False):
     user = require_authenticated(request)
     try:
-        queued = enqueue_ebook_translation(user.id, ebook_id, retranslate=retranslate)
+        resolved_id, _ = _resolve_ebook_route_id(user.id, ebook_id)
+        queued = enqueue_ebook_translation(user.id, resolved_id, retranslate=retranslate)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return RedirectResponse(f"/ebooks/{ebook_id}?queued={queued}", status_code=303)
@@ -453,7 +503,8 @@ def enqueue_ebook_translation_endpoint(ebook_id: str, request: Request, retransl
 def delete_ebook_endpoint(ebook_id: str, request: Request):
     user = require_authenticated(request)
     try:
-        delete_ebook(user.id, ebook_id)
+        resolved_id, _ = _resolve_ebook_route_id(user.id, ebook_id)
+        delete_ebook(user.id, resolved_id)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return RedirectResponse("/ebooks?deleted=1", status_code=303)
@@ -463,7 +514,8 @@ def delete_ebook_endpoint(ebook_id: str, request: Request):
 def download_original_ebook(ebook_id: str, request: Request):
     user = require_authenticated(request)
     try:
-        url, _filename = get_original_download(user.id, ebook_id)
+        resolved_id, _ = _resolve_ebook_route_id(user.id, ebook_id)
+        url, _filename = get_original_download(user.id, resolved_id)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store, private"})
@@ -475,7 +527,8 @@ def export_private_ebook(ebook_id: str, request: Request, format: str = "epub", 
 
     user = require_authenticated(request)
     try:
-        content, media_type, filename = export_ebook(user.id, ebook_id, format, language)
+        resolved_id, _ = _resolve_ebook_route_id(user.id, ebook_id)
+        content, media_type, filename = export_ebook(user.id, resolved_id, format, language)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return StreamingResponse(
@@ -488,7 +541,8 @@ def export_private_ebook(ebook_id: str, request: Request, format: str = "epub", 
 def read_private_pdf(ebook_id: str, request: Request):
     user = require_authenticated(request)
     try:
-        url = get_pdf_view_url(user.id, ebook_id)
+        resolved_id, _ = _resolve_ebook_route_id(user.id, ebook_id)
+        url = get_pdf_view_url(user.id, resolved_id)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store, private", "Referrer-Policy": "no-referrer"})
@@ -498,17 +552,26 @@ def read_private_pdf(ebook_id: str, request: Request):
 def read_ebook_chapter(ebook_id: str, chapter_number: int, request: Request, mode: str = "original"):
     user = require_authenticated(request)
     try:
-        result = get_ebook_chapter(user.id, ebook_id, chapter_number, mode=mode)
+        resolved_id, url_slug = _resolve_ebook_route_id(user.id, ebook_id)
+        result = get_ebook_chapter(user.id, resolved_id, chapter_number, mode=mode)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    chapter_title = re.sub(r"\s+", " ", str(result.get("chapter", {}).get("title") or "")).strip().casefold()
+    if chapter_number == 1 and chapter_title in {"mục lục", "table of contents", "contents", "content"} and result.get("following"):
+        return RedirectResponse(
+            f"/ebooks/{url_slug or _ebook_slug(str(result['book'].get('title') or 'Ebook'))}/read/{result['following']['chapter_number']}?mode={quote(mode)}",
+            status_code=302,
+            headers={"Cache-Control": "no-store, private"},
+        )
     return templates.TemplateResponse(
         request=request,
         name="ebook_reader.html",
         context={
             **result,
+            "book": {**result["book"], "id": resolved_id, "url_slug": url_slug or _ebook_slug(str(result["book"].get("title") or "Ebook"))},
             "mode": "original" if mode != "translated" else "translated",
             "translated": result.get("translated", False),
-            "back_url": "/ebooks",
+            "back_url": f"/ebooks/{url_slug or _ebook_slug(str(result['book'].get('title') or 'Ebook'))}",
         },
     )
 

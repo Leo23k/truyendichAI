@@ -17,8 +17,8 @@
       <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
         <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" @click="theme = theme === 'paper' ? 'sepia' : theme === 'sepia' ? 'dark' : 'paper'" aria-label="Đổi nền đọc"><i data-lucide="palette" class="h-5 w-5"></i></button>
         <button type="button" class="icon-button h-9 w-9 sm:h-10 sm:w-10" @click="settings = !settings" aria-label="Cài đặt đọc"><i data-lucide="type" class="h-5 w-5"></i></button>
-        <a href="/ebooks/{{ book.id }}" class="icon-button hidden h-10 w-10 sm:inline-flex" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Mục lục Ebook"><i data-lucide="list" class="h-5 w-5"></i></a>
-        <a href="/ebooks/{{ book.id }}/download" class="icon-button hidden h-10 w-10 sm:inline-flex" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Tải Ebook gốc"><i data-lucide="download" class="h-5 w-5"></i></a>
+        <a href="{{ back_url }}" class="icon-button hidden h-10 w-10 sm:inline-flex" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Mục lục Ebook"><i data-lucide="list" class="h-5 w-5"></i></a>
+        <a href="/ebooks/{{ book.url_slug }}/download" class="icon-button hidden h-10 w-10 sm:inline-flex" :class="theme === 'dark' ? 'text-stone-200' : 'text-stone-600'" aria-label="Tải Ebook gốc"><i data-lucide="download" class="h-5 w-5"></i></a>
       </div>
       <section x-cloak x-show="settings" @click.outside="settings = false" class="absolute right-3 top-full mt-2 w-64 rounded-lg border border-stone-200 bg-white p-3 text-stone-900 shadow-xl sm:right-[max(1rem,calc((100vw-64rem)/2))]">
         <div class="flex items-center justify-between gap-2"><button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.max(14, size - 1)">A-</button><span class="text-sm" x-text="size + 'px'"></span><button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.min(32, size + 1)">A+</button></div>
@@ -28,10 +28,10 @@
     </div>
   </header>
 
-  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pt-5 text-xs sm:px-8 sm:text-sm" aria-label="Breadcrumb"><a href="{{ back_url }}" class="opacity-70 hover:text-teal-500">← Ebook</a><span class="opacity-40">›</span><a href="{{ back_url }}" class="max-w-44 truncate opacity-70 hover:text-teal-500">{{ book.title }}</a><span class="opacity-40">›</span><span class="truncate font-medium">{{ chapter.title }}</span></nav>
+  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pt-5 text-xs sm:px-8 sm:text-sm" aria-label="Breadcrumb"><a href="/ebooks" class="opacity-70 hover:text-teal-500">← Ebook</a><span class="opacity-40">›</span><a href="{{ back_url }}" class="max-w-44 truncate opacity-70 hover:text-teal-500">{{ book.title }}</a><span class="opacity-40">›</span><span class="truncate font-medium">{{ chapter.title }}</span></nav>
   <div class="mx-auto mt-5 flex max-w-3xl flex-wrap items-center justify-center gap-2 px-4">
     <a class="site-nav-button{% if mode == 'original' %} accent{% endif %}" href="?mode=original">Bản gốc</a>
-    {% if chapter.translation_status == 'translated' %}<a class="site-nav-button{% if mode == 'translated' %} accent{% endif %}" href="?mode=translated">Bản dịch</a>{% elif chapter.translation_status in ['pending', 'processing'] %}<span class="self-center text-sm opacity-65">{% if chapter.translation_status == 'processing' %}Đang dịch…{% else %}Đang chờ dịch{% endif %}</span>{% endif %}
+    {% if chapter.translation_status == 'translated' %}<a class="site-nav-button{% if mode == 'translated' %} accent{% endif %}" href="?mode=translated">Bản dịch</a>{% elif chapter.translation_status == 'processing' %}<span class="self-center text-sm opacity-65">Đang dịch…</span>{% endif %}
     <button id="ebook-tts-play" type="button" class="site-nav-button">▶ Đọc bằng giọng nói</button><button id="ebook-tts-stop" type="button" class="site-nav-button">Dừng</button>
   </div>
   <p id="ebook-tts-status" class="mx-auto mt-2 min-h-5 max-w-3xl px-4 text-center text-xs opacity-65" role="status"></p>
@@ -42,13 +42,68 @@
     <div class="reader-prose [&_p]:mb-5 [&_blockquote]:border-l-4 [&_blockquote]:border-teal-500 [&_blockquote]:pl-4 [&_h1]:my-6 [&_h2]:my-5 [&_h3]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6">{{ content|safe }}</div>
   </article>
   <nav class="mx-auto mb-24 grid max-w-4xl grid-cols-2 gap-3 border-t border-current/10 px-5 pt-5 sm:mb-32 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center sm:px-8" aria-label="Chuyển chương">
-    {% if previous %}<a href="/ebooks/{{ book.id }}/read/{{ previous.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center gap-2 rounded-lg border border-current/15 px-3 py-2 hover:border-teal-500/60"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG TRƯỚC</small><strong class="block truncate text-xs sm:text-sm">{{ previous.title }}</strong></span></a>{% else %}<span></span>{% endif %}
-    <a href="{{ back_url }}" class="hidden text-center text-xs font-semibold uppercase tracking-[.15em] text-teal-500 sm:block">Mục lục</a>
-    {% if following %}<a href="/ebooks/{{ book.id }}/read/{{ following.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center justify-end gap-2 rounded-lg border border-current/15 px-3 py-2 text-right hover:border-teal-500/60"><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG SAU</small><strong class="block truncate text-xs sm:text-sm">{{ following.title }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% endif %}
+    {% if previous %}<a href="/ebooks/{{ book.url_slug }}/read/{{ previous.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center gap-2 rounded-lg border border-current/15 px-3 py-2 hover:border-teal-500/60"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG TRƯỚC</small><strong class="block truncate text-xs sm:text-sm">{{ previous.title }}</strong></span></a>{% else %}<span></span>{% endif %}
+    <span class="text-center" data-ebook-reading-progress><strong class="reader-progress-number">0%</strong><small class="reader-progress-label">TIẾN TRÌNH ĐỌC</small></span>
+    {% if following %}<a href="/ebooks/{{ book.url_slug }}/read/{{ following.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center justify-end gap-2 rounded-lg border border-current/15 px-3 py-2 text-right hover:border-teal-500/60"><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG SAU</small><strong class="block truncate text-xs sm:text-sm">{{ following.title }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% endif %}
   </nav>
 </div>
 <script>
 (() => {
+  const ebookId = {{ book.id|tojson }};
+  const ebookSlug = {{ book.url_slug|tojson }};
+  const chapterNumber = Number({{ chapter.chapter_number|tojson }});
+  const userId = document.body.dataset.userId || 'anonymous';
+  const prefix = `reader.${userId}.`;
+  const progressKey = `${prefix}reader.ebook.position.${ebookId}.${chapterNumber}`;
+  const lastUrlKey = `${prefix}reader.lastUrl.book.${ebookId}`;
+  const lastReadKey = `${prefix}reader.lastReadAt.book.${ebookId}`;
+  const readerContent = document.getElementById('ebook-reader-content');
+  const progress = document.querySelector('[data-ebook-reading-progress]');
+  const updateProgress = () => {
+    if (!readerContent || !progress) return 0;
+    const readableHeight = Math.max(1, readerContent.offsetHeight - window.innerHeight * .55);
+    const percent = Math.max(0, Math.min(100, Math.round((window.scrollY - readerContent.offsetTop + window.innerHeight * .45) / readableHeight * 100)));
+    progress.querySelector('.reader-progress-number').textContent = `${percent}%`;
+    return percent;
+  };
+  const saveProgress = () => {
+    const state = { chapter: chapterNumber, percent: updateProgress(), savedAt: Date.now() };
+    try {
+      localStorage.setItem(progressKey, JSON.stringify(state));
+      localStorage.setItem(lastUrlKey, location.pathname + location.search);
+      localStorage.setItem(lastReadKey, String(Date.now()));
+    } catch {}
+  };
+  const lastUrl = localStorage.getItem(lastUrlKey);
+  if (chapterNumber === 1 && lastUrl) {
+    const lastChapter = lastUrl.match(new RegExp(`/ebooks/${ebookSlug}/read/(\\d+)`));
+    if (lastChapter && Number(lastChapter[1]) > 1) {
+      location.replace(lastUrl);
+      return;
+    }
+  }
+  localStorage.setItem(lastUrlKey, location.pathname + location.search);
+  localStorage.setItem(lastReadKey, String(Date.now()));
+  try {
+    const saved = JSON.parse(localStorage.getItem(progressKey) || 'null');
+    if (saved && Number(saved.chapter) === chapterNumber && Number(saved.percent) > 0) {
+      requestAnimationFrame(() => {
+        const readableHeight = Math.max(1, readerContent.offsetHeight - window.innerHeight * .55);
+        window.scrollTo({ top: Math.max(0, readerContent.offsetTop - window.innerHeight * .45 + readableHeight * Number(saved.percent) / 100), behavior: 'auto' });
+        updateProgress();
+      });
+    }
+  } catch {}
+  let progressSaveTimer;
+  window.addEventListener('scroll', () => {
+    updateProgress();
+    clearTimeout(progressSaveTimer);
+    progressSaveTimer = setTimeout(saveProgress, 1200);
+  }, {passive: true});
+  window.addEventListener('resize', updateProgress);
+  window.addEventListener('pagehide', saveProgress);
+  window.setTimeout(updateProgress, 0);
+
   const play = document.getElementById('ebook-tts-play');
   const stop = document.getElementById('ebook-tts-stop');
   const status = document.getElementById('ebook-tts-status');
