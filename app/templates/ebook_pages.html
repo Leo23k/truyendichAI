@@ -5,7 +5,7 @@
 {% if page_type == 'upload' %}
   <header class="mb-6"><a class="site-muted text-sm hover:text-[var(--text)]" href="/ebooks">← Ebook của tôi</a><h1 class="site-title mt-3 text-3xl">Upload Ebook</h1></header>
   <section class="site-panel mx-auto max-w-2xl p-5 sm:p-8">
-    <p class="mb-5 rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm">File được tải thẳng lên kho riêng tư. Sau khi PC worker phân tích, chỉ nội dung nhận diện là tiếng Trung mới được đưa vào hàng đợi dịch; PDF và nội dung ngôn ngữ khác chỉ được lưu/đọc.</p>
+    <p class="mb-5 rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm">Chọn rõ một trong hai cách: chỉ lưu để đọc, hoặc yêu cầu dịch. Dù chọn cách nào, PC worker vẫn cần phân tích file sau khi tải để tạo mục lục; chỉ ebook nhận diện là tiếng Trung mới được xếp hàng dịch. PDF/ngôn ngữ khác sẽ không bị đưa vào dịch.</p>
     <form id="ebook-upload-form" action="/api/ebooks/upload" method="post" class="space-y-5">
       <label id="ebook-drop-zone" for="ebook-file" class="flex min-h-56 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--line)] bg-[var(--surface-2)] p-6 text-center transition hover:border-[var(--accent)]">
         <span class="mb-3 text-4xl" aria-hidden="true">📤</span><span class="font-semibold">Kéo thả file vào đây hoặc chọn file</span><span class="site-muted mt-2 text-sm">EPUB · TXT · HTML · PDF · Tối đa 100 MB</span><span id="ebook-file-name" class="mt-3 text-sm text-[var(--accent)]" aria-live="polite"></span>
@@ -13,14 +13,17 @@
       </label>
       <div id="ebook-upload-progress" class="hidden" aria-live="polite"><div class="mb-2 flex justify-between text-sm"><span id="ebook-upload-status">Đang chuẩn bị upload…</span><span id="ebook-upload-percent">0%</span></div><div class="h-2 overflow-hidden rounded-full bg-[var(--surface-3)]"><div id="ebook-upload-bar" class="h-full rounded-full bg-[var(--accent)] transition-[width]" style="width:0%"></div></div></div>
       <p id="ebook-upload-error" class="hidden rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400" role="alert"></p>
-      <button id="ebook-upload-submit" type="submit" class="site-nav-button accent min-h-12 w-full justify-center">Tải lên Ebook</button>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <button id="ebook-upload-only" type="submit" data-translate="false" class="site-nav-button min-h-12 w-full justify-center">Chỉ upload · không dịch</button>
+        <button id="ebook-upload-translate" type="submit" data-translate="true" class="site-nav-button accent min-h-12 w-full justify-center">Upload & dịch tiếng Trung</button>
+      </div>
     </form>
   </section>
   <script>
   (() => {
     const form = document.getElementById('ebook-upload-form'), input = document.getElementById('ebook-file'), zone = document.getElementById('ebook-drop-zone');
     const name = document.getElementById('ebook-file-name'), progress = document.getElementById('ebook-upload-progress'), status = document.getElementById('ebook-upload-status');
-    const percent = document.getElementById('ebook-upload-percent'), bar = document.getElementById('ebook-upload-bar'), error = document.getElementById('ebook-upload-error'), submit = document.getElementById('ebook-upload-submit');
+    const percent = document.getElementById('ebook-upload-percent'), bar = document.getElementById('ebook-upload-bar'), error = document.getElementById('ebook-upload-error'), submits = [...form.querySelectorAll('button[type="submit"]')];
     const maxBytes = 100 * 1024 * 1024;
     const setFile = file => { if (!file) return; const allowed = /\.(epub|txt|html?|pdf)$/i.test(file.name); if (!allowed || file.size > maxBytes || file.size === 0) { error.textContent = !allowed ? 'Định dạng file chưa được hỗ trợ.' : file.size === 0 ? 'File rỗng.' : 'File vượt giới hạn 100 MB.'; error.classList.remove('hidden'); input.value = ''; name.textContent = ''; return; } error.classList.add('hidden'); name.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`; };
     input.addEventListener('change', () => setFile(input.files[0]));
@@ -36,11 +39,12 @@
     const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
     form.addEventListener('submit', async event => {
       event.preventDefault(); if (!input.files.length) { input.reportValidity(); return; }
+      const translateIfChinese = event.submitter?.dataset.translate === 'true';
       const file = input.files[0];
-      error.classList.add('hidden'); progress.classList.remove('hidden'); submit.disabled = true;
+      error.classList.add('hidden'); progress.classList.remove('hidden'); submits.forEach(button => { button.disabled = true; });
       percent.textContent = '0%'; bar.style.width = '0%'; status.textContent = 'Đang cấp quyền upload an toàn…';
       try {
-        const session = await apiJson(form.action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_name: file.name, file_size: file.size }) });
+        const session = await apiJson(form.action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_name: file.name, file_size: file.size, translate_if_chinese: translateIfChinese }) });
         status.textContent = 'Đang tải trực tiếp lên B2…';
         await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest(); xhr.open('PUT', session.upload_url); xhr.setRequestHeader('Content-Type', session.content_type);
@@ -57,21 +61,21 @@
           const result = await apiJson(`/api/ebooks/upload/${encodeURIComponent(session.upload_id)}/status`);
           if (result.status === 'failed') throw new Error(result.error || 'PC worker không thể phân tích file.');
           if (result.status === 'completed') {
-            const query = new URLSearchParams({ uploaded: '1', queued: String(result.translation_queued || 0) });
+            const query = new URLSearchParams({ uploaded: '1', queued: String(result.translation_queued || 0), translate: translateIfChinese ? '1' : '0' });
             if (result.source_language !== 'zh') query.set('not_chinese', '1');
             window.location.assign(`/ebooks/${encodeURIComponent(result.ebook_id)}?${query}`); return;
           }
-          status.textContent = result.status === 'processing' ? 'PC worker đang parse và lập chỉ mục…' : 'Upload xong · Đang chờ PC worker…';
+          status.textContent = result.status === 'processing' ? 'PC worker đang phân tích và lập mục lục…' : 'Upload xong · Đang chờ PC worker…';
         }
       } catch (uploadError) {
-        submit.disabled = false; error.textContent = uploadError.message || 'Upload thất bại. Hãy thử lại.'; error.classList.remove('hidden');
+        submits.forEach(button => { button.disabled = false; }); error.textContent = uploadError.message || 'Upload thất bại. Hãy thử lại.'; error.classList.remove('hidden');
       }
     });
   })();
   </script>
 {% else %}
   <header class="mb-6 flex flex-wrap items-center justify-between gap-3"><a class="site-nav-button" href="/ebooks">← Ebook của tôi</a><a class="site-nav-button" href="/">Thư viện</a></header>
-  {% if uploaded %}<p class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm" role="status">Upload và parse hoàn tất.</p>{% endif %}
+  {% if uploaded %}<p class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm" role="status">Upload và parse hoàn tất.{% if not translate_requested and book.source_language == 'zh' %} Bạn có thể bấm “Dịch ebook” bên dưới khi muốn bắt đầu dịch.{% endif %}</p>{% endif %}
   {% if queued is not none %}<p class="mb-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm" role="status">Đã đưa {{ queued }} chương vào hàng đợi dịch. Tiến độ sẽ cập nhật khi worker xử lý.</p>{% endif %}
   {% if not_chinese %}<p class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm" role="status">File đã lưu nhưng không được nhận diện là tiếng Trung nên không tự đưa vào pipeline dịch.</p>{% endif %}
   {% if queue_error %}<p class="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm" role="alert">Upload thành công nhưng chưa tạo được hàng đợi dịch. Bạn có thể thử lại trong trang chi tiết.</p>{% endif %}

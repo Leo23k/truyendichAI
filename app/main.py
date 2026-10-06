@@ -393,6 +393,7 @@ def ebook_detail_page(ebook_id: str, request: Request):
         **result, "page_type": "detail",
         "uploaded": request.query_params.get("uploaded") == "1",
         "queued": request.query_params.get("queued"),
+        "translate_requested": request.query_params.get("translate") == "1",
         "not_chinese": request.query_params.get("not_chinese") == "1",
         "queue_error": request.query_params.get("queue_error") == "1",
     })
@@ -407,9 +408,12 @@ async def upload_ebook_endpoint(request: Request):
             raise HTTPException(status_code=400, detail="Thông tin file Ebook không hợp lệ.")
         filename = str(payload.get("file_name") or "")
         file_size = int(payload.get("file_size") or 0)
+        translate_if_chinese = payload.get("translate_if_chinese", False)
+        if not isinstance(translate_if_chinese, bool):
+            raise HTTPException(status_code=400, detail="Lựa chọn dịch Ebook không hợp lệ.")
         if not filename:
             raise HTTPException(status_code=400, detail="Vui lòng chọn file Ebook.")
-        return JSONResponse(begin_ebook_upload(user.id, filename, file_size))
+        return JSONResponse(begin_ebook_upload(user.id, filename, file_size, translate_if_chinese=translate_if_chinese))
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except (ValueError, TypeError) as exc:

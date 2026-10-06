@@ -224,6 +224,8 @@ def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
     detail = client.get("/ebooks/book-1")
     library = client.get("/")
     assert upload.status_code == 200 and "100 MB" in upload.text and "PC worker" in upload.text
+    assert 'id="ebook-upload-only"' in upload.text and 'data-translate="false"' in upload.text
+    assert 'id="ebook-upload-translate"' in upload.text and 'data-translate="true"' in upload.text
     assert "auto_translate" not in upload.text and "upload_url" in upload.text
     assert detail.status_code == 200 and "Tiến độ dịch" in detail.text and "1/2 · 50%" in detail.text
     assert "https://signed.example/cover.png" in detail.text
@@ -235,15 +237,19 @@ def test_non_admin_can_start_direct_ebook_upload(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
     monkeypatch.setattr(main_app, "list_ebooks", lambda owner: [{"id": "ebook-1", "title": "Owned", "chapter_count": 1, "source_format": "txt", "source_language": "vi"}] if owner == user.id else [])
-    monkeypatch.setattr(main_app, "begin_ebook_upload", lambda owner, filename, size: {"upload_id": "ebook-2", "upload_url": "https://b2.test/signed", "content_type": "text/plain"})
+    requested = []
+    monkeypatch.setattr(main_app, "begin_ebook_upload", lambda owner, filename, size, **options: requested.append(options) or {"upload_id": "ebook-2", "upload_url": "https://b2.test/signed", "content_type": "text/plain"})
 
     client = TestClient(main_app.app)
     client.cookies.set("sb-access-token", "local-test-token")
     page = client.get("/ebooks")
-    response = client.post("/api/ebooks/upload", json={"file_name": "new.txt", "file_size": 9})
+    response = client.post("/api/ebooks/upload", json={"file_name": "new.txt", "file_size": 9, "translate_if_chinese": True})
+    upload_only = client.post("/api/ebooks/upload", json={"file_name": "new.txt", "file_size": 9, "translate_if_chinese": False})
 
     assert page.status_code == 200 and "Owned" in page.text
     assert response.status_code == 200 and response.json()["upload_url"] == "https://b2.test/signed"
+    assert upload_only.status_code == 200
+    assert requested == [{"translate_if_chinese": True}, {"translate_if_chinese": False}]
 
 
 def test_begin_ebook_upload_signs_only_the_reserved_private_object(monkeypatch):
@@ -268,6 +274,7 @@ def test_begin_ebook_upload_signs_only_the_reserved_private_object(monkeypatch):
     assert signed[0][1]["Bucket"] == "private-ebooks"
     assert signed[0][1]["ContentLength"] == 80 * 1024 * 1024
     assert remote.calls[0][2]["expected_size"] == 80 * 1024 * 1024
+    assert remote.calls[0][2]["translate_if_chinese"] is False
 
 
 def test_direct_ebook_upload_enforces_100mb_limit(monkeypatch):

@@ -184,7 +184,7 @@ def upload_ebook(owner_id: str, filename: str, content: bytes, *, prepare_transl
     return UploadedEbook(ebook_id, parsed.title, len(parsed.chapters), source_language, translation_inputs)
 
 
-def begin_ebook_upload(owner_id: str, filename: str, file_size: int) -> dict:
+def begin_ebook_upload(owner_id: str, filename: str, file_size: int, *, translate_if_chinese: bool = False) -> dict:
     """Reserve a private B2 object and return a short-lived, object-scoped PUT URL."""
     if not b2_configured():
         raise EbookServiceError("B2 private storage chưa được cấu hình.", 503)
@@ -220,7 +220,7 @@ def begin_ebook_upload(owner_id: str, filename: str, file_size: int) -> dict:
             "source_format": formats[extension],
             "original_file_path": object_path,
             "expected_size": file_size,
-            "translate_if_chinese": True,
+            "translate_if_chinese": bool(translate_if_chinese),
             "status": "awaiting_upload",
         })
     except SyncError as exc:

@@ -4,10 +4,10 @@ The private ebook library keeps metadata and chapter indexes in Supabase and ori
 
 ## Supported operations
 
-- Upload EPUB, TXT, HTML, and PDF (100 MB maximum upload). The browser uploads the binary directly to private B2 using a short-lived presigned URL; Vercel only receives small JSON requests.
+- Upload EPUB, TXT, HTML, and PDF (100 MB maximum upload). The browser uploads the binary directly to private B2 using a short-lived presigned URL; Vercel only receives small JSON requests. The user chooses “upload only” or “upload & translate”; the latter queues only books detected as Chinese.
 - EPUB/TXT/HTML are normalized into chapters and can be read in the ebook reader.
 - PDF is preserved as a fixed-layout original and opened with the browser's PDF viewer. It is not text-extracted or translated.
-- Chinese ebook chapters are detected during PC-worker ingestion and can be queued to the existing translator worker. Vietnamese/unknown-language books and PDFs are not automatically queued for translation. Translations are stored separately; the source is never overwritten.
+- Chinese ebook chapters are detected during PC-worker ingestion and are queued only when the user chose “upload & translate”. Vietnamese/unknown-language books and PDFs are never queued. Translations are stored separately; the source is never overwritten.
 - Reader supports original/translated modes and uses the existing `/api/tts` service.
 - Original download and EPUB/TXT/HTML exports are owner-authorized for private ebooks. Crawled novels also expose EPUB/TXT/HTML export from their detail page. Export languages: Vietnamese, source language, or bilingual.
 - Deletion removes the owner's B2 object versions and cascades ebook metadata/chapter/queue rows.
