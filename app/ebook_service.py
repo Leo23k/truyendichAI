@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ from sync.service import SupabaseSync, SyncError
 from bs4 import BeautifulSoup
 
 
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 CHAPTERS_PER_OBJECT = 25
 _SAFE_NAME = re.compile(r"[^\w .()\[\]-]+", re.UNICODE)
 
@@ -50,6 +51,10 @@ def _language(parsed: ParsedEbook) -> str:
     if language in {"vi", "vie"}:
         return "vi"
     sample = " ".join(chapter.content for chapter in parsed.chapters[:3])[:12000]
+    # CJK-only text can be Japanese or Korean; do not enqueue it as Chinese
+    # unless the parser's language metadata explicitly identified Chinese.
+    if any("\u3040" <= char <= "\u30ff" or "\uac00" <= char <= "\ud7af" for char in sample):
+        return "unknown"
     cjk = sum("\u3400" <= char <= "\u9fff" for char in sample)
     letters = sum(char.isalpha() for char in sample)
     if letters and cjk / letters >= 0.12:
@@ -177,6 +182,162 @@ def upload_ebook(owner_id: str, filename: str, content: bytes, *, prepare_transl
         if prepare_translation and source_language == "zh" else None
     )
     return UploadedEbook(ebook_id, parsed.title, len(parsed.chapters), source_language, translation_inputs)
+
+
+def begin_ebook_upload(owner_id: str, filename: str, file_size: int) -> dict:
+    """Reserve a private B2 object and return a short-lived, object-scoped PUT URL."""
+    if not b2_configured():
+        raise EbookServiceError("B2 private storage chưa được cấu hình.", 503)
+    safe_name = _safe_filename(filename)
+    extension = PurePosixPath(safe_name).suffix.lower()
+    formats = {".epub": "epub", ".txt": "txt", ".html": "html", ".htm": "html", ".pdf": "pdf"}
+    if extension not in formats:
+        raise EbookServiceError("Chỉ hỗ trợ EPUB, TXT, HTML và PDF.")
+    if file_size <= 0 or file_size > MAX_UPLOAD_BYTES:
+        raise EbookServiceError("File rỗng hoặc vượt giới hạn upload 100 MB.", 413)
+    content_types = {
+        ".epub": "application/epub+zip", ".txt": "text/plain", ".html": "text/html",
+        ".htm": "text/html", ".pdf": "application/pdf",
+    }
+    ebook_id = str(uuid.uuid4())
+    owner_key = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:32]
+    object_path = f"ebooks/{owner_key}/{ebook_id}/original{extension}"
+    try:
+        from app.storage import client
+
+        url = client().generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": os.environ["B2_BUCKET"], "Key": object_path,
+                "ContentType": content_types[extension], "ContentLength": file_size,
+            },
+            ExpiresIn=900,
+        )
+        SupabaseSync().insert("ebook_ingestion_queue", {
+            "id": ebook_id,
+            "owner_id": owner_id,
+            "file_name": safe_name,
+            "source_format": formats[extension],
+            "original_file_path": object_path,
+            "expected_size": file_size,
+            "translate_if_chinese": True,
+            "status": "awaiting_upload",
+        })
+    except SyncError as exc:
+        raise EbookServiceError("Không thể tạo phiên upload Ebook.", 503) from exc
+    except Exception as exc:
+        raise EbookServiceError("Không thể cấp quyền upload B2.", 503) from exc
+    return {"upload_id": ebook_id, "upload_url": url, "content_type": content_types[extension]}
+
+
+def complete_ebook_upload(owner_id: str, upload_id: str) -> None:
+    remote = SupabaseSync()
+    try:
+        rows = remote.rows("ebook_ingestion_queue", {
+            "select": "id,status", "id": f"eq.{upload_id}", "owner_id": f"eq.{owner_id}", "limit": "1",
+        })
+        if not rows:
+            raise EbookServiceError("Không tìm thấy phiên upload.", 404)
+        if rows[0]["status"] in {"queued", "processing", "completed"}:
+            return
+        changed = remote.patch_rows("ebook_ingestion_queue", {
+            "id": f"eq.{upload_id}", "owner_id": f"eq.{owner_id}", "status": "eq.awaiting_upload",
+        }, {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat(), "error": None})
+        if not changed:
+            raise EbookServiceError("Phiên upload không còn hợp lệ.", 409)
+    except EbookServiceError:
+        raise
+    except SyncError as exc:
+        raise EbookServiceError("Không thể đưa Ebook vào hàng đợi xử lý.", 503) from exc
+
+
+def ebook_upload_status(owner_id: str, upload_id: str) -> dict:
+    try:
+        rows = SupabaseSync().rows("ebook_ingestion_queue", {
+            "select": "id,status,source_language,translation_queued,error",
+            "id": f"eq.{upload_id}", "owner_id": f"eq.{owner_id}", "limit": "1",
+        })
+    except SyncError as exc:
+        raise EbookServiceError("Không thể kiểm tra trạng thái upload.", 503) from exc
+    if not rows:
+        raise EbookServiceError("Không tìm thấy phiên upload.", 404)
+    row = rows[0]
+    return {
+        "status": row["status"], "ebook_id": upload_id if row["status"] == "completed" else None,
+        "source_language": row.get("source_language"),
+        "translation_queued": int(row.get("translation_queued") or 0), "error": row.get("error"),
+    }
+
+
+def process_ebook_ingestion_job(remote: SupabaseSync, job: dict, content: bytes) -> int:
+    """Parse a B2-uploaded original in the PC worker, persist its index, and optionally queue zh chapters."""
+    if len(content) != int(job["expected_size"]) or len(content) > MAX_UPLOAD_BYTES:
+        raise EbookServiceError("Kích thước file B2 không khớp phiên upload.", 400)
+    digest = hashlib.sha256(content).hexdigest()
+    duplicates = remote.rows("ebook_books", {
+        "select": "id", "owner_id": f"eq.{job['owner_id']}", "file_sha256": f"eq.{digest}", "limit": "1",
+    })
+    if duplicates:
+        raise EbookServiceError("Ebook này đã có trong thư viện của bạn.", 409)
+    try:
+        parsed = parse_ebook(content, str(job["file_name"]))
+    except EbookParseError as exc:
+        raise EbookServiceError(str(exc), 400) from exc
+    source_language = _language(parsed)
+    ebook_id = str(job["id"])
+    root = str(job["original_file_path"]).rsplit("/original", 1)[0]
+    written_objects: list[str] = []
+    chapter_rows = []
+    try:
+        cover_path = None
+        if parsed.cover and parsed.cover_media_type:
+            extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}[parsed.cover_media_type]
+            cover_path = f"{root}/assets/cover{extension}"
+            b2_upload(cover_path, parsed.cover, parsed.cover_media_type, check_existing=False)
+            written_objects.append(cover_path)
+        for start in range(0, len(parsed.chapters), CHAPTERS_PER_OBJECT):
+            group = parsed.chapters[start:start + CHAPTERS_PER_OBJECT]
+            shard_path = f"{root}/chapters/{start // CHAPTERS_PER_OBJECT:04d}.json"
+            payload = {"format_version": 1, "chapters": [{
+                "chapter_number": item.number, "title": item.title,
+                "original_content": item.content, "translated_content": None, "translated": False,
+            } for item in group]}
+            b2_upload(shard_path, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json", check_existing=False)
+            written_objects.append(shard_path)
+            chapter_rows.extend({
+                "ebook_id": ebook_id, "chapter_number": item.number, "title": item.title,
+                "content_path": shard_path, "content_index": index,
+                "translation_status": "pending" if source_language == "zh" else "not_needed",
+            } for index, item in enumerate(group))
+        book_payload = {
+            "id": ebook_id, "owner_id": job["owner_id"], "file_name": job["file_name"],
+            "file_sha256": digest, "original_file_path": job["original_file_path"],
+            "source_format": job["source_format"], "source_language": source_language,
+            "title": parsed.title[:500], "author": parsed.author[:255] or None,
+            "description": parsed.description[:10000] or None, "status": "ready",
+            "chapter_count": len(parsed.chapters),
+        }
+        if cover_path:
+            book_payload["cover_path"] = cover_path
+        created = remote.request("POST", "/rest/v1/ebook_books", json=book_payload, headers={"Prefer": "return=representation"}).json()
+        if not isinstance(created, list) or not created:
+            raise EbookServiceError("Supabase không xác nhận metadata Ebook.", 503)
+        for offset in range(0, len(chapter_rows), 500):
+            remote.request("POST", "/rest/v1/ebook_chapters", json=chapter_rows[offset:offset + 500], headers={"Prefer": "return=minimal"})
+    except Exception:
+        _rollback_objects(written_objects)
+        try:
+            remote.request("DELETE", "/rest/v1/ebook_books", params={"id": f"eq.{ebook_id}"})
+        except Exception:
+            pass
+        raise
+    if job.get("translate_if_chinese") and source_language == "zh" and parsed.chapters:
+        raw_chapters = {int(item.number): str(item.content) for item in parsed.chapters}
+        try:
+            return enqueue_ebook_translation(str(job["owner_id"]), ebook_id, raw_chapters=raw_chapters, remote=remote)
+        except EbookServiceError:
+            return 0
+    return 0
 
 
 def list_ebooks(owner_id: str) -> list[dict]:
@@ -494,8 +655,9 @@ def enqueue_ebook_translation(
     *,
     retranslate: bool = False,
     raw_chapters: dict[int, str] | None = None,
+    remote: SupabaseSync | None = None,
 ) -> int:
-    remote = SupabaseSync()
+    remote = remote or SupabaseSync()
     try:
         books = remote.rows("ebook_books", {
             "select": "id,source_language", "id": f"eq.{ebook_id}",

@@ -22,7 +22,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
-from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, delete_ebook, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_ebook_detail, get_original_download, get_pdf_view_url, list_ebooks, upload_ebook
+from app.ebook_service import EbookServiceError, begin_ebook_upload, complete_ebook_upload, delete_ebook, ebook_upload_status, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_ebook_detail, get_original_download, get_pdf_view_url, list_ebooks
 from app.ebook_export import build_ebook_export
 from app.cdn import (
     CdnDataError,
@@ -375,10 +375,10 @@ def ebook_library_page(request: Request):
 
 
 @app.get("/ebooks/upload")
-def ebook_upload_page(request: Request, mode: str = "normal"):
+def ebook_upload_page(request: Request):
     require_authenticated(request)
     return templates.TemplateResponse(request=request, name="ebook_pages.html", context={
-        "page_type": "upload", "auto_translate": mode == "translate",
+        "page_type": "upload",
     })
 
 
@@ -399,30 +399,40 @@ def ebook_detail_page(ebook_id: str, request: Request):
 
 
 @app.post("/api/ebooks/upload")
-async def upload_ebook_endpoint(request: Request, file: UploadFile = File(...), auto_translate: bool = Form(False)):
+async def upload_ebook_endpoint(request: Request):
     user = require_authenticated(request)
-    content = bytearray()
     try:
-        while chunk := await file.read(1024 * 1024):
-            content.extend(chunk)
-            if len(content) > MAX_UPLOAD_BYTES:
-                raise HTTPException(status_code=413, detail="File vượt quá giới hạn upload 25 MB.")
-        if not file.filename:
-            raise HTTPException(status_code=400, detail="Vui lòng chọn file ebook.")
-        uploaded = upload_ebook(user.id, file.filename, bytes(content), prepare_translation=auto_translate)
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Thông tin file Ebook không hợp lệ.")
+        filename = str(payload.get("file_name") or "")
+        file_size = int(payload.get("file_size") or 0)
+        if not filename:
+            raise HTTPException(status_code=400, detail="Vui lòng chọn file Ebook.")
+        return JSONResponse(begin_ebook_upload(user.id, filename, file_size))
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    finally:
-        await file.close()
-    if auto_translate:
-        if uploaded.source_language != "zh":
-            return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&not_chinese=1", status_code=303)
-        try:
-            queued = enqueue_ebook_translation(user.id, uploaded.id, raw_chapters=uploaded.translation_inputs)
-            return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&queued={queued}", status_code=303)
-        except EbookServiceError:
-            return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&queue_error=1", status_code=303)
-    return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1", status_code=303)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="Thông tin file Ebook không hợp lệ.") from exc
+
+
+@app.post("/api/ebooks/upload/{upload_id}/complete")
+def complete_ebook_upload_endpoint(upload_id: str, request: Request):
+    user = require_authenticated(request)
+    try:
+        complete_ebook_upload(user.id, upload_id)
+        return JSONResponse({"status": "queued"}, status_code=202)
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.get("/api/ebooks/upload/{upload_id}/status")
+def ebook_upload_status_endpoint(upload_id: str, request: Request):
+    user = require_authenticated(request)
+    try:
+        return JSONResponse(ebook_upload_status(user.id, upload_id))
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.post("/api/ebooks/{ebook_id}/translate")

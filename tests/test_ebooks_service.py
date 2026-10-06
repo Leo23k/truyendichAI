@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app import ebook_service
 from app import main as main_app
 from app.auth import CurrentUser
+from app.ebooks import EbookChapter
 from sync import service as sync_service
 
 
@@ -222,26 +223,114 @@ def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
     upload = client.get("/ebooks/upload?mode=translate")
     detail = client.get("/ebooks/book-1")
     library = client.get("/")
-    assert upload.status_code == 200 and "auto_translate" in upload.text and "Đang parse" in upload.text
+    assert upload.status_code == 200 and "100 MB" in upload.text and "PC worker" in upload.text
+    assert "auto_translate" not in upload.text and "upload_url" in upload.text
     assert detail.status_code == 200 and "Tiến độ dịch" in detail.text and "1/2 · 50%" in detail.text
     assert "https://signed.example/cover.png" in detail.text
     assert library.status_code == 200 and 'aria-label="Ebook"' in library.text
     assert 'id="ebook-floating-menu"' not in upload.text and 'id="ebook-floating-menu"' not in detail.text
 
 
-def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
+def test_non_admin_can_start_direct_ebook_upload(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
     monkeypatch.setattr(main_app, "list_ebooks", lambda owner: [{"id": "ebook-1", "title": "Owned", "chapter_count": 1, "source_format": "txt", "source_language": "vi"}] if owner == user.id else [])
-    monkeypatch.setattr(main_app, "upload_ebook", lambda owner, filename, content, **_kwargs: ebook_service.UploadedEbook("ebook-2", "New", 1, "vi"))
+    monkeypatch.setattr(main_app, "begin_ebook_upload", lambda owner, filename, size: {"upload_id": "ebook-2", "upload_url": "https://b2.test/signed", "content_type": "text/plain"})
 
     client = TestClient(main_app.app)
     client.cookies.set("sb-access-token", "local-test-token")
     page = client.get("/ebooks")
-    response = client.post("/api/ebooks/upload", files={"file": ("new.txt", b"some text", "text/plain")}, follow_redirects=False)
+    response = client.post("/api/ebooks/upload", json={"file_name": "new.txt", "file_size": 9})
 
     assert page.status_code == 200 and "Owned" in page.text
-    assert response.status_code == 303 and response.headers["location"] == "/ebooks/ebook-2?uploaded=1"
+    assert response.status_code == 200 and response.json()["upload_url"] == "https://b2.test/signed"
+
+
+def test_begin_ebook_upload_signs_only_the_reserved_private_object(monkeypatch):
+    remote = FakeRemote()
+    remote.insert = lambda table, payload: remote.calls.append(("insert", table, payload)) or payload
+    monkeypatch.setattr(ebook_service, "b2_configured", lambda: True)
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+    monkeypatch.setenv("B2_BUCKET", "private-ebooks")
+    signed = []
+
+    class FakeS3:
+        def generate_presigned_url(self, operation, *, Params, ExpiresIn):
+            signed.append((operation, Params, ExpiresIn))
+            return "https://b2.test/private-signed-put"
+
+    monkeypatch.setattr("app.storage.client", lambda: FakeS3())
+    result = ebook_service.begin_ebook_upload("owner-id", "book.epub", 80 * 1024 * 1024)
+
+    assert result["upload_url"] == "https://b2.test/private-signed-put"
+    assert signed[0][0] == "put_object" and signed[0][2] == 900
+    assert signed[0][1]["Key"].endswith("/original.epub")
+    assert signed[0][1]["Bucket"] == "private-ebooks"
+    assert signed[0][1]["ContentLength"] == 80 * 1024 * 1024
+    assert remote.calls[0][2]["expected_size"] == 80 * 1024 * 1024
+
+
+def test_direct_ebook_upload_enforces_100mb_limit(monkeypatch):
+    monkeypatch.setattr(ebook_service, "b2_configured", lambda: True)
+    with pytest.raises(ebook_service.EbookServiceError) as error:
+        ebook_service.begin_ebook_upload("owner-id", "large.epub", ebook_service.MAX_UPLOAD_BYTES + 1)
+    assert error.value.status_code == 413
+
+
+def test_unknown_japanese_or_korean_text_is_not_classified_as_chinese():
+    japanese = ebook_service.ParsedEbook(title="Japanese", chapters=(EbookChapter(1, "章", "これは日本語の文章です。"),))
+    korean = ebook_service.ParsedEbook(title="Korean", chapters=(EbookChapter(1, "장", "한국어 문장입니다."),))
+    assert ebook_service._language(japanese) == "unknown"
+    assert ebook_service._language(korean) == "unknown"
+
+
+def test_pc_worker_downloads_original_and_processes_queued_upload(monkeypatch):
+    job = {"id": "upload-1", "owner_id": "owner", "original_file_path": "ebooks/hash/upload-1/original.epub", "expected_size": 5}
+    remote = FakeRemote()
+    remote.rows = lambda table, _params: [job] if table == "ebook_ingestion_queue" else [{"source_language": "zh"}] if table == "ebook_books" else []
+    def patch_rows(table, params, payload):
+        remote.calls.append(("patch_rows", table, params, payload))
+        return [{**job, **payload}] if table == "ebook_ingestion_queue" and params.get("status") == "eq.queued" else []
+    remote.patch_rows = patch_rows
+    monkeypatch.setattr(sync_service, "SupabaseSync", lambda: remote)
+    downloaded = []
+    monkeypatch.setattr(sync_service, "b2_download", lambda path: downloaded.append(path) or b"bytes")
+    processed = []
+    monkeypatch.setattr(ebook_service, "process_ebook_ingestion_job", lambda _remote, row, content: processed.append((row, content)) or 3)
+
+    assert sync_service.run_ebook_ingestion_worker_once() is True
+    assert downloaded == [job["original_file_path"]]
+    assert processed[0][0]["status"] == "processing" and processed[0][1] == b"bytes"
+    assert any(call[3].get("status") == "completed" and call[3]["translation_queued"] == 3 for call in remote.calls if call[0] == "patch_rows")
+
+
+@pytest.mark.parametrize(("language", "expected_queued"), [("zh", 1), ("vi", 0)])
+def test_ingestion_only_enqueues_detected_chinese_and_uses_parser_memory(monkeypatch, language, expected_queued):
+    remote = FakeRemote()
+    remote.rows = lambda *_args: []
+    monkeypatch.setattr(ebook_service, "parse_ebook", lambda *_args: ebook_service.ParsedEbook(
+        title="Book", language=language, format="epub",
+        chapters=(EbookChapter(1, "Chapter", "<p>Chapter content</p>"),),
+    ))
+    uploads = []
+    monkeypatch.setattr(ebook_service, "b2_upload", lambda *args, **kwargs: uploads.append((args, kwargs)))
+    enqueued = []
+    monkeypatch.setattr(ebook_service, "enqueue_ebook_translation", lambda owner, book, **kwargs: enqueued.append((owner, book, kwargs)) or 1)
+    job = {
+        "id": "book-id", "owner_id": "owner-id", "file_name": "book.epub", "source_format": "epub",
+        "original_file_path": "ebooks/hash/book-id/original.epub", "expected_size": 5, "translate_if_chinese": True,
+    }
+
+    count = ebook_service.process_ebook_ingestion_job(remote, job, b"bytes")
+
+    assert count == expected_queued
+    assert all("original.epub" not in call[0][0] for call in uploads)
+    if language == "zh":
+        assert enqueued[0][2]["raw_chapters"] == {1: "<p>Chapter content</p>"}
+    else:
+        assert not enqueued
+        chapter_request = next(call for call in remote.calls if call[0] == "POST" and call[1].endswith("ebook_chapters"))
+        assert chapter_request[2]["json"][0]["translation_status"] == "not_needed"
 
 
 def test_ebook_reader_rejects_content_path_outside_owner_prefix(monkeypatch):

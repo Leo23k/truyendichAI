@@ -884,6 +884,48 @@ def reclaim_stale_ebook_translation_jobs(remote: SupabaseSync) -> int:
     return len(rows)
 
 
+def run_ebook_ingestion_worker_once(remote: SupabaseSync | None = None) -> bool:
+    """Consume one direct-to-B2 upload and parse it outside the Vercel request path."""
+    remote = remote or SupabaseSync()
+    stale_after = max(600, int(os.getenv("TRANSLATION_JOB_STALE_SECONDS", "900")))
+    stale_before = (datetime.now(timezone.utc) - timedelta(seconds=stale_after)).isoformat()
+    remote.patch_rows(
+        "ebook_ingestion_queue", {"status": "eq.processing", "updated_at": f"lt.{stale_before}"},
+        {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    queued = remote.rows("ebook_ingestion_queue", {
+        "select": "*", "status": "eq.queued", "order": "created_at.asc", "limit": "1",
+    })
+    if not queued:
+        return False
+    job = queued[0]
+    claimed = remote.patch_rows("ebook_ingestion_queue", {
+        "id": f"eq.{job['id']}", "status": "eq.queued",
+    }, {"status": "processing", "updated_at": datetime.now(timezone.utc).isoformat(), "error": None})
+    if not claimed:
+        return False
+    job = claimed[0]
+    try:
+        from app.ebook_service import process_ebook_ingestion_job
+
+        original = b2_download(str(job["original_file_path"]))
+        translated_count = process_ebook_ingestion_job(remote, job, original)
+        books = remote.rows("ebook_books", {
+            "select": "source_language", "id": f"eq.{job['id']}", "limit": "1",
+        })
+        remote.patch_rows("ebook_ingestion_queue", {"id": f"eq.{job['id']}", "status": "eq.processing"}, {
+            "status": "completed", "source_language": books[0]["source_language"] if books else "unknown",
+            "translation_queued": translated_count, "error": None,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:
+        logger.exception("Ebook ingestion failed for job %s.", job.get("id"))
+        remote.patch_rows("ebook_ingestion_queue", {"id": f"eq.{job['id']}", "status": "eq.processing"}, {
+            "status": "failed", "error": str(exc)[:1000], "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+    return True
+
+
 def run_ebook_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     """Translate one owner-scoped ebook chapter using the existing MT service."""
     remote = remote or SupabaseSync()
@@ -1449,6 +1491,9 @@ def _run_translation_watch(stop_event: threading.Event, idle_delay: float) -> No
     while not stop_event.is_set():
         try:
             if run_translation_worker_once():
+                sync_status["last_error"] = None
+                continue
+            if run_ebook_ingestion_worker_once():
                 sync_status["last_error"] = None
                 continue
             if run_ebook_translation_worker_once():
