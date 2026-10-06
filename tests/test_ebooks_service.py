@@ -211,7 +211,7 @@ def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
     monkeypatch.setattr(main_app, "get_ebook_detail", lambda _owner, _book: {
-        "book": {"id": "book-1", "title": "Chinese book", "author": "Author", "source_format": "epub", "source_language": "zh", "chapter_count": 2, "translated_chapters": 1, "processing_chapters": 1, "pending_chapters": 0, "failed_chapters": 0, "translation_percent": 50},
+        "book": {"id": "book-1", "title": "Chinese book", "author": "Author", "source_format": "epub", "source_language": "zh", "chapter_count": 2, "translated_chapters": 1, "processing_chapters": 1, "pending_chapters": 0, "failed_chapters": 0, "translation_percent": 50, "cover_url": "https://signed.example/cover.png"},
         "chapters": [{"chapter_number": 1, "title": "Chapter 1", "translation_status": "translated"}],
     })
     client = TestClient(main_app.app)
@@ -222,6 +222,7 @@ def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
     library = client.get("/")
     assert upload.status_code == 200 and "auto_translate" in upload.text and "Đang parse" in upload.text
     assert detail.status_code == 200 and "Tiến độ dịch" in detail.text and "1/2 · 50%" in detail.text
+    assert "https://signed.example/cover.png" in detail.text
     assert library.status_code == 200 and 'aria-label="Ebook"' in library.text
     assert 'id="ebook-floating-menu"' not in upload.text and 'id="ebook-floating-menu"' not in detail.text
 
