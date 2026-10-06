@@ -27,8 +27,8 @@
   .reader-player-track{display:grid;grid-template-columns:2.4rem minmax(0,1fr) 2.4rem;align-items:center;gap:.65rem;color:#687078;font-size:.65rem;font-weight:600}.reader-player-track input{height:.35rem;width:100%;cursor:pointer;accent-color:#11a89d}.reader-player-controls{display:flex;min-width:0;align-items:center;gap:.85rem;margin-top:.45rem}.reader-player-controls [data-segment-prev],.reader-player-controls [data-segment-next],.reader-player-controls [data-play-toggle]{flex:0 0 auto}.reader-player-controls .reader-player-actions{display:flex;min-width:0;margin-left:auto;align-items:center;justify-content:flex-end;gap:.65rem;color:#697078;font-size:.72rem}.reader-player-controls .reader-player-actions button{white-space:nowrap}.reader-player-status{display:inline-flex;flex:0 0 auto;width:max-content;border-radius:.35rem;background:#f5f7f7;padding:.25rem .45rem;font-size:.58rem;font-weight:800;letter-spacing:.05em;color:#697078}.reader-player-shell [data-reader-prev],.reader-player-shell [data-reader-next]{display:none!important}
   .reader-reading-footer{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(0,13rem);align-items:center;gap:1rem;border-top:1px solid rgba(130,140,135,.28);padding-top:1.8rem}
   .reader-reading-footer .reader-nav-card{min-height:3.25rem}
-  .reader-progress-number{color:#35aaa0;font-size:1.25rem;font-weight:700}.reader-progress-label{display:block;margin-top:.1rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;opacity:.65}
-  @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer [data-reader-reading-progress]{grid-column:1/-1;grid-row:1}.reader-reading-footer .reader-nav-card{grid-row:2}.reader-player-controls{gap:.5rem;justify-content:center}.reader-player-status{display:none}.reader-player-controls .reader-player-actions{margin-left:0;gap:.45rem}.reader-player-controls [data-voice-button],.reader-player-controls [data-sleep-button],.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:none}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}.reader-player-shell{padding:.7rem .8rem!important}}
+  .reader-progress-chip{position:fixed;z-index:35;top:calc(env(safe-area-inset-top,0px) + 4.25rem);right:max(.65rem,calc((100vw - 64rem)/2));display:inline-flex;align-items:center;border:1px solid rgba(130,145,140,.38);border-radius:9999px;background:rgba(29,33,31,.9);padding:.27rem .55rem;color:#f0eee3;font-size:.72rem;font-weight:700;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.16);backdrop-filter:blur(8px);pointer-events:none}
+  @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer .reader-nav-card{grid-row:1}.reader-player-controls{gap:.5rem;justify-content:center}.reader-player-status{display:none}.reader-player-controls .reader-player-actions{margin-left:0;gap:.45rem}.reader-player-controls [data-voice-button],.reader-player-controls [data-sleep-button],.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:none}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}.reader-player-shell{padding:.7rem .8rem!important}}
   @media(max-width:639px){.reader-page-nav{grid-template-columns:1fr 1fr}.reader-page-nav>span{display:none}.reader-nav-card{min-width:0}.reader-nav-card strong{max-width:8rem}}
   @media(max-width:639px){
     .reader-player-shell{bottom:.75rem!important;width:calc(100% - 1rem)!important;padding:.7rem .75rem!important}
@@ -123,6 +123,7 @@
       </div>
     </div>
   </header>
+  <div data-reader-reading-progress class="reader-progress-chip" role="progressbar" aria-label="Tiến trình đọc chương" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="reader-progress-number">0%</span></div>
 
   {% if not synced_reader %}<div data-translation-progress class="crawl-progress-panel mx-auto mt-4 max-w-3xl px-4" role="progressbar" aria-label="Tiến độ dịch" aria-valuemin="0" aria-valuemax="100">
     <div class="mb-1 flex justify-between text-xs opacity-70"><span>Đang dịch chương...</span><span data-progress-value>0%</span></div>
@@ -142,7 +143,7 @@
     <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-teal-100"><div data-translation-bar class="h-full bg-teal-600 transition-all duration-300" style="width: 0%"></div></div>
   </section>
 
-  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pt-5 text-sm text-black sm:px-8" aria-label="Breadcrumb"><a href="{{ back_url or '/' }}" class="text-black hover:text-teal-600">← Quay lại</a><span>›</span><a href="{{ back_url or '/' }}" class="max-w-44 truncate text-black hover:text-teal-600">{{ chapter.book_id|replace('-', ' ')|title }}</a><span>›</span><span class="truncate font-medium text-black">{{ display_title }}</span></nav>
+  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pr-20 pt-5 text-sm text-black sm:px-8 sm:pr-24" aria-label="Breadcrumb"><a href="{{ back_url or '/' }}" class="text-black hover:text-teal-600">← Quay lại</a><span>›</span><a href="{{ back_url or '/' }}" class="max-w-44 truncate text-black hover:text-teal-600">{{ chapter.book_id|replace('-', ' ')|title }}</a><span>›</span><span class="truncate font-medium text-black">{{ display_title }}</span></nav>
   <div class="reader-page-nav mx-auto max-w-5xl px-5 pt-5 sm:px-8 sm:pt-6">
     {% if previous %}<a href="{{ previous_url or '/chapters/' ~ previous.id }}" class="reader-nav-card"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="opacity-60">CHƯƠNG TRƯỚC</small><strong>{{ previous.translated_title or previous.title or 'Chương trước' }}</strong></span></a>{% else %}<span></span>{% endif %}
     <span class="text-center text-xs font-semibold uppercase tracking-[.18em] text-teal-500">Bản dịch tiếng Việt</span>
@@ -155,9 +156,8 @@
     </div>
   </article>
 
-  <nav class="reader-reading-footer mx-auto mb-40 max-w-4xl px-5 sm:px-8" aria-label="Chuyển chương và tiến trình đọc">
+  <nav class="reader-reading-footer mx-auto mb-40 max-w-4xl px-5 sm:px-8" aria-label="Chuyển chương">
     {% if previous %}<a href="{{ previous_url or '/chapters/' ~ previous.id }}" class="reader-nav-card"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="opacity-60">CHƯƠNG TRƯỚC</small><strong>{{ previous.translated_title or previous.title or 'Chương trước' }}</strong></span></a>{% else %}<span></span>{% endif %}
-    <span data-reader-reading-progress class="text-center"><span class="reader-progress-number">0%</span><span class="reader-progress-label">TIẾN TRÌNH ĐỌC</span></span>
     {% if following %}<a href="{{ following_url or '/chapters/' ~ following.id }}" class="reader-nav-card justify-end text-right"><span class="min-w-0"><small class="opacity-60">CHƯƠNG SAU</small><strong>{{ following.translated_title or following.title or 'Chương sau' }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% else %}<span></span>{% endif %}
   </nav>
 
@@ -321,6 +321,7 @@
         const readableHeight = Math.max(1, readerContent.offsetHeight - window.innerHeight * .55);
         const percent = Math.max(0, Math.min(100, Math.round((window.scrollY - top + window.innerHeight * .45) / readableHeight * 100)));
         readingProgress.querySelector(".reader-progress-number").textContent = `${percent}%`;
+        readingProgress.setAttribute("aria-valuenow", String(percent));
         return percent;
       };
       const syncedReader = Boolean(player.dataset.syncedSlug);

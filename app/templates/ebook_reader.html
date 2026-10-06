@@ -6,6 +6,7 @@
 {% block content %}
 <style>
   .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}.reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}.reader-sheet{transform:translateY(100%);transition:transform 210ms ease}.reader-sheet-backdrop.is-open .reader-sheet{transform:translateY(0)}
+  .reader-progress-chip{position:fixed;z-index:35;top:calc(env(safe-area-inset-top,0px) + 4.25rem);right:max(.65rem,calc((100vw - 64rem)/2));display:inline-flex;align-items:center;border:1px solid rgba(130,145,140,.38);border-radius:9999px;background:rgba(29,33,31,.9);padding:.27rem .55rem;color:#f0eee3;font-size:.72rem;font-weight:700;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.16);backdrop-filter:blur(8px);pointer-events:none}
   .reader-player-shell{border-color:rgba(140,145,142,.22)!important;border-radius:1rem!important;background:rgba(255,255,255,.98)!important;box-shadow:0 20px 45px rgba(0,0,0,.24)!important}.reader-player-shell [data-play-toggle]{width:3.1rem;height:3.1rem;background:#0f9d92;box-shadow:0 8px 20px rgba(15,157,146,.28)}
   .reader-player-track{display:grid;grid-template-columns:2.4rem minmax(0,1fr) 2.4rem;align-items:center;gap:.65rem;color:#687078;font-size:.65rem;font-weight:600}.reader-player-track input{height:.35rem;width:100%;cursor:pointer;accent-color:#11a89d}.reader-player-controls{display:flex;min-width:0;align-items:center;gap:.65rem;margin-top:.45rem}.reader-player-controls .reader-player-actions{display:flex;min-width:0;margin-left:auto;align-items:center;justify-content:flex-end;gap:.55rem;color:#697078;font-size:.72rem}.reader-player-status{display:inline-flex;flex:0 0 auto;width:max-content;border-radius:.35rem;background:#f5f7f7;padding:.25rem .45rem;font-size:.58rem;font-weight:800;letter-spacing:.05em;color:#697078}
   @media(max-width:639px){.reader-player-shell{bottom:.65rem!important;width:calc(100% - 1rem)!important;padding:.65rem .75rem!important}.reader-player-controls{display:grid;grid-template-columns:1fr auto 1fr auto;gap:.4rem;margin-top:.45rem}.reader-player-controls [data-segment-prev]{justify-self:end}.reader-player-controls [data-play-toggle]{grid-column:2;width:2.75rem;height:2.75rem}.reader-player-controls [data-segment-next]{grid-column:3;justify-self:start}.reader-player-controls .reader-player-actions{grid-column:4;margin:0;gap:.35rem;justify-self:end}.reader-player-status{display:none}.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:flex}.reader-player-controls [data-rate-control]{width:2.5rem}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}}
@@ -35,8 +36,9 @@
       </section>
     </div>
   </header>
+  <div data-ebook-reading-progress class="reader-progress-chip" role="progressbar" aria-label="Tiến trình đọc Ebook" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><strong class="reader-progress-number">0%</strong></div>
 
-  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pt-5 text-xs sm:px-8 sm:text-sm" aria-label="Breadcrumb"><a href="/ebooks" class="opacity-70 hover:text-teal-500">← Ebook</a><span class="opacity-40">›</span><a href="{{ back_url }}" class="max-w-44 truncate opacity-70 hover:text-teal-500">{{ book.title }}</a><span class="opacity-40">›</span><span class="truncate font-medium">{{ chapter.title }}</span></nav>
+  <nav class="mx-auto flex max-w-5xl items-center gap-2 px-5 pr-20 pt-5 text-xs sm:px-8 sm:pr-24 sm:text-sm" aria-label="Breadcrumb"><a href="/ebooks" class="opacity-70 hover:text-teal-500">← Ebook</a><span class="opacity-40">›</span><a href="{{ back_url }}" class="max-w-44 truncate opacity-70 hover:text-teal-500">{{ book.title }}</a><span class="opacity-40">›</span><span class="truncate font-medium">{{ chapter.title }}</span></nav>
   <div class="mx-auto mt-5 flex max-w-3xl flex-wrap items-center justify-center gap-2 px-4">
     <a class="site-nav-button{% if mode == 'original' %} accent{% endif %}" href="?mode=original">Bản gốc</a>
     {% if chapter.translation_status == 'translated' %}<a class="site-nav-button{% if mode == 'translated' %} accent{% endif %}" href="?mode=translated">Bản dịch</a>{% elif chapter.translation_status == 'processing' %}<span class="self-center text-sm opacity-65">Đang dịch…</span>{% endif %}
@@ -47,9 +49,8 @@
     <h2 class="mb-12 text-center text-3xl font-extrabold leading-tight tracking-tight sm:mb-14 sm:text-5xl" :class="theme === 'dark' ? 'text-[#f0eee3]' : 'text-[#242522]'">{{ chapter.title }}<span class="mx-auto mt-5 block h-1 w-20 rounded-full bg-teal-500/60"></span></h2>
     <div class="reader-prose [&_p]:mb-5 [&_blockquote]:border-l-4 [&_blockquote]:border-teal-500 [&_blockquote]:pl-4 [&_h1]:my-6 [&_h2]:my-5 [&_h3]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6">{{ content|safe }}</div>
   </article>
-  <nav class="mx-auto mb-24 grid max-w-4xl grid-cols-2 gap-3 border-t border-current/10 px-5 pt-5 sm:mb-32 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center sm:px-8" aria-label="Chuyển chương">
+  <nav class="mx-auto mb-24 flex max-w-4xl items-center justify-between gap-3 border-t border-current/10 px-5 pt-5 sm:mb-32 sm:px-8" aria-label="Chuyển chương">
     {% if previous %}<a href="/ebooks/{{ book.url_slug }}/read/{{ previous.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center gap-2 rounded-lg border border-current/15 px-3 py-2 hover:border-teal-500/60"><i data-lucide="chevron-left" class="h-5 w-5 shrink-0"></i><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG TRƯỚC</small><strong class="block truncate text-xs sm:text-sm">{{ previous.title }}</strong></span></a>{% else %}<span></span>{% endif %}
-    <span class="text-center" data-ebook-reading-progress><strong class="reader-progress-number">0%</strong><small class="reader-progress-label">TIẾN TRÌNH ĐỌC</small></span>
     {% if following %}<a href="/ebooks/{{ book.url_slug }}/read/{{ following.chapter_number }}?mode={{ mode }}" class="flex min-h-14 min-w-0 items-center justify-end gap-2 rounded-lg border border-current/15 px-3 py-2 text-right hover:border-teal-500/60"><span class="min-w-0"><small class="block text-[.6rem] opacity-60">CHƯƠNG SAU</small><strong class="block truncate text-xs sm:text-sm">{{ following.title }}</strong></span><i data-lucide="chevron-right" class="h-5 w-5 shrink-0"></i></a>{% endif %}
   </nav>
   <div data-ebook-player class="reader-player-shell fixed bottom-4 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-4xl -translate-x-1/2 border px-3 py-3 text-stone-900 backdrop-blur sm:px-5">
@@ -85,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
     const readableHeight = Math.max(1, readerContent.offsetHeight - window.innerHeight * .55);
     const percent = Math.max(0, Math.min(100, Math.round((window.scrollY - readerContent.offsetTop + window.innerHeight * .45) / readableHeight * 100)));
     progress.querySelector('.reader-progress-number').textContent = `${percent}%`;
+    progress.setAttribute('aria-valuenow', String(percent));
     return percent;
   };
   const saveProgress = () => {
