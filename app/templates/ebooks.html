@@ -1,33 +1,57 @@
 {% extends "base.html" %}
-{% block title %}Ebook cá nhân · Leo Truyện{% endblock %}
+{% block title %}Ebook của tôi · Leo Truyện{% endblock %}
 {% block content %}
-<main class="site-page">
+<main class="site-page mx-auto max-w-6xl">
   <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
-    <div><p class="site-muted text-sm">Không hiển thị trong Library công khai</p><h1 class="site-title text-3xl">Ebook cá nhân</h1></div>
+    <div><p class="site-muted text-sm">Thư viện riêng tư</p><h1 class="site-title text-3xl">Ebook của tôi</h1></div>
     <a href="/" class="site-nav-button">← Thư viện truyện</a>
   </header>
-  {% if uploaded %}<p role="status" class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm">Đã tải và xử lý ebook thành công.</p>{% endif %}
-  {% if request.query_params.get('deleted') == '1' %}<p role="status" class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm">Đã xoá ebook và dữ liệu lưu trữ.</p>{% endif %}
-  {% if request.query_params.get('queued') is not none %}<p role="status" class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm">Đã đưa {{ request.query_params.get('queued') }} chương vào hàng đợi dịch (nếu có chương tiếng Trung chưa dịch).</p>{% endif %}
-  {% if load_error %}<p role="alert" class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">{{ load_error }}{% if 'migration' in load_error|lower %} Hãy chạy migration Supabase trước khi upload.{% endif %}</p>{% endif %}
-  <section class="site-panel mb-7 p-5">
-    <h2 class="mb-1 text-lg font-bold">Tải ebook lên</h2>
-    <p class="site-muted mb-4 text-sm">Hỗ trợ EPUB, TXT, HTML và PDF; giới hạn upload 25 MB. PDF giữ nguyên bố cục gốc.</p>
-    <form action="/api/ebooks/upload" method="post" enctype="multipart/form-data" class="flex flex-wrap items-center gap-3">
-      <input type="file" name="file" accept=".epub,.txt,.html,.htm,.pdf" required class="max-w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2 text-sm">
-      <button type="submit" class="site-nav-button accent">Tải lên và phân tích</button>
-    </form>
+  {% if load_error %}<p role="alert" class="site-panel mb-5 border-amber-500/30 p-4 text-amber-500">{{ load_error }}</p>{% endif %}
+  {% if ebooks %}
+  <section class="site-panel mb-6 grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_12rem_12rem]" aria-label="Tìm và lọc ebook">
+    <label class="sr-only" for="ebook-search">Tìm ebook</label><input id="ebook-search" type="search" placeholder="Tìm tên ebook hoặc tác giả..." class="min-h-11 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 text-sm">
+    <label class="sr-only" for="ebook-filter">Lọc ebook</label><select id="ebook-filter" class="min-h-11 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 text-sm"><option value="all">Tất cả ebook</option><option value="zh">Tiếng Trung</option><option value="vi">Tiếng Việt</option><option value="translated">Đã dịch</option><option value="pending">Chưa dịch xong</option></select>
+    <label class="sr-only" for="ebook-sort">Sắp xếp</label><select id="ebook-sort" class="min-h-11 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 text-sm"><option value="new">Mới thêm</option><option value="updated">Mới cập nhật</option><option value="title">Tên A–Z</option></select>
   </section>
-  <section aria-label="Danh sách ebook" class="space-y-3">
+  <section id="ebook-grid" class="grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Danh sách ebook">
     {% for book in ebooks %}
-    <article class="site-panel flex flex-wrap items-center justify-between gap-4 p-4">
-      <div class="min-w-0"><h2 class="truncate font-bold">{{ book.title }}</h2><p class="site-muted mt-1 text-sm">{{ book.author or 'Chưa rõ tác giả' }} · {{ book.chapter_count }} chương · {{ book.source_format|upper }} · {% if book.source_language == 'zh' %}Tiếng Trung{% elif book.source_language == 'vi' %}Tiếng Việt{% else %}Chưa xác định ngôn ngữ{% endif %}</p></div>
-      <div class="flex flex-wrap gap-2"><a class="site-nav-button accent" href="{% if book.source_format == 'pdf' %}/ebooks/{{ book.id }}/read-pdf{% else %}/ebooks/{{ book.id }}/read/1{% endif %}">{% if book.source_format == 'pdf' %}Đọc PDF{% else %}Đọc{% endif %}</a>{% if book.source_language == 'zh' %}<form action="/api/ebooks/{{ book.id }}/translate" method="post"><button class="site-nav-button">Dịch chương chưa dịch</button></form><form action="/api/ebooks/{{ book.id }}/translate?retranslate=true" method="post" onsubmit="return confirm('Dịch lại từ đầu toàn bộ chương ebook này?')"><button class="site-nav-button">Dịch lại toàn bộ</button></form>{% endif %}<a class="site-nav-button" href="/ebooks/{{ book.id }}/download">Tải file gốc</a>{% if book.source_format != 'pdf' %}<details class="relative"><summary class="site-nav-button cursor-pointer">Export</summary><div class="absolute right-0 z-10 mt-2 min-w-52 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 shadow-xl"><p class="site-muted px-2 py-1 text-xs">Tiếng Việt</p>{% for format in ['epub', 'txt', 'html'] %}<a class="block rounded px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]" href="/ebooks/{{ book.id }}/export?format={{ format }}&language=vi">{{ format|upper }}</a>{% endfor %}<p class="site-muted px-2 py-1 text-xs">Bản gốc / song ngữ</p>{% for language in ['zh', 'bilingual'] %}{% for format in ['epub', 'txt', 'html'] %}<a class="block rounded px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]" href="/ebooks/{{ book.id }}/export?format={{ format }}&language={{ language }}">{{ format|upper }} · {{ language }}</a>{% endfor %}{% endfor %}</div></details>{% endif %}</div>
-      <form action="/api/ebooks/{{ book.id }}/delete" method="post" onsubmit="return confirm('Xoá ebook, các chương và toàn bộ version file trong kho lưu trữ? Không thể hoàn tác.')"><button type="submit" class="site-nav-button text-red-400">Xoá</button></form>
+    <article data-ebook-card data-title="{{ book.title|lower }}" data-author="{{ (book.author or '')|lower }}" data-language="{{ book.source_language }}" data-translated="{{ 'true' if (book.translated_chapters|default(0)) >= book.chapter_count and book.chapter_count else 'false' }}" data-created="{{ book.created_at }}" data-updated="{{ book.updated_at or book.created_at }}" class="site-panel flex min-w-0 flex-col p-5">
+      <div class="mb-3 flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="truncate text-lg font-bold">{{ book.title }}</h2><p class="site-muted mt-1 truncate text-sm">{{ book.author or 'Chưa rõ tác giả' }}</p></div><span class="shrink-0 rounded-full border border-[var(--line)] px-2.5 py-1 text-xs">{{ book.source_format|upper }}</span></div>
+      <p class="site-muted text-sm">{% if book.source_language == 'zh' %}Tiếng Trung{% elif book.source_language == 'vi' %}Tiếng Việt{% else %}Chưa xác định ngôn ngữ{% endif %} · {{ book.chapter_count }} chương</p>
+      {% if book.source_language == 'zh' and book.chapter_count %}<div class="mt-5"><div class="mb-2 flex justify-between text-xs"><span class="site-muted">Tiến độ dịch{% if book.processing_chapters|default(0) %} · {{ book.processing_chapters }} đang xử lý{% endif %}</span><strong>{{ book.translated_chapters|default(0) }}/{{ book.chapter_count }} · {{ book.translation_percent|default(0) }}%</strong></div><div class="h-2 overflow-hidden rounded-full bg-[var(--surface-3)]"><span class="block h-full rounded-full bg-[var(--accent)]" style="width:{{ book.translation_percent|default(0) }}%"></span></div>{% if book.failed_chapters|default(0) %}<p class="mt-2 text-xs text-amber-500">{{ book.failed_chapters }} chương lỗi · có thể thử dịch lại</p>{% endif %}</div>{% else %}<div class="mt-5 flex-1"></div>{% endif %}
+      <div class="mt-5 flex gap-2"><a href="/ebooks/{{ book.id }}" class="site-nav-button accent min-h-11 flex-1 justify-center">Quản lý</a>{% if book.source_format == 'pdf' %}<a href="/ebooks/{{ book.id }}/read-pdf" class="site-nav-button min-h-11 flex-1 justify-center">Đọc PDF</a>{% elif book.chapter_count %}<a href="/ebooks/{{ book.id }}/read/1" class="site-nav-button min-h-11 flex-1 justify-center">Đọc</a>{% endif %}</div>
     </article>
-    {% else %}
-    {% if not load_error %}<div class="site-panel site-muted p-8 text-center">Chưa có ebook nào. File upload chỉ hiển thị với tài khoản của bạn.</div>{% endif %}
     {% endfor %}
+    <p id="ebook-no-results" class="site-panel site-muted hidden p-6 text-center sm:col-span-2 xl:col-span-3">Không tìm thấy ebook phù hợp.</p>
   </section>
+  {% else %}
+  {% if not load_error %}<section class="site-panel mx-auto max-w-xl p-8 text-center"><div class="mb-3 text-4xl" aria-hidden="true">📚</div><h2 class="text-xl font-bold">Chưa có ebook nào</h2><p class="site-muted mt-2">Tải ebook lên để bắt đầu quản lý thư viện riêng.</p><a class="site-nav-button accent mt-5 inline-flex min-h-11 items-center" href="/ebooks/upload">Upload Ebook</a></section>{% endif %}
+  {% endif %}
 </main>
+{% if ebooks %}<script>
+(() => {
+  const grid = document.getElementById('ebook-grid');
+  const cards = [...grid.querySelectorAll('[data-ebook-card]')];
+  const search = document.getElementById('ebook-search');
+  const filter = document.getElementById('ebook-filter');
+  const sort = document.getElementById('ebook-sort');
+  const empty = document.getElementById('ebook-no-results');
+  const apply = () => {
+    const term = search.value.trim().toLocaleLowerCase();
+    const kind = filter.value;
+    let visible = 0;
+    cards.forEach(card => {
+      const matchesTerm = `${card.dataset.title} ${card.dataset.author}`.includes(term);
+      const matchesFilter = kind === 'all' || kind === card.dataset.language || (kind === 'translated' && card.dataset.translated === 'true') || (kind === 'pending' && card.dataset.language === 'zh' && card.dataset.translated === 'false');
+      card.hidden = !(matchesTerm && matchesFilter);
+      if (!card.hidden) visible++;
+    });
+    cards.sort((a, b) => sort.value === 'title' ? a.dataset.title.localeCompare(b.dataset.title) : sort.value === 'updated' ? b.dataset.updated.localeCompare(a.dataset.updated) : b.dataset.created.localeCompare(a.dataset.created)).forEach(card => grid.insertBefore(card, empty));
+    empty.classList.toggle('hidden', visible > 0);
+  };
+  search.addEventListener('input', apply);
+  filter.addEventListener('change', apply);
+  sort.addEventListener('change', apply);
+})();
+</script>{% endif %}
 {% endblock %}

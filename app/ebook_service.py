@@ -167,13 +167,76 @@ def upload_ebook(owner_id: str, filename: str, content: bytes) -> UploadedEbook:
 
 def list_ebooks(owner_id: str) -> list[dict]:
     try:
-        books = SupabaseSync().all_rows("ebook_books", {
-            "select": "id,title,author,source_format,source_language,status,chapter_count,created_at",
+        remote = SupabaseSync()
+        books = remote.all_rows("ebook_books", {
+            "select": "id,title,author,source_format,source_language,status,chapter_count,created_at,updated_at",
             "owner_id": f"eq.{owner_id}", "order": "created_at.desc",
+        })
+        if not books:
+            return []
+        ids = ",".join(str(book["id"]) for book in books)
+        chapters = remote.all_rows("ebook_chapters", {
+            "select": "ebook_id,translation_status", "ebook_id": f"in.({ids})",
         })
     except SyncError as exc:
         raise EbookServiceError("Không thể tải thư viện ebook. Kiểm tra kết nối Supabase và migration ebook_private_library.", 503) from exc
+    stats = {str(book["id"]): {"translated": 0, "processing": 0, "pending": 0, "failed": 0} for book in books}
+    for chapter in chapters:
+        record = stats.get(str(chapter.get("ebook_id")))
+        if record is None:
+            continue
+        status = str(chapter.get("translation_status") or "pending")
+        key = "translated" if status == "translated" else "processing" if status == "processing" else "failed" if status == "failed" else "pending"
+        record[key] += 1
+    for book in books:
+        progress = stats[str(book["id"])]
+        book.update({
+            "translated_chapters": progress["translated"],
+            "processing_chapters": progress["processing"],
+            "pending_chapters": progress["pending"],
+            "failed_chapters": progress["failed"],
+            "translation_percent": round(progress["translated"] * 100 / max(1, int(book.get("chapter_count") or 0))),
+        })
     return books
+
+
+def get_ebook_detail(owner_id: str, ebook_id: str) -> dict:
+    remote = SupabaseSync()
+    try:
+        books = remote.rows("ebook_books", {
+            "select": "id,title,author,description,source_format,source_language,status,chapter_count,created_at,updated_at,file_name",
+            "id": f"eq.{ebook_id}", "owner_id": f"eq.{owner_id}", "limit": "1",
+        })
+        if not books:
+            raise EbookServiceError("Không tìm thấy ebook.", 404)
+        book = books[0]
+        chapters = remote.all_rows("ebook_chapters", {
+            "select": "id,chapter_number,title,translation_status,translated_content_path",
+            "ebook_id": f"eq.{ebook_id}", "order": "chapter_number.asc",
+        })
+        chapter_ids = ",".join(str(chapter["id"]) for chapter in chapters)
+        queue = remote.all_rows("ebook_translation_queue", {
+            "select": "ebook_chapter_id,status,current_chunk,total_chunks",
+            "ebook_chapter_id": f"in.({chapter_ids})" if chapter_ids else "eq.0",
+        })
+    except EbookServiceError:
+        raise
+    except SyncError as exc:
+        raise EbookServiceError("Không thể tải chi tiết ebook.", 503) from exc
+    queue_by_chapter = {str(item["ebook_chapter_id"]): item for item in queue}
+    for chapter in chapters:
+        job = queue_by_chapter.get(str(chapter["id"]))
+        chapter["queue"] = job
+    translated = sum(chapter.get("translation_status") == "translated" for chapter in chapters)
+    processing = sum(chapter.get("translation_status") == "processing" for chapter in chapters)
+    book.update({
+        "translated_chapters": translated,
+        "processing_chapters": processing,
+        "pending_chapters": sum(chapter.get("translation_status") == "pending" for chapter in chapters),
+        "failed_chapters": sum(chapter.get("translation_status") == "failed" for chapter in chapters),
+        "translation_percent": round(translated * 100 / max(1, int(book.get("chapter_count") or 0))),
+    })
+    return {"book": book, "chapters": chapters}
 
 
 def get_original_download(owner_id: str, ebook_id: str) -> tuple[str, str]:

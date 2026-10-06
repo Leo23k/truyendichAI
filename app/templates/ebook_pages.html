@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{% if page_type == 'upload' %}{% if auto_translate %}Upload & Dịch Ebook{% else %}Upload Ebook{% endif %}{% else %}{{ book.title }} · Ebook{% endif %} · Leo Truyện{% endblock %}
+{% block content %}
+<main class="site-page mx-auto max-w-5xl">
+{% if page_type == 'upload' %}
+  <header class="mb-6"><a class="site-muted text-sm hover:text-[var(--text)]" href="/ebooks">← Ebook của tôi</a><h1 class="site-title mt-3 text-3xl">{% if auto_translate %}Upload & Dịch Ebook{% else %}Upload Ebook{% endif %}</h1></header>
+  <section class="site-panel mx-auto max-w-2xl p-5 sm:p-8">
+    {% if auto_translate %}<p class="mb-5 rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm">Ebook được nhận diện là tiếng Trung sẽ tự vào hàng đợi dịch sau khi parse. Ebook ngôn ngữ khác vẫn được lưu nhưng không tự dịch.</p>{% endif %}
+    <form id="ebook-upload-form" action="/api/ebooks/upload" method="post" enctype="multipart/form-data" class="space-y-5">
+      {% if auto_translate %}<input type="hidden" name="auto_translate" value="true">{% endif %}
+      <label id="ebook-drop-zone" for="ebook-file" class="flex min-h-56 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--line)] bg-[var(--surface-2)] p-6 text-center transition hover:border-[var(--accent)]">
+        <span class="mb-3 text-4xl" aria-hidden="true">📤</span><span class="font-semibold">Kéo thả file vào đây hoặc chọn file</span><span class="site-muted mt-2 text-sm">EPUB · TXT · HTML · PDF · Tối đa 25 MB</span><span id="ebook-file-name" class="mt-3 text-sm text-[var(--accent)]" aria-live="polite"></span>
+        <input id="ebook-file" class="sr-only" type="file" name="file" accept=".epub,.txt,.html,.htm,.pdf" required>
+      </label>
+      <div id="ebook-upload-progress" class="hidden" aria-live="polite"><div class="mb-2 flex justify-between text-sm"><span id="ebook-upload-status">Đang tải lên…</span><span id="ebook-upload-percent">0%</span></div><div class="h-2 overflow-hidden rounded-full bg-[var(--surface-3)]"><div id="ebook-upload-bar" class="h-full rounded-full bg-[var(--accent)] transition-[width]" style="width:0%"></div></div></div>
+      <p id="ebook-upload-error" class="hidden rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400" role="alert"></p>
+      <button id="ebook-upload-submit" type="submit" class="site-nav-button accent min-h-12 w-full justify-center">{% if auto_translate %}Tải lên và bắt đầu dịch{% else %}Tải lên ebook{% endif %}</button>
+    </form>
+  </section>
+  <script>
+  (() => {
+    const form = document.getElementById('ebook-upload-form'), input = document.getElementById('ebook-file'), zone = document.getElementById('ebook-drop-zone');
+    const name = document.getElementById('ebook-file-name'), progress = document.getElementById('ebook-upload-progress'), status = document.getElementById('ebook-upload-status');
+    const percent = document.getElementById('ebook-upload-percent'), bar = document.getElementById('ebook-upload-bar'), error = document.getElementById('ebook-upload-error'), submit = document.getElementById('ebook-upload-submit');
+    const setFile = file => { if (!file) return; const allowed = /\.(epub|txt|html?|pdf)$/i.test(file.name); if (!allowed || file.size > 25 * 1024 * 1024) { error.textContent = allowed ? 'File vượt giới hạn 25 MB.' : 'Định dạng file chưa được hỗ trợ.'; error.classList.remove('hidden'); input.value = ''; name.textContent = ''; return; } error.classList.add('hidden'); name.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`; };
+    input.addEventListener('change', () => setFile(input.files[0]));
+    zone.addEventListener('dragover', event => { event.preventDefault(); zone.classList.add('border-[var(--accent)]'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('border-[var(--accent)]'));
+    zone.addEventListener('drop', event => { event.preventDefault(); zone.classList.remove('border-[var(--accent)]'); if (event.dataTransfer.files[0]) { input.files = event.dataTransfer.files; setFile(input.files[0]); } });
+    form.addEventListener('submit', event => {
+      event.preventDefault(); if (!input.files.length) { input.reportValidity(); return; }
+      error.classList.add('hidden'); progress.classList.remove('hidden'); submit.disabled = true;
+      const xhr = new XMLHttpRequest(); xhr.open('POST', form.action); xhr.upload.onprogress = event => { if (!event.lengthComputable) return; const value = Math.round(event.loaded * 100 / event.total); percent.textContent = `${value}%`; bar.style.width = `${value}%`; if (value === 100) { status.textContent = 'Đã tải file · Đang parse và lưu…'; percent.textContent = ''; } };
+      xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 400) { window.location.assign(xhr.responseURL); return; } submit.disabled = false; progress.classList.add('hidden'); try { const body = JSON.parse(xhr.responseText); error.textContent = body.detail || 'Không thể xử lý ebook.'; } catch { error.textContent = 'Không thể xử lý ebook. Hãy thử lại.'; } error.classList.remove('hidden'); };
+      xhr.onerror = () => { submit.disabled = false; progress.classList.add('hidden'); error.textContent = 'Mất kết nối khi tải file. Hãy thử lại.'; error.classList.remove('hidden'); };
+      xhr.send(new FormData(form));
+    });
+  })();
+  </script>
+{% else %}
+  <header class="mb-6 flex flex-wrap items-center justify-between gap-3"><a class="site-nav-button" href="/ebooks">← Ebook của tôi</a><a class="site-nav-button" href="/">Thư viện</a></header>
+  {% if uploaded %}<p class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm" role="status">Upload và parse hoàn tất.</p>{% endif %}
+  {% if queued is not none %}<p class="mb-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm" role="status">Đã đưa {{ queued }} chương vào hàng đợi dịch. Tiến độ sẽ cập nhật khi worker xử lý.</p>{% endif %}
+  {% if not_chinese %}<p class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm" role="status">File đã lưu nhưng không được nhận diện là tiếng Trung nên không tự đưa vào pipeline dịch.</p>{% endif %}
+  {% if queue_error %}<p class="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm" role="alert">Upload thành công nhưng chưa tạo được hàng đợi dịch. Bạn có thể thử lại trong trang chi tiết.</p>{% endif %}
+  <section class="site-panel grid gap-6 p-5 sm:grid-cols-[12rem_minmax(0,1fr)] sm:p-7">
+    <div class="flex min-h-44 items-center justify-center rounded-xl bg-[var(--surface-2)] text-5xl" aria-hidden="true">{% if book.source_format == 'pdf' %}📄{% else %}📚{% endif %}</div>
+    <div class="min-w-0"><p class="site-muted text-sm">Ebook riêng tư · {{ book.source_format|upper }}</p><h1 class="site-title mt-1 break-words text-3xl">{{ book.title }}</h1><p class="site-muted mt-2">{{ book.author or 'Chưa rõ tác giả' }} · {% if book.source_language == 'zh' %}Tiếng Trung{% elif book.source_language == 'vi' %}Tiếng Việt{% else %}Chưa xác định ngôn ngữ{% endif %}</p>
+      <div class="mt-5 grid grid-cols-2 gap-3 text-sm"><div class="rounded-lg bg-[var(--surface-2)] p-3"><span class="site-muted block">Số chương</span><strong>{{ book.chapter_count }}</strong></div><div class="rounded-lg bg-[var(--surface-2)] p-3"><span class="site-muted block">Trạng thái</span><strong>{% if book.source_format == 'pdf' %}Đã tải lên{% elif book.chapter_count and book.translated_chapters == book.chapter_count %}Đã dịch{% elif book.processing_chapters %}Đang dịch{% elif book.failed_chapters %}Có chương lỗi{% else %}Sẵn sàng{% endif %}</strong></div></div>
+      {% if book.source_language == 'zh' and book.chapter_count %}<div class="mt-5"><div class="mb-2 flex justify-between text-sm"><span>Tiến độ dịch · {{ book.processing_chapters }} đang xử lý</span><strong>{{ book.translated_chapters }}/{{ book.chapter_count }} · {{ book.translation_percent }}%</strong></div><div class="h-2.5 overflow-hidden rounded-full bg-[var(--surface-3)]"><div class="h-full rounded-full bg-[var(--accent)]" style="width:{{ book.translation_percent }}%"></div></div><p class="site-muted mt-2 text-xs">{{ book.pending_chapters }} chờ · {{ book.failed_chapters }} lỗi</p></div>{% endif %}
+      <div class="mt-6 flex flex-wrap gap-2">{% if book.source_format == 'pdf' %}<a class="site-nav-button accent min-h-11" href="/ebooks/{{ book.id }}/read-pdf">Đọc PDF</a>{% elif book.chapter_count %}<a class="site-nav-button accent min-h-11" href="/ebooks/{{ book.id }}/read/1">Đọc ebook</a>{% endif %}<a class="site-nav-button min-h-11" href="/ebooks/{{ book.id }}/download">Tải bản gốc</a>
+        {% if book.source_language == 'zh' and book.chapter_count %}{% if book.processing_chapters %}<button class="site-nav-button min-h-11" disabled aria-disabled="true">Đang dịch…</button>{% elif book.translated_chapters == book.chapter_count %}<form action="/api/ebooks/{{ book.id }}/translate?retranslate=true" method="post" onsubmit="return confirm('Dịch lại toàn bộ từ bản gốc tiếng Trung?')"><button class="site-nav-button min-h-11">Dịch lại</button></form>{% else %}<form action="/api/ebooks/{{ book.id }}/translate" method="post" onsubmit="return confirm('Đưa các chương tiếng Trung chưa dịch vào hàng đợi?')"><button class="site-nav-button min-h-11">Dịch ebook</button></form>{% endif %}{% endif %}
+        {% if book.source_format != 'pdf' %}<details class="relative"><summary class="site-nav-button min-h-11 cursor-pointer">Export</summary><div class="absolute left-0 z-20 mt-2 min-w-52 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 shadow-xl"><p class="site-muted px-2 pt-2 text-xs">Bản gốc</p>{% for format in ['epub', 'txt', 'html'] %}<a class="block rounded px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]" href="/ebooks/{{ book.id }}/export?format={{ format }}&language=zh">{{ format|upper }}</a>{% endfor %}{% if book.translated_chapters == book.chapter_count and book.chapter_count %}<p class="site-muted px-2 pt-2 text-xs">Tiếng Việt / song ngữ</p>{% for language in ['vi', 'bilingual'] %}{% for format in ['epub', 'txt', 'html'] %}<a class="block rounded px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]" href="/ebooks/{{ book.id }}/export?format={{ format }}&language={{ language }}">{{ format|upper }} · {{ language }}</a>{% endfor %}{% endfor %}{% endif %}</div></details>{% endif %}
+        <form action="/api/ebooks/{{ book.id }}/delete" method="post" onsubmit="return confirm('Xoá ebook, nội dung và mọi phiên bản file khỏi kho lưu trữ? Không thể hoàn tác.')"><button class="site-nav-button min-h-11 text-red-400">Xoá</button></form>
+      </div>
+    </div>
+  </section>
+  {% if chapters %}<section class="site-panel mt-6 overflow-hidden"><details><summary class="cursor-pointer p-4 font-semibold">Mục lục · {{ chapters|length }} chương</summary><ol class="max-h-[32rem] divide-y divide-[var(--line)] overflow-y-auto">{% for chapter in chapters[:100] %}<li class="flex items-center justify-between gap-3 px-4 py-3 text-sm"><a class="min-w-0 truncate hover:text-[var(--accent)]" href="/ebooks/{{ book.id }}/read/{{ chapter.chapter_number }}">{{ chapter.chapter_number }}. {{ chapter.title }}</a><span class="site-muted shrink-0 text-xs">{% if chapter.translation_status == 'translated' %}Đã dịch{% elif chapter.translation_status == 'processing' %}Đang dịch{% elif chapter.translation_status == 'failed' %}Lỗi{% else %}Chờ dịch{% endif %}</span></li>{% endfor %}</ol>{% if chapters|length > 100 %}<p class="site-muted p-3 text-center text-xs">Reader có thể điều hướng tới {{ chapters|length }} chương.</p>{% endif %}</details></section>{% endif %}
+{% endif %}
+</main>
+{% endblock %}

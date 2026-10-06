@@ -22,7 +22,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
-from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, delete_ebook, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_original_download, get_pdf_view_url, list_ebooks, upload_ebook
+from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, delete_ebook, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_ebook_detail, get_original_download, get_pdf_view_url, list_ebooks, upload_ebook
 from app.ebook_export import build_ebook_export
 from app.cdn import (
     CdnDataError,
@@ -370,12 +370,36 @@ def ebook_library_page(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="ebooks.html",
-        context={"ebooks": books, "load_error": load_error, "uploaded": request.query_params.get("uploaded") == "1"},
+        context={"ebooks": books, "load_error": load_error},
     )
 
 
+@app.get("/ebooks/upload")
+def ebook_upload_page(request: Request, mode: str = "normal"):
+    require_authenticated(request)
+    return templates.TemplateResponse(request=request, name="ebook_pages.html", context={
+        "page_type": "upload", "auto_translate": mode == "translate",
+    })
+
+
+@app.get("/ebooks/{ebook_id}")
+def ebook_detail_page(ebook_id: str, request: Request):
+    user = require_authenticated(request)
+    try:
+        result = get_ebook_detail(user.id, ebook_id)
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return templates.TemplateResponse(request=request, name="ebook_pages.html", context={
+        **result, "page_type": "detail",
+        "uploaded": request.query_params.get("uploaded") == "1",
+        "queued": request.query_params.get("queued"),
+        "not_chinese": request.query_params.get("not_chinese") == "1",
+        "queue_error": request.query_params.get("queue_error") == "1",
+    })
+
+
 @app.post("/api/ebooks/upload")
-async def upload_ebook_endpoint(request: Request, file: UploadFile = File(...)):
+async def upload_ebook_endpoint(request: Request, file: UploadFile = File(...), auto_translate: bool = Form(False)):
     user = require_authenticated(request)
     content = bytearray()
     try:
@@ -385,12 +409,20 @@ async def upload_ebook_endpoint(request: Request, file: UploadFile = File(...)):
                 raise HTTPException(status_code=413, detail="File vượt quá giới hạn upload 25 MB.")
         if not file.filename:
             raise HTTPException(status_code=400, detail="Vui lòng chọn file ebook.")
-        upload_ebook(user.id, file.filename, bytes(content))
+        uploaded = upload_ebook(user.id, file.filename, bytes(content))
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     finally:
         await file.close()
-    return RedirectResponse("/ebooks?uploaded=1", status_code=303)
+    if auto_translate:
+        if uploaded.source_language != "zh":
+            return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&not_chinese=1", status_code=303)
+        try:
+            queued = enqueue_ebook_translation(user.id, uploaded.id)
+            return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&queued={queued}", status_code=303)
+        except EbookServiceError:
+            return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1&queue_error=1", status_code=303)
+    return RedirectResponse(f"/ebooks/{uploaded.id}?uploaded=1", status_code=303)
 
 
 @app.post("/api/ebooks/{ebook_id}/translate")
@@ -400,7 +432,7 @@ def enqueue_ebook_translation_endpoint(ebook_id: str, request: Request, retransl
         queued = enqueue_ebook_translation(user.id, ebook_id, retranslate=retranslate)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    return RedirectResponse(f"/ebooks?queued={queued}", status_code=303)
+    return RedirectResponse(f"/ebooks/{ebook_id}?queued={queued}", status_code=303)
 
 
 @app.post("/api/ebooks/{ebook_id}/delete")

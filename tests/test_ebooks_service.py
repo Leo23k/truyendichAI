@@ -169,6 +169,38 @@ def test_crawled_novel_export_uses_translation_and_sanitizes_html(monkeypatch):
     assert "Vietnamese" in response.text and "<script>" not in response.text
 
 
+def test_ebook_list_shows_real_translation_progress(monkeypatch):
+    remote = FakeRemote()
+    remote.all_rows = lambda table, _params: (
+        [{"id": "ebook-1", "title": "Book", "chapter_count": 3, "created_at": "2026-01-01", "source_language": "zh"}]
+        if table == "ebook_books" else [
+            {"ebook_id": "ebook-1", "translation_status": "translated"},
+            {"ebook_id": "ebook-1", "translation_status": "processing"},
+            {"ebook_id": "ebook-1", "translation_status": "pending"},
+        ]
+    )
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+
+    book = ebook_service.list_ebooks("owner")[0]
+    assert (book["translated_chapters"], book["processing_chapters"], book["pending_chapters"], book["translation_percent"]) == (1, 1, 1, 33)
+
+
+def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
+    user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
+    monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
+    monkeypatch.setattr(main_app, "get_ebook_detail", lambda _owner, _book: {
+        "book": {"id": "book-1", "title": "Chinese book", "author": "Author", "source_format": "epub", "source_language": "zh", "chapter_count": 2, "translated_chapters": 1, "processing_chapters": 1, "pending_chapters": 0, "failed_chapters": 0, "translation_percent": 50},
+        "chapters": [{"chapter_number": 1, "title": "Chapter 1", "translation_status": "translated"}],
+    })
+    client = TestClient(main_app.app)
+    client.cookies.set("sb-access-token", "token")
+
+    upload = client.get("/ebooks/upload?mode=translate")
+    detail = client.get("/ebooks/book-1")
+    assert upload.status_code == 200 and "auto_translate" in upload.text and "Đang parse" in upload.text
+    assert detail.status_code == 200 and "Tiến độ dịch" in detail.text and "1/2 · 50%" in detail.text
+
+
 def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
@@ -181,7 +213,7 @@ def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
     response = client.post("/api/ebooks/upload", files={"file": ("new.txt", b"some text", "text/plain")}, follow_redirects=False)
 
     assert page.status_code == 200 and "Owned" in page.text
-    assert response.status_code == 303 and response.headers["location"] == "/ebooks?uploaded=1"
+    assert response.status_code == 303 and response.headers["location"] == "/ebooks/ebook-2?uploaded=1"
 
 
 def test_ebook_reader_rejects_content_path_outside_owner_prefix(monkeypatch):
