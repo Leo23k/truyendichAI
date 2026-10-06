@@ -46,6 +46,11 @@ def test_rejects_unsafe_epub_member_paths() -> None:
         parse_ebook(buffer.getvalue(), "book.epub")
 
 
-def test_pdf_is_not_misparsed_as_reflowable_text() -> None:
-    with pytest.raises(EbookParseError, match="chưa hỗ trợ"):
-        parse_ebook(b"%PDF", "book.pdf")
+def test_pdf_is_preserved_as_fixed_layout_without_fake_chapters() -> None:
+    parsed = parse_ebook(b"%PDF-1.7\n% fake minimal fixture", "manual.pdf")
+    assert parsed.format == "pdf" and parsed.title == "manual" and parsed.chapters == ()
+
+
+def test_pdf_rejects_wrong_file_signature() -> None:
+    with pytest.raises(EbookParseError, match="PDF"):
+        parse_ebook(b"not a pdf", "manual.pdf")

@@ -154,6 +154,18 @@ class HtmlParser:
         return ParsedEbook(title=title or "Ebook", chapters=chapters, format=self.format)
 
 
+class PdfParser:
+    """Preserve PDF as a fixed-layout document; do not invent chapters/text."""
+    format = "pdf"
+
+    def parse(self, content: bytes, filename: str = "") -> ParsedEbook:
+        if not content or len(content) > MAX_ARCHIVE_BYTES:
+            raise EbookParseError("File PDF rá»—ng hoáº·c vÆ°á»£t quÃ¡ giá»›i háº¡n 100 MB.")
+        if b"%PDF-" not in content[:1024]:
+            raise EbookParseError("PDF khÃ´ng Ä‘Ãºng Ä‘á»‹nh dáº¡ng hoáº·c file khÃ´ng há»£p lá»‡.")
+        return ParsedEbook(title=PurePosixPath(filename).stem or "PDF", format=self.format)
+
+
 def _archive_path(base: str, path: str) -> str:
     joined = PurePosixPath(base).parent / PurePosixPath(path)
     normalized = PurePosixPath()
@@ -234,7 +246,7 @@ class EpubParser:
         )
 
 
-PARSERS: dict[str, EbookParser] = {".epub": EpubParser(), ".txt": TxtParser(), ".html": HtmlParser(), ".htm": HtmlParser()}
+PARSERS: dict[str, EbookParser] = {".epub": EpubParser(), ".txt": TxtParser(), ".html": HtmlParser(), ".htm": HtmlParser(), ".pdf": PdfParser()}
 
 
 def parse_ebook(content: bytes, filename: str) -> ParsedEbook:

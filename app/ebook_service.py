@@ -101,7 +101,7 @@ def upload_ebook(owner_id: str, filename: str, content: bytes) -> UploadedEbook:
     source_language = _language(parsed)
     try:
         b2_upload(original_path, content, {
-            ".epub": "application/epub+zip", ".txt": "text/plain", ".html": "text/html", ".htm": "text/html",
+            ".epub": "application/epub+zip", ".txt": "text/plain", ".html": "text/html", ".htm": "text/html", ".pdf": "application/pdf",
         }[extension], check_existing=False)
         uploaded_paths.append(original_path)
         chapter_rows = []

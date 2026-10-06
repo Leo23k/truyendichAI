@@ -89,6 +89,16 @@ def test_upload_rejects_oversized_file_without_storage(monkeypatch):
     assert not remote.calls
 
 
+def test_pdf_upload_keeps_original_without_creating_fake_chapters(monkeypatch):
+    remote = FakeRemote()
+    objects = setup_upload(monkeypatch, remote)
+    result = ebook_service.upload_ebook("user-id", "manual.pdf", b"%PDF-1.7\nminimal fixture")
+    assert result.chapter_count == 0
+    assert objects[0][0][2] == "application/pdf"
+    book_write = next(call for call in remote.calls if call[0] == "POST" and call[1].endswith("ebook_books"))
+    assert book_write[2]["json"]["source_format"] == "pdf"
+
+
 def test_original_download_query_is_scoped_to_owner(monkeypatch):
     remote = FakeRemote()
     def rows(table, params):
