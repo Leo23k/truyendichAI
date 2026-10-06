@@ -20,7 +20,7 @@
     {% for book in ebooks %}
     <article class="site-panel flex flex-wrap items-center justify-between gap-4 p-4">
       <div class="min-w-0"><h2 class="truncate font-bold">{{ book.title }}</h2><p class="site-muted mt-1 text-sm">{{ book.author or 'Chưa rõ tác giả' }} · {{ book.chapter_count }} chương · {{ book.source_format|upper }} · {% if book.source_language == 'zh' %}Tiếng Trung{% elif book.source_language == 'vi' %}Tiếng Việt{% else %}Chưa xác định ngôn ngữ{% endif %}</p></div>
-      <a class="site-nav-button" href="/ebooks/{{ book.id }}/download">Tải file gốc</a>
+      <div class="flex gap-2"><a class="site-nav-button accent" href="/ebooks/{{ book.id }}/read/1">Đọc</a><a class="site-nav-button" href="/ebooks/{{ book.id }}/download">Tải file gốc</a></div>
     </article>
     {% else %}
     {% if not load_error %}<div class="site-panel site-muted p-8 text-center">Chưa có ebook nào. File upload chỉ hiển thị với tài khoản của bạn.</div>{% endif %}

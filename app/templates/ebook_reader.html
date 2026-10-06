@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ chapter.title }} · {{ book.title }}{% endblock %}
+{% block content %}
+<main class="mx-auto min-h-screen max-w-4xl px-4 py-5 pb-20 sm:px-6">
+  <nav class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <a href="{{ back_url }}" class="site-nav-button">← Ebook cá nhân</a>
+    <a href="/ebooks/{{ book.id }}/download" class="site-nav-button">Tải file gốc</a>
+  </nav>
+  <header class="mb-8 border-b border-[var(--line)] pb-5 text-center">
+    <p class="site-muted text-sm">{{ book.title }}{% if book.author %} · {{ book.author }}{% endif %}</p>
+    <h1 class="site-title mt-2 text-2xl">{{ chapter.title }}</h1>
+    <p class="site-muted mt-2 text-xs">Chương {{ chapter.chapter_number }} / {{ book.chapter_count }} · Nội dung riêng tư</p>
+  </header>
+  <article class="mx-auto max-w-3xl text-lg leading-[1.9] [&_p]:mb-6 [&_blockquote]:border-l-4 [&_blockquote]:border-teal-500 [&_blockquote]:pl-4 [&_h1]:my-6 [&_h2]:my-5 [&_h3]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6">
+    {{ content|safe }}
+  </article>
+  <nav class="mt-12 flex justify-between gap-4 border-t border-[var(--line)] pt-5" aria-label="Điều hướng chương">
+    {% if previous %}<a class="site-nav-button max-w-[48%] truncate" href="/ebooks/{{ book.id }}/read/{{ previous.chapter_number }}">← {{ previous.title }}</a>{% else %}<span></span>{% endif %}
+    {% if following %}<a class="site-nav-button max-w-[48%] truncate" href="/ebooks/{{ book.id }}/read/{{ following.chapter_number }}">{{ following.title }} →</a>{% endif %}
+  </nav>
+</main>
+{% endblock %}

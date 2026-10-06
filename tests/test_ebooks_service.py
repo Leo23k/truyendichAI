@@ -106,3 +106,16 @@ def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
 
     assert page.status_code == 200 and "Owned" in page.text
     assert response.status_code == 303 and response.headers["location"] == "/ebooks?uploaded=1"
+
+
+def test_ebook_reader_rejects_content_path_outside_owner_prefix(monkeypatch):
+    remote = FakeRemote()
+    calls = iter([
+        [{"id": "book-id", "title": "Book", "chapter_count": 1}],
+        [{"chapter_number": 1, "title": "Chapter", "content_path": "chapters/public.json", "content_index": 0}],
+    ])
+    remote.rows = lambda _table, _params: next(calls)
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+    with pytest.raises(ebook_service.EbookServiceError, match="không hợp lệ") as error:
+        ebook_service.get_ebook_chapter("owner-id", "book-id", 1)
+    assert error.value.status_code == 503

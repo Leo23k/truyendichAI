@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from app.ebooks import EbookParseError, ParsedEbook, parse_ebook
-from app.storage import configured as b2_configured, presigned_download_url, upload as b2_upload
+from app.storage import configured as b2_configured, download as b2_download, presigned_download_url, upload as b2_upload
 from sync.service import SupabaseSync, SyncError
 
 
@@ -186,3 +186,56 @@ def get_original_download(owner_id: str, ebook_id: str) -> tuple[str, str]:
         return presigned_download_url(str(row["original_file_path"]), download_filename=filename), filename
     except SyncError as exc:
         raise EbookServiceError("Không thể tạo liên kết tải ebook.", 503) from exc
+
+
+def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int) -> dict:
+    if chapter_number < 1:
+        raise EbookServiceError("Số chương không hợp lệ.", 404)
+    remote = SupabaseSync()
+    try:
+        books = remote.rows("ebook_books", {
+            "select": "id,title,author,source_language,source_format,chapter_count,original_file_path",
+            "id": f"eq.{ebook_id}", "owner_id": f"eq.{owner_id}", "limit": "1",
+        })
+        if not books:
+            raise EbookServiceError("Không tìm thấy ebook.", 404)
+        book = books[0]
+        chapters = remote.rows("ebook_chapters", {
+            "select": "chapter_number,title,content_path,content_index,translation_status",
+            "ebook_id": f"eq.{ebook_id}", "chapter_number": f"eq.{chapter_number}", "limit": "1",
+        })
+        if not chapters:
+            raise EbookServiceError("Không tìm thấy chương ebook.", 404)
+        chapter = chapters[0]
+        owner_key = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:32]
+        expected_prefix = f"ebooks/{owner_key}/{ebook_id}/chapters/"
+        content_path = str(chapter.get("content_path") or "")
+        if not content_path.startswith(expected_prefix):
+            raise EbookServiceError("Đường dẫn nội dung ebook không hợp lệ.", 503)
+        shard = json.loads(b2_download(content_path).decode("utf-8"))
+        items = shard.get("chapters") if isinstance(shard, dict) else None
+        index = int(chapter.get("content_index", -1))
+        if not isinstance(items, list) or index < 0 or index >= len(items):
+            raise EbookServiceError("Nội dung chương ebook không đồng bộ.", 503)
+        payload = items[index]
+        if int(payload.get("chapter_number", 0)) != chapter_number:
+            raise EbookServiceError("Mục lục và nội dung chương không khớp.", 503)
+        previous = remote.rows("ebook_chapters", {
+            "select": "chapter_number,title", "ebook_id": f"eq.{ebook_id}",
+            "chapter_number": f"lt.{chapter_number}", "order": "chapter_number.desc", "limit": "1",
+        })
+        following = remote.rows("ebook_chapters", {
+            "select": "chapter_number,title", "ebook_id": f"eq.{ebook_id}",
+            "chapter_number": f"gt.{chapter_number}", "order": "chapter_number.asc", "limit": "1",
+        })
+    except EbookServiceError:
+        raise
+    except (SyncError, ValueError, KeyError, TypeError) as exc:
+        raise EbookServiceError("Không thể tải nội dung chương ebook.", 503) from exc
+    return {
+        "book": book,
+        "chapter": chapter,
+        "content": str(payload.get("original_content") or ""),
+        "previous": previous[0] if previous else None,
+        "following": following[0] if following else None,
+    }
