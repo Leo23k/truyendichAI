@@ -127,8 +127,12 @@ def _chapter_list_context(slug: str, page: int, sort: str) -> dict[str, object]:
 
 def _synced_chapter_entry_and_payload(slug: str, chapter_number: int) -> tuple[dict, dict]:
     entry = next(item for item in load_chapters_index(slug) if int(item["chapter_number"]) == chapter_number)
-    key = f"{chapter_number:03d}"
-    return entry, load_cdn_json(entry.get("content_path") or f"novels/{slug}/chapters/{key}.json")
+    return entry, load_cdn_json(_synced_chapter_content_path(slug, entry, chapter_number))
+
+
+def _synced_chapter_content_path(slug: str, entry: dict, chapter_number: int) -> str:
+    """Prefer the persisted object key; UI numbering may be compacted after deletes."""
+    return str(entry.get("content_path") or f"novels/{slug}/chapters/{chapter_number:03d}.json")
 
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
@@ -1247,11 +1251,10 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         progress = load_translation_progress(int(current["id"])) if current.get("id") else None
         if not current.get("translated"):
             payload = {}
-            if current.get("content_path"):
-                try:
-                    payload = load_cdn_json(f"novels/{slug}/chapters/{key}.json")
-                except CdnDataError:
-                    payload = {}
+            try:
+                payload = load_cdn_json(_synced_chapter_content_path(slug, current, chapter_number))
+            except CdnDataError:
+                payload = {}
             original_content = payload.get("original_content") or payload.get("content") or ""
             translated_parts = [str(item.get("translated_text") or "Đang dịch đoạn tiếp theo...") for item in (progress or {}).get("chunks", [])]
             progressive = bool(progress and translated_parts)
@@ -1297,7 +1300,7 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
                     "queue_chapter_id": current.get("id"),
                 },
             )
-        payload = load_cdn_json(current.get("content_path") or f"novels/{slug}/chapters/{key}.json")
+        payload = load_cdn_json(_synced_chapter_content_path(slug, current, chapter_number))
     except CdnDataError:
         return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
     previous = entries[position - 1] if position else None

@@ -1092,7 +1092,9 @@ async def _crawl_and_translate_url(
                     if current.get("source_url") != item.url:
                         remote.patch_rows("chapters", {"id": f"eq.{current['id']}"}, {"source_url": item.url})
         new_rows = [
-            {"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": is_vietnamese}
+            # A source-language flag is not proof that the chapter JSON has
+            # reached B2 yet. Mark it ready only after upload + content_path patch.
+            {"novel_id": novel["id"], "chapter_number": item.chapter_number, "title": item.title, "source_url": item.url, "translated": False}
             for item in incoming
             if int(item.chapter_number) not in existing_by_number
         ]
