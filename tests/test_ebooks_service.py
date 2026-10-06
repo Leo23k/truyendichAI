@@ -152,6 +152,23 @@ def test_delete_ebook_is_owner_scoped_and_purges_all_b2_versions(monkeypatch):
     assert delete_request[2]["params"]["owner_id"] == "eq.owner"
 
 
+def test_crawled_novel_export_uses_translation_and_sanitizes_html(monkeypatch):
+    user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
+    monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
+    monkeypatch.setattr(main_app, "load_synced_novel", lambda slug: {"slug": slug, "title": "Novel", "author": "Author"})
+    monkeypatch.setattr(main_app, "load_chapters_index", lambda _slug: [{"chapter_number": 1, "title": "Chapter 1", "source_type": "zh"}])
+    monkeypatch.setattr(main_app, "_synced_chapter_content_path", lambda *_args: "chapters/novel/001.json")
+    monkeypatch.setattr(main_app, "load_cdn_json", lambda _path: {
+        "original_content": "<p>原文</p>", "translated_content": "<p>Vietnamese</p><script>alert(1)</script>",
+    })
+    client = TestClient(main_app.app)
+    client.cookies.set("sb-access-token", "token")
+
+    response = client.get("/truyen/novel/export?format=html&language=vi")
+    assert response.status_code == 200
+    assert "Vietnamese" in response.text and "<script>" not in response.text
+
+
 def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)

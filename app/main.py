@@ -23,6 +23,7 @@ from starlette.templating import Jinja2Templates
 from app.config import settings
 from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
 from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, delete_ebook, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_original_download, get_pdf_view_url, list_ebooks, upload_ebook
+from app.ebook_export import build_ebook_export
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
@@ -1181,6 +1182,48 @@ def control_crawl_job(job_id: str, action: str, request: Request):
     response = templates.TemplateResponse(request=request, name="jobs.html", context=_jobs_page_context(partial=True, toast=message))
     response.headers["HX-Trigger"] = "jobsChanged"
     return response
+
+
+@app.get("/truyen/{slug}/export")
+def export_crawled_novel(slug: str, request: Request, format: str = "epub", language: str = "vi"):
+    if format not in {"epub", "txt", "html"} or language not in {"vi", "zh", "bilingual"}:
+        raise HTTPException(status_code=400, detail="Định dạng hoặc ngôn ngữ export không hợp lệ.")
+    try:
+        novel = load_synced_novel(slug)
+        chapter_index = load_chapters_index(slug)
+        chapters = []
+        for entry in chapter_index:
+            number = int(entry["chapter_number"])
+            payload = load_cdn_json(_synced_chapter_content_path(slug, entry, number))
+            original = str(payload.get("original_content") or payload.get("source_content") or "")
+            translated = str(payload.get("translated_content") or "")
+            source_type = str(entry.get("source_type") or "zh").lower()
+            if not original and payload.get("translated"):
+                translated = translated or str(payload.get("content") or "")
+            if language == "vi":
+                if translated:
+                    content = translated
+                elif source_type in {"vi", "vn", "vie"} or payload.get("translated"):
+                    content = original or str(payload.get("content") or "")
+                else:
+                    raise HTTPException(status_code=409, detail=f"Chương {number} chưa có bản dịch tiếng Việt.")
+            elif language == "zh":
+                content = original or str(payload.get("content") or translated)
+            else:
+                content = f"<section><h2>Nguyên tác</h2>{original or '<p>Không có bản gốc</p>'}<h2>Tiếng Việt</h2>{translated or '<p>Chưa dịch</p>'}</section>"
+            chapters.append((number, str(payload.get("title") or entry.get("title") or f"Chương {number}"), content))
+        if not chapters:
+            raise HTTPException(status_code=404, detail="Truyện chưa có chương để export.")
+        content, media_type, filename = build_ebook_export(
+            str(novel.get("title") or slug), str(novel.get("author") or ""), slug,
+            chapters, format, language,
+        )
+    except CdnDataError as exc:
+        raise HTTPException(status_code=404, detail="Không tải được đầy đủ dữ liệu truyện.") from exc
+    return StreamingResponse(
+        iter([content]), media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}", "Cache-Control": "no-store"},
+    )
 
 
 @app.get("/truyen/{slug}")

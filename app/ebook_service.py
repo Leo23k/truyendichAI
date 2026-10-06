@@ -5,13 +5,11 @@ import hashlib
 import json
 import re
 import uuid
-from html import escape as escape_html
-from io import BytesIO
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from app.ebooks import EbookParseError, ParsedEbook, parse_ebook
+from app.ebook_export import build_ebook_export
 from app.storage import configured as b2_configured, download as b2_download, presigned_download_url, upload as b2_upload
 from app.translator.chunking import chunk_text
 from sync.service import SupabaseSync, SyncError
@@ -323,40 +321,10 @@ def export_ebook(owner_id: str, ebook_id: str, file_format: str, language: str =
     except Exception as exc:
         raise EbookServiceError("KhÃ´ng thá»ƒ Ä‘á»c dá»¯ liá»‡u Ä‘á»ƒ export ebook.", 503) from exc
 
-    title = str(book.get("title") or "Ebook")
-    author = str(book.get("author") or "")
-    filename = _safe_filename(title) or "ebook"
-    if file_format == "txt":
-        sections = [title, author, ""]
-        for number, chapter_title, content in export_chapters:
-            sections.extend([f"ChÆ°Æ¡ng {number}: {chapter_title}", BeautifulSoup(content, "html.parser").get_text("\n", strip=True), ""])
-        return "\n".join(sections).encode("utf-8"), "text/plain; charset=utf-8", f"{filename}.txt"
-    if file_format == "html":
-        body = "".join(f"<section><h2>{escape_html(chapter_title)}</h2>{content}</section>" for _, chapter_title, content in export_chapters)
-        document = f"<!doctype html><html lang=\"vi\"><meta charset=\"utf-8\"><title>{escape_html(title)}</title><h1>{escape_html(title)}</h1><p>{escape_html(author)}</p>{body}</html>"
-        return document.encode("utf-8"), "text/html; charset=utf-8", f"{filename}.html"
-
-    output = BytesIO()
-    with ZipFile(output, "w") as archive:
-        archive.writestr("mimetype", "application/epub+zip", compress_type=ZIP_STORED)
-        archive.writestr("META-INF/container.xml", '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>', compress_type=ZIP_DEFLATED)
-        manifest_items, spine_items, nav_items = [], [], []
-        for index, (_, chapter_title, content) in enumerate(export_chapters, 1):
-            chapter_name = f"chapter-{index:05d}.xhtml"
-            safe_title = escape_html(chapter_title)
-            xhtml = f'<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>{safe_title}</title></head><body><h1>{safe_title}</h1>{content}</body></html>'
-            archive.writestr(f"OEBPS/{chapter_name}", xhtml, compress_type=ZIP_DEFLATED)
-            manifest_items.append(f'<item id="chapter{index}" href="{chapter_name}" media-type="application/xhtml+xml"/>')
-            spine_items.append(f'<itemref idref="chapter{index}"/>')
-            nav_items.append(f'<li><a href="{chapter_name}">{safe_title}</a></li>')
-        archive.writestr("OEBPS/nav.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol>' + "".join(nav_items) + "</ol></nav></body></html>", compress_type=ZIP_DEFLATED)
-        manifest_items.append('<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>')
-        metadata = f'<dc:title>{escape_html(title)}</dc:title><dc:language>{"vi" if language != "zh" else "zh"}</dc:language>'
-        if author:
-            metadata += f'<dc:creator>{escape_html(author)}</dc:creator>'
-        opf = f'<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">{metadata}<dc:identifier id="bookid">{escape_html(ebook_id)}</dc:identifier></metadata><manifest>{"".join(manifest_items)}</manifest><spine>{"".join(spine_items)}</spine></package>'
-        archive.writestr("OEBPS/content.opf", opf, compress_type=ZIP_DEFLATED)
-    return output.getvalue(), "application/epub+zip", f"{filename}.epub"
+    return build_ebook_export(
+        str(book.get("title") or "Ebook"), str(book.get("author") or ""),
+        ebook_id, export_chapters, file_format, language,
+    )
 
 
 def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int, *, mode: str = "original") -> dict:
