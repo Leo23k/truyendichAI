@@ -22,7 +22,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
-from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_original_download, list_ebooks, upload_ebook
+from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_original_download, get_pdf_view_url, list_ebooks, upload_ebook
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
@@ -425,6 +425,16 @@ def export_private_ebook(ebook_id: str, request: Request, format: str = "epub", 
         iter([content]), media_type=media_type,
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}", "Cache-Control": "no-store, private"},
     )
+
+
+@app.get("/ebooks/{ebook_id}/read-pdf")
+def read_private_pdf(ebook_id: str, request: Request):
+    user = require_authenticated(request)
+    try:
+        url = get_pdf_view_url(user.id, ebook_id)
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store, private", "Referrer-Policy": "no-referrer"})
 
 
 @app.get("/ebooks/{ebook_id}/read/{chapter_number}")

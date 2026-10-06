@@ -193,6 +193,26 @@ def get_original_download(owner_id: str, ebook_id: str) -> tuple[str, str]:
         raise EbookServiceError("Không thể tạo liên kết tải ebook.", 503) from exc
 
 
+def get_pdf_view_url(owner_id: str, ebook_id: str) -> str:
+    try:
+        rows = SupabaseSync().rows("ebook_books", {
+            "select": "original_file_path,source_format", "id": f"eq.{ebook_id}",
+            "owner_id": f"eq.{owner_id}", "limit": "1",
+        })
+        if not rows:
+            raise EbookServiceError("Không tìm thấy ebook.", 404)
+        row = rows[0]
+        owner_key = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:32]
+        expected = f"ebooks/{owner_key}/{ebook_id}/original.pdf"
+        if row.get("source_format") != "pdf" or row.get("original_file_path") != expected:
+            raise EbookServiceError("Ebook này không phải PDF.", 404)
+        return presigned_download_url(expected)
+    except EbookServiceError:
+        raise
+    except SyncError as exc:
+        raise EbookServiceError("Không thể mở PDF riêng tư.", 503) from exc
+
+
 def export_ebook(owner_id: str, ebook_id: str, file_format: str, language: str = "vi") -> tuple[bytes, str, str]:
     """Build a private owner-scoped EPUB, TXT, or self-contained HTML export."""
     file_format = file_format.lower()

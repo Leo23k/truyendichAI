@@ -115,6 +115,17 @@ def test_original_download_query_is_scoped_to_owner(monkeypatch):
     assert query["owner_id"] == "eq.owner-a"
 
 
+def test_pdf_reader_uses_short_lived_private_url_and_owner_filter(monkeypatch):
+    remote = FakeRemote()
+    remote.rows = lambda table, params: (remote.calls.append(("rows", table, params)) or ([{"source_format": "pdf", "original_file_path": "ebooks/hash/pdf-id/original.pdf"}] if table == "ebook_books" else []))
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(ebook_service.hashlib, "sha256", lambda _value: type("Hash", (), {"hexdigest": lambda self: "hash"})())
+    monkeypatch.setattr(ebook_service, "presigned_download_url", lambda path: "signed:" + path)
+
+    assert ebook_service.get_pdf_view_url("owner", "pdf-id") == "signed:ebooks/hash/pdf-id/original.pdf"
+    assert remote.calls[0][2]["owner_id"] == "eq.owner"
+
+
 def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
