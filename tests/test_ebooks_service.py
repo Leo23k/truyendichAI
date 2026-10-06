@@ -126,6 +126,32 @@ def test_pdf_reader_uses_short_lived_private_url_and_owner_filter(monkeypatch):
     assert remote.calls[0][2]["owner_id"] == "eq.owner"
 
 
+def test_delete_ebook_is_owner_scoped_and_purges_all_b2_versions(monkeypatch):
+    ebook_id = "b2efc9a7-843e-4a1e-88d1-bbb1a40d87f3"
+    remote = FakeRemote()
+    remote.rows = lambda table, params: (remote.calls.append(("rows", table, params)) or ([{"id": ebook_id}] if table == "ebook_books" and params["owner_id"] == "eq.owner" else []))
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(ebook_service.hashlib, "sha256", lambda _value: type("Hash", (), {"hexdigest": lambda self: "ownerhash"})())
+    deleted = []
+
+    class FakeS3:
+        def list_object_versions(self, **kwargs):
+            assert kwargs["Prefix"] == f"ebooks/ownerhash/{ebook_id}/"
+            return {"Versions": [{"Key": "ebooks/ownerhash/file", "VersionId": "version-1"}], "DeleteMarkers": [{"Key": "ebooks/ownerhash/file", "VersionId": "marker-1"}], "IsTruncated": False}
+
+        def delete_objects(self, **kwargs):
+            deleted.extend(kwargs["Delete"]["Objects"])
+            return {"Deleted": kwargs["Delete"]["Objects"]}
+
+    monkeypatch.setattr("app.storage.client", lambda: FakeS3())
+    monkeypatch.setenv("B2_BUCKET", "private")
+    ebook_service.delete_ebook("owner", ebook_id)
+
+    assert {item["VersionId"] for item in deleted} == {"version-1", "marker-1"}
+    delete_request = next(call for call in remote.calls if call[0] == "DELETE")
+    assert delete_request[2]["params"]["owner_id"] == "eq.owner"
+
+
 def test_non_admin_can_access_ebook_upload_without_admin_mutation(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)

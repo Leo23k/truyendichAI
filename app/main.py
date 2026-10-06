@@ -22,7 +22,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
-from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_original_download, get_pdf_view_url, list_ebooks, upload_ebook
+from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, delete_ebook, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_original_download, get_pdf_view_url, list_ebooks, upload_ebook
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
@@ -400,6 +400,16 @@ def enqueue_ebook_translation_endpoint(ebook_id: str, request: Request, retransl
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return RedirectResponse(f"/ebooks?queued={queued}", status_code=303)
+
+
+@app.post("/api/ebooks/{ebook_id}/delete")
+def delete_ebook_endpoint(ebook_id: str, request: Request):
+    user = require_authenticated(request)
+    try:
+        delete_ebook(user.id, ebook_id)
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return RedirectResponse("/ebooks?deleted=1", status_code=303)
 
 
 @app.get("/ebooks/{ebook_id}/download")

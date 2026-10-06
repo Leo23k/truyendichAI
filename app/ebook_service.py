@@ -213,6 +213,62 @@ def get_pdf_view_url(owner_id: str, ebook_id: str) -> str:
         raise EbookServiceError("Không thể mở PDF riêng tư.", 503) from exc
 
 
+def _delete_b2_prefix(prefix: str) -> int:
+    import os
+    from app.storage import client
+
+    s3 = client()
+    bucket = os.environ["B2_BUCKET"]
+    marker: dict[str, str] = {}
+    deleted = 0
+    while True:
+        page = s3.list_object_versions(Bucket=bucket, Prefix=prefix, **marker)
+        objects = [
+            {"Key": item["Key"], "VersionId": item["VersionId"]}
+            for item in [*page.get("Versions", []), *page.get("DeleteMarkers", [])]
+        ]
+        for offset in range(0, len(objects), 1000):
+            response = s3.delete_objects(Bucket=bucket, Delete={"Objects": objects[offset:offset + 1000], "Quiet": True})
+            if response.get("Errors"):
+                raise EbookServiceError("B2 không xoá được toàn bộ file/version của ebook.", 503)
+            deleted += len(objects[offset:offset + 1000])
+        if not page.get("IsTruncated"):
+            return deleted
+        marker = {
+            "KeyMarker": page["NextKeyMarker"],
+            "VersionIdMarker": page["NextVersionIdMarker"],
+        }
+
+
+def delete_ebook(owner_id: str, ebook_id: str) -> None:
+    try:
+        canonical_id = str(uuid.UUID(ebook_id))
+    except (ValueError, AttributeError) as exc:
+        raise EbookServiceError("ID ebook không hợp lệ.", 404) from exc
+    remote = SupabaseSync()
+    try:
+        books = remote.rows("ebook_books", {
+            "select": "id", "id": f"eq.{canonical_id}", "owner_id": f"eq.{owner_id}", "limit": "1",
+        })
+        if not books:
+            raise EbookServiceError("Không tìm thấy ebook.", 404)
+        owner_key = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:32]
+        prefix = f"ebooks/{owner_key}/{canonical_id}/"
+        _delete_b2_prefix(prefix)
+        response = remote.request(
+            "DELETE", "/rest/v1/ebook_books",
+            params={"id": f"eq.{canonical_id}", "owner_id": f"eq.{owner_id}"},
+            headers={"Prefer": "return=representation"},
+        )
+        deleted_rows = response.json()
+        if not isinstance(deleted_rows, list) or not deleted_rows:
+            raise EbookServiceError("Không xoá được metadata ebook trên Supabase.", 503)
+    except EbookServiceError:
+        raise
+    except Exception as exc:
+        raise EbookServiceError("Không thể xoá ebook và dữ liệu lưu trữ.", 503) from exc
+
+
 def export_ebook(owner_id: str, ebook_id: str, file_format: str, language: str = "vi") -> tuple[bytes, str, str]:
     """Build a private owner-scoped EPUB, TXT, or self-contained HTML export."""
     file_format = file_format.lower()
