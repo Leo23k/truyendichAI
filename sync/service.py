@@ -1493,14 +1493,24 @@ def _run_translation_watch(stop_event: threading.Event, idle_delay: float) -> No
             if run_translation_worker_once():
                 sync_status["last_error"] = None
                 continue
-            if run_ebook_ingestion_worker_once():
-                sync_status["last_error"] = None
-                continue
             if run_ebook_translation_worker_once():
                 sync_status["last_error"] = None
                 continue
         except SyncError as exc:
             logger.exception("Worker dịch gặp lỗi khi đọc hàng đợi.")
+            sync_status["last_error"] = str(exc)
+        stop_event.wait(idle_delay)
+
+
+def _run_ebook_ingestion_watch(stop_event: threading.Event, idle_delay: float) -> None:
+    """Keep ebook imports moving independently of a busy novel translation queue."""
+    logger.info("Ebook ingestion worker started.")
+    while not stop_event.is_set():
+        try:
+            if run_ebook_ingestion_worker_once():
+                continue
+        except SyncError as exc:
+            logger.exception("Ebook ingestion worker failed while reading the queue.")
             sync_status["last_error"] = str(exc)
         stop_event.wait(idle_delay)
 
@@ -1526,8 +1536,15 @@ def run_watch() -> None:
             )
             for index in range(translation_worker_concurrency())
         ]
+        ebook_ingestion_thread = threading.Thread(
+            target=_run_ebook_ingestion_watch,
+            args=(translator_stop, min(interval, 2)),
+            daemon=True,
+            name="leotruyen-ebook-ingestion",
+        )
         for translator_thread in translator_threads:
             translator_thread.start()
+        ebook_ingestion_thread.start()
         try:
             while True:
                 try:
@@ -1540,6 +1557,7 @@ def run_watch() -> None:
             translator_stop.set()
             for translator_thread in translator_threads:
                 translator_thread.join(timeout=5)
+            ebook_ingestion_thread.join(timeout=5)
 
 
 @app.on_event("startup")

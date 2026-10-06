@@ -226,6 +226,7 @@ def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
     assert upload.status_code == 200 and "100 MB" in upload.text and "PC worker" in upload.text
     assert 'id="ebook-upload-only"' in upload.text and 'data-translate="false"' in upload.text
     assert 'id="ebook-upload-translate"' in upload.text and 'data-translate="true"' in upload.text
+    assert 'id="ebook-upload-leave"' in upload.text and 'href="/ebooks"' in upload.text
     assert "Đang tải…" in upload.text and "Đang chờ…" in upload.text and "Upload xong" in upload.text
     assert "PC worker đang phân tích" not in upload.text and "Đang cấp quyền upload" not in upload.text
     assert "auto_translate" not in upload.text and "upload_url" in upload.text

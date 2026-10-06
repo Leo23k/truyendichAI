@@ -265,6 +265,24 @@ def test_translation_worker_concurrency_defaults_to_two_and_is_bounded(monkeypat
     assert service.translation_worker_concurrency() == 1
 
 
+def test_ebook_ingestion_watch_runs_independently_of_translation_queue(monkeypatch) -> None:
+    calls = []
+
+    class StopAfterOneJob:
+        checks = 0
+
+        def is_set(self):
+            self.checks += 1
+            return self.checks > 1
+
+        def wait(self, _seconds):
+            pytest.fail("The ingestion watcher should immediately check the next loop after processing")
+
+    monkeypatch.setattr(service, "run_ebook_ingestion_worker_once", lambda: calls.append("ingest") or True)
+    service._run_ebook_ingestion_watch(StopAfterOneJob(), 1)
+    assert calls == ["ingest"]
+
+
 def test_paused_crawl_stops_crawler_but_allows_translation(monkeypatch) -> None:
     class StatusRemote:
         def rows(self, _table: str, params: dict[str, str]) -> list[dict]:

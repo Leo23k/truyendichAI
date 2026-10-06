@@ -12,6 +12,7 @@
         <input id="ebook-file" class="sr-only" type="file" name="file" accept=".epub,.txt,.html,.htm,.pdf" required>
       </label>
       <div id="ebook-upload-progress" class="hidden" aria-live="polite"><div class="mb-2 flex justify-between text-sm"><span id="ebook-upload-status">Đang tải…</span><span id="ebook-upload-percent">0%</span></div><div class="h-2 overflow-hidden rounded-full bg-[var(--surface-3)]"><div id="ebook-upload-bar" class="h-full rounded-full bg-[var(--accent)] transition-[width]" style="width:0%"></div></div></div>
+      <a id="ebook-upload-leave" href="/ebooks" class="site-nav-button hidden min-h-10 w-full justify-center">Về Ebook của tôi</a>
       <p id="ebook-upload-error" class="hidden rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400" role="alert"></p>
       <div class="grid gap-3 sm:grid-cols-2">
         <button id="ebook-upload-only" type="submit" data-translate="false" class="site-nav-button min-h-12 w-full justify-center">Chỉ upload · không dịch</button>
@@ -23,7 +24,7 @@
   (() => {
     const form = document.getElementById('ebook-upload-form'), input = document.getElementById('ebook-file'), zone = document.getElementById('ebook-drop-zone');
     const name = document.getElementById('ebook-file-name'), progress = document.getElementById('ebook-upload-progress'), status = document.getElementById('ebook-upload-status');
-    const percent = document.getElementById('ebook-upload-percent'), bar = document.getElementById('ebook-upload-bar'), error = document.getElementById('ebook-upload-error'), submits = [...form.querySelectorAll('button[type="submit"]')];
+    const percent = document.getElementById('ebook-upload-percent'), bar = document.getElementById('ebook-upload-bar'), error = document.getElementById('ebook-upload-error'), leave = document.getElementById('ebook-upload-leave'), submits = [...form.querySelectorAll('button[type="submit"]')];
     const maxBytes = 100 * 1024 * 1024;
     const setFile = file => { if (!file) return; const allowed = /\.(epub|txt|html?|pdf)$/i.test(file.name); if (!allowed || file.size > maxBytes || file.size === 0) { error.textContent = !allowed ? 'Định dạng file chưa được hỗ trợ.' : file.size === 0 ? 'File rỗng.' : 'File vượt giới hạn 100 MB.'; error.classList.remove('hidden'); input.value = ''; name.textContent = ''; return; } error.classList.add('hidden'); name.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`; };
     input.addEventListener('change', () => setFile(input.files[0]));
@@ -57,6 +58,7 @@
         percent.textContent = ''; status.textContent = 'Upload xong';
         await apiJson(`/api/ebooks/upload/${encodeURIComponent(session.upload_id)}/complete`, { method: 'POST' });
         status.textContent = 'Đang chờ…';
+        leave.classList.remove('hidden');
         while (true) {
           await wait(3000);
           const result = await apiJson(`/api/ebooks/upload/${encodeURIComponent(session.upload_id)}/status`);
