@@ -99,6 +99,18 @@ def test_pdf_upload_keeps_original_without_creating_fake_chapters(monkeypatch):
     assert book_write[2]["json"]["source_format"] == "pdf"
 
 
+def test_epub_cover_is_stored_in_private_b2_and_metadata(monkeypatch):
+    remote = FakeRemote()
+    objects = setup_upload(monkeypatch, remote)
+    monkeypatch.setattr(ebook_service, "parse_ebook", lambda *_args: ebook_service.ParsedEbook(title="Cover book", format="epub", cover=b"cover-bytes", cover_media_type="image/png"))
+
+    ebook_service.upload_ebook("user-id", "cover.epub", b"epub-source")
+    cover_upload = next(call for call in objects if isinstance(call[0], tuple) and "/assets/cover.png" in call[0][0])
+    book_write = next(call for call in remote.calls if call[0] == "POST" and call[1].endswith("ebook_books"))
+    assert cover_upload[0][1] == b"cover-bytes" and cover_upload[0][2] == "image/png"
+    assert book_write[2]["json"]["cover_path"].endswith("/assets/cover.png")
+
+
 def test_original_download_query_is_scoped_to_owner(monkeypatch):
     remote = FakeRemote()
     def rows(table, params):

@@ -38,6 +38,18 @@ def test_epub_reads_chapters_from_spine_not_filename_sort() -> None:
     assert [chapter.title for chapter in parsed.chapters] == ["First", "Second"]
 
 
+def test_epub_extracts_declared_cover_image() -> None:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="OPS/content.opf"/></rootfiles></container>')
+        archive.writestr("OPS/content.opf", '''<package xmlns="http://www.idpf.org/2007/opf"><metadata><title>Book</title><meta name="cover" content="cover"/></metadata><manifest><item id="cover" href="images/cover.png" media-type="image/png"/><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>''')
+        archive.writestr("OPS/images/cover.png", b"cover-image-bytes")
+        archive.writestr("OPS/chapter.xhtml", "<p>Chapter content</p>")
+    parsed = parse_ebook(buffer.getvalue(), "book.epub")
+    assert parsed.cover == b"cover-image-bytes"
+    assert parsed.cover_media_type == "image/png"
+
+
 def test_rejects_unsafe_epub_member_paths() -> None:
     buffer = BytesIO()
     with ZipFile(buffer, "w") as archive:

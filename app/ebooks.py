@@ -40,6 +40,8 @@ class ParsedEbook:
     description: str = ""
     chapters: tuple[EbookChapter, ...] = field(default_factory=tuple)
     format: str = ""
+    cover: bytes | None = None
+    cover_media_type: str | None = None
 
 
 class EbookParser(Protocol):
@@ -210,6 +212,15 @@ class EpubParser:
                 metadata_values = {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in metadata}
                 manifest = {node.attrib.get("id", ""): node.attrib for node in manifest_node}
                 base = rootfile
+                cover_id = next((node.attrib.get("content") for node in metadata if node.tag.endswith("meta") and node.attrib.get("name", "").lower() == "cover"), None)
+                cover_item = next((item for item in manifest.values() if "cover-image" in item.get("properties", "").split() or item.get("id") == cover_id), None)
+                cover_data = None
+                cover_media_type = None
+                if cover_item and cover_item.get("media-type") in {"image/jpeg", "image/png", "image/gif", "image/webp"} and cover_item.get("href"):
+                    cover_path = _archive_path(base, cover_item["href"])
+                    if cover_path in archive.namelist() and 0 < archive.getinfo(cover_path).file_size <= 5 * 1024 * 1024:
+                        cover_data = archive.read(cover_path)
+                        cover_media_type = cover_item["media-type"]
                 chapters: list[EbookChapter] = []
                 for itemref in spine_node:
                     idref = itemref.attrib.get("idref")
@@ -243,6 +254,8 @@ class EpubParser:
             description=metadata_values.get("description", ""),
             chapters=tuple(chapters),
             format=self.format,
+            cover=cover_data,
+            cover_media_type=cover_media_type,
         )
 
 

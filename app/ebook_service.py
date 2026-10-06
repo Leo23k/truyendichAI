@@ -96,12 +96,18 @@ def upload_ebook(owner_id: str, filename: str, content: bytes) -> UploadedEbook:
     extension = PurePosixPath(safe_name).suffix.lower()
     original_path = f"{root}/original{extension}"
     uploaded_paths: list[str] = []
+    cover_path = None
     source_language = _language(parsed)
     try:
         b2_upload(original_path, content, {
             ".epub": "application/epub+zip", ".txt": "text/plain", ".html": "text/html", ".htm": "text/html", ".pdf": "application/pdf",
         }[extension], check_existing=False)
         uploaded_paths.append(original_path)
+        if parsed.cover and parsed.cover_media_type:
+            image_extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}[parsed.cover_media_type]
+            cover_path = f"{root}/assets/cover{image_extension}"
+            b2_upload(cover_path, parsed.cover, parsed.cover_media_type, check_existing=False)
+            uploaded_paths.append(cover_path)
         chapter_rows = []
         for start in range(0, len(parsed.chapters), CHAPTERS_PER_OBJECT):
             group = parsed.chapters[start:start + CHAPTERS_PER_OBJECT]
@@ -141,6 +147,8 @@ def upload_ebook(owner_id: str, filename: str, content: bytes) -> UploadedEbook:
             "status": "ready",
             "chapter_count": len(parsed.chapters),
         }
+        if cover_path:
+            book_payload["cover_path"] = cover_path
         created = remote.request(
             "POST", "/rest/v1/ebook_books", json=book_payload,
             headers={"Prefer": "return=representation"},
@@ -168,10 +176,11 @@ def upload_ebook(owner_id: str, filename: str, content: bytes) -> UploadedEbook:
 def list_ebooks(owner_id: str) -> list[dict]:
     try:
         remote = SupabaseSync()
-        books = remote.all_rows("ebook_books", {
-            "select": "id,title,author,source_format,source_language,status,chapter_count,created_at,updated_at",
-            "owner_id": f"eq.{owner_id}", "order": "created_at.desc",
-        })
+        filters = {"owner_id": f"eq.{owner_id}", "order": "created_at.desc"}
+        try:
+            books = remote.all_rows("ebook_books", {**filters, "select": "id,title,author,source_format,source_language,status,chapter_count,created_at,updated_at,cover_path"})
+        except SyncError:
+            books = remote.all_rows("ebook_books", {**filters, "select": "id,title,author,source_format,source_language,status,chapter_count,created_at,updated_at"})
         if not books:
             return []
         ids = ",".join(str(book["id"]) for book in books)
@@ -190,6 +199,7 @@ def list_ebooks(owner_id: str) -> list[dict]:
         record[key] += 1
     for book in books:
         progress = stats[str(book["id"])]
+        book["cover_url"] = _private_cover_url(owner_id, str(book["id"]), book.get("cover_path"))
         book.update({
             "translated_chapters": progress["translated"],
             "processing_chapters": progress["processing"],
@@ -203,10 +213,11 @@ def list_ebooks(owner_id: str) -> list[dict]:
 def get_ebook_detail(owner_id: str, ebook_id: str) -> dict:
     remote = SupabaseSync()
     try:
-        books = remote.rows("ebook_books", {
-            "select": "id,title,author,description,source_format,source_language,status,chapter_count,created_at,updated_at,file_name",
-            "id": f"eq.{ebook_id}", "owner_id": f"eq.{owner_id}", "limit": "1",
-        })
+        book_filters = {"id": f"eq.{ebook_id}", "owner_id": f"eq.{owner_id}", "limit": "1"}
+        try:
+            books = remote.rows("ebook_books", {**book_filters, "select": "id,title,author,description,source_format,source_language,status,chapter_count,created_at,updated_at,file_name,cover_path"})
+        except SyncError:
+            books = remote.rows("ebook_books", {**book_filters, "select": "id,title,author,description,source_format,source_language,status,chapter_count,created_at,updated_at,file_name"})
         if not books:
             raise EbookServiceError("Không tìm thấy ebook.", 404)
         book = books[0]
@@ -236,7 +247,22 @@ def get_ebook_detail(owner_id: str, ebook_id: str) -> dict:
         "failed_chapters": sum(chapter.get("translation_status") == "failed" for chapter in chapters),
         "translation_percent": round(translated * 100 / max(1, int(book.get("chapter_count") or 0))),
     })
+    book["cover_url"] = _private_cover_url(owner_id, ebook_id, book.get("cover_path"))
     return {"book": book, "chapters": chapters}
+
+
+def _private_cover_url(owner_id: str, ebook_id: str, path: object) -> str | None:
+    if not path:
+        return None
+    owner_key = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:32]
+    expected_prefix = f"ebooks/{owner_key}/{ebook_id}/assets/"
+    value = str(path)
+    if not value.startswith(expected_prefix):
+        return None
+    try:
+        return presigned_download_url(value)
+    except Exception:
+        return None
 
 
 def get_original_download(owner_id: str, ebook_id: str) -> tuple[str, str]:
