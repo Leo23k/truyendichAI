@@ -18,7 +18,8 @@ def test_untranslated_chapter_loads_saved_path_when_b2_upload_precedes_metadata_
     }
     requested_paths = []
     monkeypatch.setattr(main, "load_chapters_index", lambda slug: [chapter])
-    monkeypatch.setattr(main, "load_translation_progress", lambda chapter_id: None)
+    progress_lookups = []
+    monkeypatch.setattr(main, "load_translation_progress", lambda chapter_id: progress_lookups.append(chapter_id))
     monkeypatch.setattr(main, "_replacement_context", lambda request, slug: ([], slug))
     monkeypatch.setattr(main, "load_cdn_json", lambda path: requested_paths.append(path) or {"original_content": "nội dung gốc"})
     request = Request({
@@ -33,6 +34,7 @@ def test_untranslated_chapter_loads_saved_path_when_b2_upload_precedes_metadata_
 
     assert response.status_code == 200
     assert requested_paths == ["chapters/quy-bi-chi-chu/001.json"]
+    assert progress_lookups == [640700]
     assert response.context["display_content"] == "nội dung gốc"
 
 
@@ -47,7 +49,8 @@ def test_reader_uses_original_when_backup_has_no_translation(monkeypatch) -> Non
         "content_path": "chapters/kiem-lai/1295.json",
     }
     monkeypatch.setattr(main, "load_chapters_index", lambda slug: [chapter])
-    monkeypatch.setattr(main, "load_translation_progress", lambda chapter_id: None)
+    progress_lookups = []
+    monkeypatch.setattr(main, "load_translation_progress", lambda chapter_id: progress_lookups.append(chapter_id))
     monkeypatch.setattr(main, "_replacement_context", lambda request, slug: ([], slug))
     monkeypatch.setattr(main, "load_cdn_json", lambda path: {
         "original_title": "第73章 好梦成真",
@@ -74,3 +77,4 @@ def test_reader_uses_original_when_backup_has_no_translation(monkeypatch) -> Non
     assert response.context["mode"] == "original"
     assert response.context["translation_error"]
     assert response.context["tts_chunks"] == []
+    assert progress_lookups == []

@@ -1248,7 +1248,14 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
         if position is None:
             return HTMLResponse("Chương này chưa được đồng bộ.", status_code=404)
         current = entries[position]
-        progress = load_translation_progress(int(current["id"])) if current.get("id") else None
+        # Progress chunks are only used to render partial text for untranslated
+        # chapters. Fetching them for completed chapters adds two Supabase calls
+        # to every reader navigation without affecting the page.
+        progress = (
+            load_translation_progress(int(current["id"]))
+            if current.get("id") and not current.get("translated")
+            else None
+        )
         if not current.get("translated"):
             payload = {}
             try:
