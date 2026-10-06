@@ -275,6 +275,7 @@
             <span class="desktop-only max-w-28 truncate font-medium">{{ request.state.user.display_name }}</span>
           </button>
           <div x-cloak x-show="open" x-transition.origin.top.right class="absolute right-0 mt-3 w-48 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface)] p-1 shadow-xl">
+            <a href="/ebooks" class="flex min-h-10 items-center gap-2 rounded-md px-3 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface-3)]"><i data-lucide="book-marked" class="h-4 w-4"></i>Ebook cá nhân</a>
             <a href="/notification-settings" class="flex min-h-10 items-center gap-2 rounded-md px-3 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface-3)]"><i data-lucide="settings-2" class="h-4 w-4"></i>Thông báo</a>
             <a href="/logout" class="flex min-h-10 items-center gap-2 rounded-md px-3 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface-3)]"><i data-lucide="log-out" class="h-4 w-4"></i>Đăng xuất</a>
           </div>
