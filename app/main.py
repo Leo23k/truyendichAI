@@ -22,7 +22,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.auth import ANON, URL as AUTH_URL, pkce, refresh_session, require_authenticated, user_from_token
-from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, enqueue_ebook_translation, get_ebook_chapter, get_original_download, list_ebooks, upload_ebook
+from app.ebook_service import EbookServiceError, MAX_UPLOAD_BYTES, enqueue_ebook_translation, export_ebook, get_ebook_chapter, get_original_download, list_ebooks, upload_ebook
 from app.cdn import (
     CdnDataError,
     add_synced_chapters,
@@ -410,6 +410,21 @@ def download_original_ebook(ebook_id: str, request: Request):
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store, private"})
+
+
+@app.get("/ebooks/{ebook_id}/export")
+def export_private_ebook(ebook_id: str, request: Request, format: str = "epub", language: str = "vi"):
+    from urllib.parse import quote
+
+    user = require_authenticated(request)
+    try:
+        content, media_type, filename = export_ebook(user.id, ebook_id, format, language)
+    except EbookServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return StreamingResponse(
+        iter([content]), media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}", "Cache-Control": "no-store, private"},
+    )
 
 
 @app.get("/ebooks/{ebook_id}/read/{chapter_number}")

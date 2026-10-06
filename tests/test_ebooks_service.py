@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from io import BytesIO
+from zipfile import ZipFile
 from fastapi.testclient import TestClient
 
 from app import ebook_service
@@ -186,3 +188,29 @@ def test_ebook_translation_worker_publishes_separate_translation(monkeypatch):
     assert sync_service.run_ebook_translation_worker_once(remote) is True
     assert uploaded and "translations/000001.json" in uploaded[0][0][0]
     assert any(call[0] == "delete_rows" and call[1] == "ebook_translation_chunks" for call in remote.calls)
+
+
+def test_export_epub_preserves_chapter_order_and_translated_content(monkeypatch):
+    remote = FakeRemote()
+    remote.rows = lambda _table, _params: [{"id": "book-id", "title": "Sample", "author": "Writer", "source_language": "zh"}]
+    remote.all_rows = lambda _table, _params: [
+        {"chapter_number": 2, "title": "Second", "content_path": "ebooks/hash/book-id/chapters/0000.json", "content_index": 1, "translation_status": "translated", "translated_content_path": "ebooks/hash/book-id/translations/000002.json"},
+        {"chapter_number": 1, "title": "First", "content_path": "ebooks/hash/book-id/chapters/0000.json", "content_index": 0, "translation_status": "translated", "translated_content_path": "ebooks/hash/book-id/translations/000001.json"},
+    ]
+    remote.download_json = lambda *_args: {"chapters": [
+        {"original_content": "<p>原文 1</p>"}, {"original_content": "<p>原文 2</p>"},
+    ]}
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(ebook_service.hashlib, "sha256", lambda _value: type("Hash", (), {"hexdigest": lambda self: "hash"})())
+    monkeypatch.setattr(ebook_service, "b2_download", lambda path: (
+        b'{"translated_content":"<p>Ban dich 1</p>"}' if path.endswith("000001.json")
+        else b'{"translated_content":"<p>Ban dich 2</p>"}'
+    ))
+
+    content, media_type, filename = ebook_service.export_ebook("owner-id", "book-id", "epub", "vi")
+    with ZipFile(BytesIO(content)) as archive:
+        chapter_files = [name for name in archive.namelist() if name.endswith(".xhtml") and "chapter-" in name]
+        first = archive.read(chapter_files[0]).decode()
+        second = archive.read(chapter_files[1]).decode()
+    assert media_type == "application/epub+zip" and filename == "Sample.epub"
+    assert "Ban dich 1" in first and "Ban dich 2" in second
