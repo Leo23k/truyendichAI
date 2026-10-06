@@ -1218,6 +1218,9 @@ def control_crawl_job(job_id: str, action: str, request: Request):
 
 @app.get("/truyen/{slug}/export")
 def export_crawled_novel(slug: str, request: Request, format: str = "epub", language: str = "vi"):
+    user = require_authenticated(request)
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Chỉ admin mới được export truyện trong thư viện crawl.")
     if format not in {"epub", "txt", "html"} or language not in {"vi", "zh", "bilingual"}:
         raise HTTPException(status_code=400, detail="Định dạng hoặc ngôn ngữ export không hợp lệ.")
     try:

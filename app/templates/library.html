@@ -77,6 +77,44 @@
   <div id="library-grid" class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5" aria-live="polite"></div>
   {{ library_pagination() }}
 </section>
+<style>
+  #ebook-floating-menu{position:fixed;right:calc(16px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));z-index:55;display:flex;flex-direction:column;align-items:flex-end;gap:.7rem}
+  #ebook-fab-actions{display:flex;min-width:min(19rem,calc(100vw - 2rem));flex-direction:column;gap:.55rem;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(.6rem) scale(.98);transform-origin:bottom right;transition:opacity 180ms ease,transform 180ms ease,visibility 180ms}
+  #ebook-fab-actions.is-open{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0) scale(1)}
+  .ebook-fab-action{display:flex;min-height:48px;align-items:center;gap:.7rem;border:1px solid var(--line);border-radius:.8rem;background:var(--surface);padding:.7rem 1rem;color:var(--text);font-size:.92rem;font-weight:650;box-shadow:var(--shadow);transition:background 150ms ease,border-color 150ms ease}
+  .ebook-fab-action:hover{border-color:var(--accent);background:var(--surface-2)}
+  #ebook-fab-toggle{display:flex;min-height:56px;min-width:56px;align-items:center;justify-content:center;border:0;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:1.55rem;box-shadow:var(--shadow);transition:transform 180ms ease,filter 180ms ease}
+  #ebook-fab-toggle[aria-expanded="true"]{transform:rotate(12deg)}
+  #ebook-fab-toggle:focus-visible,.ebook-fab-action:focus-visible{outline:3px solid var(--text);outline-offset:3px}
+  @media(min-width:640px){ #ebook-floating-menu{right:calc(24px + env(safe-area-inset-right));bottom:calc(24px + env(safe-area-inset-bottom))} }
+</style>
+<div id="ebook-floating-menu">
+  <div id="ebook-fab-actions" role="menu" aria-label="Chức năng Ebook" aria-hidden="true" inert>
+    <a class="ebook-fab-action" role="menuitem" href="/ebooks/upload"><span aria-hidden="true">📤</span> Upload Ebook</a>
+    <a class="ebook-fab-action" role="menuitem" href="/ebooks/upload?mode=translate"><span aria-hidden="true">🌐</span> Upload &amp; Dịch Ebook</a>
+    <a class="ebook-fab-action" role="menuitem" href="/ebooks"><span aria-hidden="true">📚</span> Ebook của tôi</a>
+  </div>
+  <button id="ebook-fab-toggle" type="button" aria-label="Ebook" aria-haspopup="menu" aria-controls="ebook-fab-actions" aria-expanded="false" title="Ebook">📚</button>
+</div>
+<script>
+(() => {
+  const wrapper = document.getElementById('ebook-floating-menu');
+  const toggle = document.getElementById('ebook-fab-toggle');
+  const menu = document.getElementById('ebook-fab-actions');
+  if (!wrapper || !toggle || !menu) return;
+  const setOpen = (open, restoreFocus = true) => {
+    toggle.setAttribute('aria-expanded', String(open));
+    menu.setAttribute('aria-hidden', String(!open));
+    menu.inert = !open;
+    menu.classList.toggle('is-open', open);
+    if (open) menu.querySelector('a')?.focus();
+    else if (restoreFocus) toggle.focus();
+  };
+  toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
+  document.addEventListener('pointerdown', event => { if (!wrapper.contains(event.target) && toggle.getAttribute('aria-expanded') === 'true') setOpen(false, false); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && toggle.getAttribute('aria-expanded') === 'true') { event.preventDefault(); setOpen(false); } });
+})();
+</script>
 <script>
   (() => {
     const libraryGrid = document.querySelector("#library-grid");
