@@ -221,13 +221,17 @@ def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
     client.cookies.set("sb-access-token", "token")
 
     upload = client.get("/ebooks/upload?mode=translate")
-    detail = client.get("/ebooks/book-1")
+    detail = client.get("/ebooks/book-1?uploaded=1&queued=2&not_chinese=1&translate=1")
     library = client.get("/")
     assert upload.status_code == 200 and "100 MB" in upload.text and "PC worker" in upload.text
     assert 'id="ebook-upload-only"' in upload.text and 'data-translate="false"' in upload.text
     assert 'id="ebook-upload-translate"' in upload.text and 'data-translate="true"' in upload.text
+    assert "Đang tải…" in upload.text and "Đang chờ…" in upload.text and "Upload xong" in upload.text
+    assert "PC worker đang phân tích" not in upload.text and "Đang cấp quyền upload" not in upload.text
     assert "auto_translate" not in upload.text and "upload_url" in upload.text
     assert detail.status_code == 200 and "Tiến độ dịch" in detail.text and "1/2 · 50%" in detail.text
+    assert "Đã xong." in detail.text and "đưa 2 chương vào hàng đợi" not in detail.text
+    assert "không được nhận diện là tiếng Trung" not in detail.text
     assert "https://signed.example/cover.png" in detail.text
     assert library.status_code == 200 and 'aria-label="Ebook"' in library.text
     assert 'id="ebook-floating-menu"' not in upload.text and 'id="ebook-floating-menu"' not in detail.text

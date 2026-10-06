@@ -11,7 +11,7 @@
         <span class="mb-3 text-4xl" aria-hidden="true">📤</span><span class="font-semibold">Kéo thả file vào đây hoặc chọn file</span><span class="site-muted mt-2 text-sm">EPUB · TXT · HTML · PDF · Tối đa 100 MB</span><span id="ebook-file-name" class="mt-3 text-sm text-[var(--accent)]" aria-live="polite"></span>
         <input id="ebook-file" class="sr-only" type="file" name="file" accept=".epub,.txt,.html,.htm,.pdf" required>
       </label>
-      <div id="ebook-upload-progress" class="hidden" aria-live="polite"><div class="mb-2 flex justify-between text-sm"><span id="ebook-upload-status">Đang chuẩn bị upload…</span><span id="ebook-upload-percent">0%</span></div><div class="h-2 overflow-hidden rounded-full bg-[var(--surface-3)]"><div id="ebook-upload-bar" class="h-full rounded-full bg-[var(--accent)] transition-[width]" style="width:0%"></div></div></div>
+      <div id="ebook-upload-progress" class="hidden" aria-live="polite"><div class="mb-2 flex justify-between text-sm"><span id="ebook-upload-status">Đang tải…</span><span id="ebook-upload-percent">0%</span></div><div class="h-2 overflow-hidden rounded-full bg-[var(--surface-3)]"><div id="ebook-upload-bar" class="h-full rounded-full bg-[var(--accent)] transition-[width]" style="width:0%"></div></div></div>
       <p id="ebook-upload-error" class="hidden rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400" role="alert"></p>
       <div class="grid gap-3 sm:grid-cols-2">
         <button id="ebook-upload-only" type="submit" data-translate="false" class="site-nav-button min-h-12 w-full justify-center">Chỉ upload · không dịch</button>
@@ -42,20 +42,21 @@
       const translateIfChinese = event.submitter?.dataset.translate === 'true';
       const file = input.files[0];
       error.classList.add('hidden'); progress.classList.remove('hidden'); submits.forEach(button => { button.disabled = true; });
-      percent.textContent = '0%'; bar.style.width = '0%'; status.textContent = 'Đang cấp quyền upload an toàn…';
+      percent.textContent = '0%'; bar.style.width = '0%'; status.textContent = 'Đang tải…';
       try {
         const session = await apiJson(form.action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_name: file.name, file_size: file.size, translate_if_chinese: translateIfChinese }) });
-        status.textContent = 'Đang tải trực tiếp lên B2…';
+        status.textContent = 'Đang tải…';
         await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest(); xhr.open('PUT', session.upload_url); xhr.setRequestHeader('Content-Type', session.content_type);
           xhr.upload.onprogress = event => { if (!event.lengthComputable) return; const value = Math.min(100, Math.round(event.loaded * 100 / event.total)); percent.textContent = `${value}%`; bar.style.width = `${value}%`; };
-          xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error('B2 từ chối upload. Hãy kiểm tra CORS của bucket rồi thử lại.'));
-          xhr.onerror = () => reject(new Error('Không kết nối được B2. Hãy kiểm tra CORS của bucket và thử lại.'));
+          xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error('Upload thất bại. Vui lòng thử lại.'));
+          xhr.onerror = () => reject(new Error('Upload thất bại. Vui lòng thử lại.'));
           xhr.onabort = () => reject(new Error('Upload đã bị hủy.'));
           xhr.send(file);
         });
-        percent.textContent = ''; status.textContent = 'Đã tải lên B2 · Đang chờ PC worker phân tích…';
+        percent.textContent = ''; status.textContent = 'Upload xong';
         await apiJson(`/api/ebooks/upload/${encodeURIComponent(session.upload_id)}/complete`, { method: 'POST' });
+        status.textContent = 'Đang chờ…';
         while (true) {
           await wait(3000);
           const result = await apiJson(`/api/ebooks/upload/${encodeURIComponent(session.upload_id)}/status`);
@@ -65,7 +66,7 @@
             if (result.source_language !== 'zh') query.set('not_chinese', '1');
             window.location.assign(`/ebooks/${encodeURIComponent(result.ebook_id)}?${query}`); return;
           }
-          status.textContent = result.status === 'processing' ? 'PC worker đang phân tích và lập mục lục…' : 'Upload xong · Đang chờ PC worker…';
+          status.textContent = 'Đang chờ…';
         }
       } catch (uploadError) {
         submits.forEach(button => { button.disabled = false; }); error.textContent = uploadError.message || 'Upload thất bại. Hãy thử lại.'; error.classList.remove('hidden');
@@ -75,9 +76,7 @@
   </script>
 {% else %}
   <header class="mb-6 flex flex-wrap items-center justify-between gap-3"><a class="site-nav-button" href="/ebooks">← Ebook của tôi</a><a class="site-nav-button" href="/">Thư viện</a></header>
-  {% if uploaded %}<p class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm" role="status">Upload và parse hoàn tất.{% if not translate_requested and book.source_language == 'zh' %} Bạn có thể bấm “Dịch ebook” bên dưới khi muốn bắt đầu dịch.{% endif %}</p>{% endif %}
-  {% if queued is not none %}<p class="mb-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm" role="status">Đã đưa {{ queued }} chương vào hàng đợi dịch. Tiến độ sẽ cập nhật khi worker xử lý.</p>{% endif %}
-  {% if not_chinese %}<p class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm" role="status">File đã lưu nhưng không được nhận diện là tiếng Trung nên không tự đưa vào pipeline dịch.</p>{% endif %}
+  {% if uploaded %}<p class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm" role="status">Đã xong.</p>{% endif %}
   {% if queue_error %}<p class="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm" role="alert">Upload thành công nhưng chưa tạo được hàng đợi dịch. Bạn có thể thử lại trong trang chi tiết.</p>{% endif %}
   <section class="site-panel grid gap-6 p-5 sm:grid-cols-[12rem_minmax(0,1fr)] sm:p-7">
     {% if book.cover_url %}<img src="{{ book.cover_url }}" alt="Bìa {{ book.title }}" class="mx-auto max-h-80 w-full rounded-xl object-contain sm:mx-0">{% else %}<div class="flex min-h-44 items-center justify-center rounded-xl bg-[var(--surface-2)] text-5xl" aria-hidden="true">{% if book.source_format == 'pdf' %}📄{% else %}📚{% endif %}</div>{% endif %}
