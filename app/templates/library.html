@@ -68,7 +68,7 @@
     </div>
   </div>
 
-  <div id="lookup-results" class="mt-6" aria-live="polite">Đang tải danh sách truyện...</div>
+  <div id="lookup-results" class="sr-only" role="status" aria-live="polite"></div>
 
   {% if false %}
   <section class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4"><h2 class="font-semibold text-amber-950">Truyện đang chờ khôi phục</h2>{% for book in deleted_books %}<div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-white p-3"><span class="font-medium text-stone-900">{{ book.translated_title or book.title }}</span><div class="flex gap-2"><form action="/books/{{ book.id }}/restore" method="post"><button class="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white">Khôi phục</button></form><form action="/books/{{ book.id }}/delete-permanently" method="post" onsubmit="return confirm('Xóa vĩnh viễn truyện này?');"><button class="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700">Xóa vĩnh viễn</button></form></div></div>{% endfor %}{% for book in deleted_synced_novels %}<div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-white p-3"><span class="font-medium text-stone-900">{{ book.title }}</span><div class="flex gap-2"><form action="/truyen/{{ book.slug }}/restore" method="post"><button class="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white">Khôi phục</button></form><form action="/truyen/{{ book.slug }}/delete-permanently" method="post" onsubmit="return confirm('Xóa vĩnh viễn truyện này?');"><button class="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700">Xóa vĩnh viễn</button></form></div></div>{% endfor %}{% if not deleted_books and not deleted_synced_novels %}<p class="mt-2 text-sm text-amber-800">Không có truyện nào chờ khôi phục.</p>{% endif %}</section>
@@ -168,6 +168,23 @@
       if (className) element.className = className;
       if (text !== undefined) element.textContent = text;
       return element;
+    };
+
+    const setSearchStatus = (message) => {
+      searchStatus.textContent = message;
+      searchStatus.classList.toggle("sr-only", !message);
+      searchStatus.classList.toggle("mt-6", Boolean(message));
+    };
+
+    const renderSkeletonCards = () => {
+      libraryGrid.setAttribute("aria-busy", "true");
+      libraryGrid.replaceChildren(...Array.from({ length: state.pageSize }, () => {
+        const card = createElement("article", "library-card skeleton-library-card");
+        card.setAttribute("aria-hidden", "true");
+        card.innerHTML = '<div class="skeleton-shape skeleton-library-cover"></div><div class="p-4"><div class="skeleton-shape skeleton-line skeleton-line--title"></div><div class="skeleton-shape skeleton-line skeleton-line--short"></div><div class="mt-auto pt-4"><div class="skeleton-shape skeleton-line skeleton-line--medium"></div><div class="skeleton-shape skeleton-button"></div></div></div>';
+        return card;
+      }));
+      renderPagination(1);
     };
 
     const renderCard = (novel) => {
@@ -300,25 +317,30 @@
       });
       document.querySelectorAll("[data-sort-choice]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.sortChoice === state.sort)));
       if (state.isLoading) {
-        searchStatus.textContent = "Đang tải danh sách truyện...";
+        renderSkeletonCards();
+        setSearchStatus("");
         return;
       }
       if (state.activeTab === "reading" && state.isProgressLoading && state.readingSlugs.size === 0) {
-        libraryGrid.replaceChildren();
-        renderPagination(1);
-        searchStatus.textContent = "Đang tải tiến độ đọc...";
+        renderSkeletonCards();
+        setSearchStatus("");
         return;
       }
       if (state.activeTab === "reading" && state.progressLoadError && state.readingSlugs.size === 0) {
         libraryGrid.replaceChildren();
+        libraryGrid.setAttribute("aria-busy", "false");
         renderPagination(1);
-        searchStatus.textContent = "Không tải được tiến độ đọc. Vui lòng tải lại trang.";
+        setSearchStatus("Không tải được tiến độ đọc. Vui lòng tải lại trang.");
         return;
       }
       if (state.activeTab === "followed" && state.followedLoadState !== "loaded") {
-        libraryGrid.replaceChildren();
-        renderPagination(1);
-        searchStatus.textContent = state.followedLoadState === "error" ? "Không tải được truyện theo dõi. Hãy thử tải lại trang." : "Đang tải truyện theo dõi...";
+        if (state.followedLoadState === "loading") renderSkeletonCards();
+        else {
+          libraryGrid.replaceChildren();
+          libraryGrid.setAttribute("aria-busy", "false");
+          renderPagination(1);
+        }
+        setSearchStatus(state.followedLoadState === "error" ? "Không tải được truyện theo dõi. Hãy thử tải lại trang." : "");
         return;
       }
       const terms = state.searchQuery.split(" ").filter(Boolean);
@@ -339,7 +361,8 @@
       const start = (state.currentPage - 1) * state.pageSize;
       const pageItems = filtered.slice(start, start + state.pageSize);
       libraryGrid.replaceChildren(...pageItems.map(renderCard));
-      searchStatus.textContent = pageItems.length ? "" : (state.searchQuery ? "Không tìm thấy truyện phù hợp." : state.activeTab === "reading" ? "Bạn chưa có truyện đang đọc." : state.activeTab === "followed" ? "Bạn chưa theo dõi truyện nào phù hợp." : "Thư viện chưa có truyện.");
+      libraryGrid.setAttribute("aria-busy", "false");
+      setSearchStatus(pageItems.length ? "" : (state.searchQuery ? "Không tìm thấy truyện phù hợp." : state.activeTab === "reading" ? "Bạn chưa có truyện đang đọc." : state.activeTab === "followed" ? "Bạn chưa theo dõi truyện nào phù hợp." : "Thư viện chưa có truyện."));
       renderPagination(totalPages);
       updateUrl();
       window.lucide?.createIcons?.();
@@ -436,6 +459,8 @@
       applyLocalReadingHistory();
       if (state.activeTab === "followed") loadFollowedNovels();
       render();
+    } else {
+      render();
     }
 
     fetchJson("/api/reading-progress")
@@ -476,9 +501,11 @@
       .catch(() => {
         state.isLoading = false;
         if (!state.hasCachedMetadata) {
+          libraryGrid.replaceChildren();
+          libraryGrid.setAttribute("aria-busy", "false");
           const libraryCount = document.querySelector("#library-count");
           if (libraryCount) libraryCount.textContent = "—";
-          searchStatus.textContent = "Không tải được danh sách truyện. Hãy thử tải lại trang.";
+          setSearchStatus("Không tải được danh sách truyện. Hãy thử tải lại trang.");
         } else {
           render();
         }

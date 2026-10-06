@@ -16,6 +16,6 @@
       <button id="retranslate-submit" x-show="selectedNovel" x-cloak class="mt-4 min-h-11 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50">Đưa vào hàng đợi dịch lại</button>
     </form>
   </section>
-  <div x-show="loading" x-cloak class="mt-4 text-sm text-indigo-700">Đang tải danh sách chương…</div><div id="retranslate-chapter-picker" x-ref="chapterPicker"></div>
+  <div x-show="loading" x-cloak class="mt-4 grid gap-2" role="status" aria-label="Đang tải danh sách chương"><span class="skeleton-shape h-11 rounded-md" aria-hidden="true"></span><span class="skeleton-shape h-11 rounded-md" aria-hidden="true"></span><span class="skeleton-shape h-11 rounded-md" aria-hidden="true"></span><span class="skeleton-shape h-11 rounded-md" aria-hidden="true"></span></div><div id="retranslate-chapter-picker" x-ref="chapterPicker"></div>
 </section>
 {% endblock %}

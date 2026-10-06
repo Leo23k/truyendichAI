@@ -30,6 +30,23 @@
     .reader-content{font-family:"Segoe UI","Noto Sans",Arial,sans-serif;letter-spacing:0;word-spacing:normal;text-rendering:optimizeLegibility}.reader-prose p{margin-bottom:1.65em}.app-shell{border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:var(--shadow)}.icon-button{display:inline-flex;height:2.5rem;width:2.5rem;align-items:center;justify-content:center;border-radius:10px}.icon-button:hover{background:var(--surface-3)}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     @media(min-width:768px){.book-hero{grid-template-columns:240px minmax(0,1fr);align-items:start}.site-page{padding-top:2.75rem}#chapter-list [data-chapter-scroll]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:none}#chapter-list [data-chapter-scroll] a:nth-child(odd){border-right:1px solid var(--line)}}@media(max-width:767px){.site-header .desktop-only{display:none}.site-page{padding:1.25rem .9rem 4rem}.library-toolbar{align-items:stretch;flex-direction:column}.book-hero{grid-template-columns:1fr;gap:1.5rem;padding-top:1rem;padding-bottom:1.75rem}.book-cover{order:1;max-width:220px;margin:0 auto}.book-copy{order:2;text-align:left}.book-copy .book-actions{justify-content:flex-start}.site-nav-button{padding:0 .65rem}.site-brand-label{display:none}}
   </style>
+  <style>
+    .skeleton-shape{position:relative;overflow:hidden;border-radius:.35rem;background:var(--surface-3)}
+    .skeleton-shape::after,.skeleton-image-loading::after{position:absolute;inset:0;content:"";pointer-events:none;background:linear-gradient(100deg,transparent 20%,color-mix(in srgb,var(--surface) 72%,transparent) 48%,transparent 76%);background-size:220% 100%;animation:skeleton-shimmer 1.8s ease-in-out infinite}
+    @keyframes skeleton-shimmer{to{background-position-x:-220%}}
+    .skeleton-library-card{pointer-events:none}
+    .skeleton-library-cover{aspect-ratio:3/4}
+    .skeleton-line{height:.7rem;margin-top:.55rem}
+    .skeleton-line--title{height:.9rem;width:82%;margin-top:.1rem}
+    .skeleton-line--short{width:55%}
+    .skeleton-line--medium{width:72%}
+    .skeleton-button{height:2.25rem;margin-top:.8rem;border-radius:.4rem}
+    .skeleton-image-loading{position:relative;background-color:var(--surface-3)!important;animation:skeleton-image-shimmer 1.8s ease-in-out infinite;background-image:linear-gradient(100deg,transparent 20%,color-mix(in srgb,var(--surface) 72%,transparent) 48%,transparent 76%);background-size:220% 100%}
+    @keyframes skeleton-image-shimmer{to{background-position-x:-220%}}
+    .skeleton-chapter-row{height:3rem;border-bottom:1px solid var(--line);padding:.75rem 1rem}
+    .htmx-request .htmx-indicator[data-skeleton-indicator]{display:grid}
+    @media(prefers-reduced-motion:reduce){.skeleton-shape::after,.skeleton-image-loading{animation:none}}
+  </style>
   <script>
     (() => {
       let activeRequests = 0;
@@ -239,12 +256,14 @@
     <div class="mx-auto flex h-[68px] max-w-[1380px] items-center justify-between px-4 sm:px-6 lg:px-8">
       <a href="/" class="flex items-center gap-2.5 font-semibold tracking-tight text-[var(--text)]"><span class="grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)]"><i data-lucide="book-open" class="h-5 w-5"></i></span><span class="text-lg">Leo Truyện</span></a>
       <nav class="ml-auto flex items-center gap-2 text-sm">
-        <div x-data="{open:false,items:[],unread:0,async refresh(){try{const r=await fetch('/api/notifications/recent');if(r.ok){const d=await r.json();this.items=d.items;this.unread=d.unread}}catch{}}}" x-init="refresh()" @click.outside="open=false" class="relative">
+        <div x-data="{open:false,items:[],unread:0,loading:false,error:false,async refresh(){this.loading=this.items.length===0;this.error=false;try{const r=await fetch('/api/notifications/recent');if(!r.ok)throw new Error('request failed');const d=await r.json();this.items=d.items;this.unread=d.unread}catch{this.error=true}finally{this.loading=false}}}" x-init="refresh()" @click.outside="open=false" class="relative">
           <button type="button" @click="open=!open;if(open)refresh()" class="icon-button relative" aria-label="Thông báo" title="Thông báo"><i data-lucide="bell" class="h-4 w-4"></i><span x-cloak x-show="unread>0" x-text="unread>99?'99+':unread" class="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-500 px-1 text-center text-[10px] font-bold text-white"></span></button>
           <div x-cloak x-show="open" x-transition.origin.top.right class="fixed inset-x-2 top-[4.5rem] z-50 mt-2 w-auto max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:w-96">
             <div class="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><strong>Thông báo</strong><button type="button" @click="fetch('/api/notifications/read-all',{method:'POST'}).then(()=>refresh())" class="text-xs text-[var(--accent)]">Đánh dấu đã đọc</button></div>
             <template x-for="item in items" :key="item.id"><a :href="item.url" @click="fetch(`/api/notifications/${item.id}/read`,{method:'POST',keepalive:true})" class="block border-b border-[var(--line)] px-4 py-3 hover:bg-[var(--surface-2)]"><span class="block truncate text-sm font-semibold" x-text="item.title"></span><span class="mt-1 block truncate text-xs text-[var(--muted)]" x-text="item.message"></span><time class="mt-1 block text-[10px] text-[var(--muted)]" x-text="item.created_at_display"></time></a></template>
-            <p x-show="items.length===0" class="px-4 py-6 text-center text-sm text-[var(--muted)]">Chưa có thông báo mới.</p>
+            <div x-show="loading && items.length===0" x-cloak class="grid gap-2 px-4 py-4" role="status" aria-label="Đang tải thông báo"><span class="skeleton-shape h-4 w-3/4" aria-hidden="true"></span><span class="skeleton-shape h-3 w-full" aria-hidden="true"></span><span class="skeleton-shape h-3 w-1/2" aria-hidden="true"></span></div>
+            <p x-show="!loading && error" x-cloak class="px-4 py-4 text-center text-sm text-[var(--muted)]" role="status">Không tải được thông báo. <button type="button" @click="refresh()" class="font-semibold text-[var(--accent)]">Thử lại</button></p>
+            <p x-show="!loading && !error && items.length===0" x-cloak class="px-4 py-6 text-center text-sm text-[var(--muted)]">Chưa có thông báo mới.</p>
             <a href="/notifications" class="block px-4 py-3 text-center text-sm font-semibold text-[var(--accent)] hover:bg-[var(--surface-2)]">Xem tất cả</a>
           </div>
         </div>
@@ -272,6 +291,50 @@
     <span>Leo Truyện</span>
   </footer>
   {% endblock %}
+  <script>
+    (() => {
+      const prepareImage = (image) => {
+        if (!(image instanceof HTMLImageElement) || !image.getAttribute("src")) return;
+        if (image.complete) return;
+        image.classList.add("skeleton-image-loading");
+        const finish = () => image.classList.remove("skeleton-image-loading");
+        image.addEventListener("load", finish, { once: true });
+        image.addEventListener("error", finish, { once: true });
+      };
+      document.querySelectorAll("img[src]").forEach(prepareImage);
+      new MutationObserver((records) => records.forEach((record) => {
+        if (record.type === "attributes") prepareImage(record.target);
+        record.addedNodes.forEach((node) => {
+          if (!(node instanceof Element)) return;
+          if (node.matches("img[src]")) prepareImage(node);
+          node.querySelectorAll("img[src]").forEach(prepareImage);
+        });
+      })).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["src"] });
+
+      const showChapterSkeleton = (container) => {
+        if (!container || container.dataset.skeletonActive === "true") return;
+        container.dataset.skeletonActive = "true";
+        container.setAttribute("aria-busy", "true");
+        container.replaceChildren(...Array.from({ length: 20 }, () => {
+          const row = document.createElement("div");
+          row.className = "skeleton-chapter-row";
+          row.setAttribute("aria-hidden", "true");
+          row.innerHTML = '<span class="skeleton-shape" style="display:inline-block;width:2rem;height:.7rem"></span><span class="skeleton-shape" style="display:inline-block;width:58%;height:.7rem;margin-left:.5rem"></span>';
+          return row;
+        }));
+      };
+      document.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element)) return;
+        const link = event.target.closest("#chapter-list nav a[href]");
+        if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        showChapterSkeleton(document.querySelector("#chapter-list [data-chapter-scroll]"));
+      }, true);
+      document.addEventListener("submit", (event) => {
+        if (!(event.target instanceof HTMLFormElement) || !event.target.closest("#chapter-list")) return;
+        showChapterSkeleton(document.querySelector("#chapter-list [data-chapter-scroll]"));
+      }, true);
+    })();
+  </script>
   <script>
     document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
       button.addEventListener("click", () => {
