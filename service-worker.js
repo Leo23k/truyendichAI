@@ -1,4 +1,4 @@
-const CACHE = "novel-reader-static-v2";
+const CACHE = "novel-reader-static-v3";
 const STATIC = ["/static/offline.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(STATIC)).then(() => self.skipWaiting())));
@@ -37,13 +37,19 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).catch(() => {
+      if (/^\/ebooks\/[^/]+\/read\/\d+$/.test(url.pathname)) {
+        return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookReader())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      }
+      if (/^\/ebooks\/[^/]+$/.test(url.pathname)) {
+        return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookDetail())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      }
       if (/^\/chapters\/[^/]+$/.test(url.pathname) || /^\/truyen\/[^/]+\/\d+$/.test(url.pathname)) {
         return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Đọc offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineReader())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
       }
       if (/^\/truyen\/[^/]+$/.test(url.pathname)) {
         return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Truyện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineBook())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
       }
-      return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>My Novel Reader</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineHome())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thư viện Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookLibrary())</script>', { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }));
     return;
   }

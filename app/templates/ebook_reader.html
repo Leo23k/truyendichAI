@@ -63,13 +63,13 @@
     </div>
   </div>
   <div data-sheet-backdrop class="reader-sheet-backdrop fixed inset-0 z-50 bg-stone-950/25">
-    <section data-sheet="voice" class="reader-sheet absolute inset-x-0 bottom-0 rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl"><div class="mx-auto max-w-lg"><div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Giọng đọc</h2><button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div><div class="grid gap-2"><button type="button" data-voice-option="vi-VN-NamMinhNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button><button type="button" data-voice-option="vi-VN-HoaiMyNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button></div></div></section>
+    <section data-sheet="voice" class="reader-sheet absolute inset-x-0 bottom-0 rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl"><div class="mx-auto max-w-lg"><div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Giọng đọc</h2><button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div><label class="mb-3 block text-sm">Chế độ TTS<select data-tts-mode class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"><option value="device">Thiết bị (Browser/OS)</option><option value="server">Online (LeoTruyen)</option></select></label><p data-device-tts-status class="mb-3 text-sm text-stone-500" role="status" aria-live="polite"></p><label class="mb-3 block text-sm">Giọng trên thiết bị<select data-device-voice class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"></select></label><label class="mb-3 block text-sm">Cao độ <input data-pitch-control class="mt-2 w-full accent-teal-600" type="range" min="0.5" max="1.5" step="0.05" value="1"></label><div class="grid gap-2"><p class="text-xs text-stone-500">Giọng Online</p><button type="button" data-voice-option="vi-VN-NamMinhNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button><button type="button" data-voice-option="vi-VN-HoaiMyNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button></div></div></section>
     <section data-sheet="sleep" class="reader-sheet absolute inset-x-0 bottom-0 hidden rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl"><div class="mx-auto max-w-lg"><div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Hẹn giờ</h2><button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div><div class="grid gap-2"><button type="button" data-sleep-option="15" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">15 phút</button><button type="button" data-sleep-option="30" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">30 phút</button><button type="button" data-sleep-option="45" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">45 phút</button><button type="button" data-sleep-option="60" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">60 phút</button><button type="button" data-sleep-option="chapter" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hết chương hiện tại</button><button type="button" data-sleep-option="off" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Tắt hẹn giờ</button></div></div></section>
     <section data-sheet="toc" class="reader-sheet absolute inset-x-0 bottom-0 hidden h-[80vh] rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl"><div class="mx-auto flex h-full max-w-lg flex-col"><div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Mục lục</h2><button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div><div class="mb-3 flex justify-end"><select data-toc-sort class="h-9 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700" aria-label="Sắp xếp chương"><option value="asc">Cũ nhất</option><option value="desc">Mới nhất</option></select></div><div data-toc-list class="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-md border border-stone-100">{% for item in chapter_list %}<a href="/ebooks/{{ book.url_slug }}/read/{{ item.chapter_number }}?mode={{ mode }}" data-toc-item data-number="{{ item.chapter_number }}" {% if item.chapter_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex min-h-12 items-center border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50"><span class="mr-2 shrink-0 text-sm text-stone-400">#{{ item.chapter_number }}</span><span class="min-w-0 truncate text-sm {% if item.chapter_number == chapter.chapter_number %}font-semibold text-teal-700{% endif %}">{{ item.title }}</span></a>{% endfor %}</div></div></section>
   </div>
 </div>
 <script>
-(() => {
+document.addEventListener('DOMContentLoaded', () => { (() => {
   const ebookId = {{ book.id|tojson }};
   const ebookSlug = {{ book.url_slug|tojson }};
   const chapterNumber = Number({{ chapter.chapter_number|tojson }});
@@ -146,10 +146,17 @@
   const tocSort = document.querySelector('[data-toc-sort]');
   const followText = document.querySelector('[data-follow-text]');
   const highlightText = document.querySelector('[data-highlight-text]');
+  const ttsModeSelect = document.querySelector('[data-tts-mode]');
+  const deviceVoiceSelect = document.querySelector('[data-device-voice]');
+  const deviceStatus = document.querySelector('[data-device-tts-status]');
+  const pitchControl = document.querySelector('[data-pitch-control]');
   const storage = { get: key => localStorage.getItem(`${prefix}reader.${key}`), set: (key, value) => localStorage.setItem(`${prefix}reader.${key}`, value) };
   const defaultVoice = 'vi-VN-NamMinhNeural';
   const voices = new Set(['vi-VN-NamMinhNeural', 'vi-VN-HoaiMyNeural']);
   let selectedVoice = storage.get('voice') || defaultVoice;
+  let selectedDeviceVoice = storage.get('deviceVoice') || '';
+  let pitch = Number(storage.get('pitch') || 1);
+  let selectedMode = storage.get('ttsMode') || (navigator.onLine === false ? 'device' : 'server');
   if (!voices.has(selectedVoice)) selectedVoice = defaultVoice;
   let rate = Math.max(.75, Math.min(2, Number(storage.get('rate') || 1)));
   let volume = Math.max(0, Math.min(1, Number(storage.get('volume') || .9)));
@@ -168,6 +175,8 @@
     const iconState = state === 'loading' ? 'loading' : state === 'playing' ? 'pause' : 'play';
     player.querySelectorAll('[data-play-icon]').forEach(icon => icon.classList.toggle('hidden', icon.dataset.playIcon !== iconState));
     playerStatus.textContent = state === 'loading' ? 'ĐANG TẢI AUDIO' : state === 'playing' ? 'ĐANG PHÁT ÂM THANH' : state === 'error' ? 'LỖI TTS' : state === 'ended' ? 'ĐÃ ĐỌC XONG' : 'SẴN SÀNG';
+    playButton.setAttribute('aria-label',state==='playing'?'Tạm dừng đọc':'Bắt đầu đọc');
+    playButton.setAttribute('aria-pressed',String(state==='playing'));
   };
   const splitText = (text, element) => {
     const sentences = text.replace(/\s+/g, ' ').match(/[^.!?。！？]+[.!?。！？]?/gu) || [text];
@@ -232,12 +241,51 @@
     const target = innerHeight * .38;
     return Math.max(0, segments.findIndex(segment => { const rect = segment.element.getBoundingClientRect(); return rect.bottom >= target; }));
   };
-  const playCurrent = () => {
+  const playServer = () => {
     if (!segments.length) return setPlayerState('error');
     if (audio.src && !audio.paused) { wantToPlay = false; audio.pause(); setPlayerState('paused'); return; }
     if (audio.src && audio.paused && segments[segmentIndex]?.url) { wantToPlay = true; audio.play().then(() => setPlayerState('playing')).catch(() => fetchSegment(segmentIndex, true)); return; }
     segmentIndex = visibleSegment(); fetchSegment(segmentIndex, true);
   };
+  const deviceProvider = window.NovelTTS?.createDeviceProvider();
+  const manager = window.NovelTTS?.createManager({device:deviceProvider, server:{speak:playServer, pause:()=>audio.pause(), resume:()=>audio.play(), stop:()=>{audio.pause();audio.removeAttribute('src');}}, initialMode:selectedMode});
+  if (!manager) { deviceStatus.textContent = 'Không thể khởi tạo TTS trên thiết bị.'; }
+  const speakDeviceSegment = index => {
+    if (!segments.length) { setPlayerState('error'); deviceStatus.textContent='Chương này không có nội dung để đọc.'; return; }
+    segmentIndex = Math.max(0, Math.min(index, segments.length - 1)); const segment = segments[segmentIndex];
+    wantToPlay = true; markSegment(segmentIndex); updateTimeline();
+    playerStatus.dataset.deviceSpeaking='true'; playerStatus.dataset.devicePaused='false';
+    const started = manager.speak(segment.text, {lang:'vi-VN',voiceURI:selectedDeviceVoice,rate,pitch,volume,
+      onstart:()=>setPlayerState('playing'),
+      onboundary:()=>markSegment(segmentIndex),
+      onend:()=>{if(!wantToPlay)return;if(sleepMode==='chapter'||segmentIndex>=segments.length-1){wantToPlay=false;playerStatus.dataset.deviceSpeaking='false';setPlayerState('ended');return;}speakDeviceSegment(segmentIndex+1);},
+      onerror:error=>{wantToPlay=false;playerStatus.dataset.deviceSpeaking='false';setPlayerState('error');deviceStatus.textContent=error.message||'Lỗi TTS thiết bị.';}
+    });
+    if (!started) { wantToPlay=false; playerStatus.dataset.deviceSpeaking='false'; setPlayerState('error'); }
+  };
+  const playCurrent = () => {
+    if (manager?.mode !== 'device') return manager?.speak();
+    if (playerStatus.dataset.deviceSpeaking === 'true') { wantToPlay=false; manager.pause(); playerStatus.dataset.deviceSpeaking='false'; playerStatus.dataset.devicePaused='true'; setPlayerState('paused'); return; }
+    if (playerStatus.dataset.devicePaused === 'true') { manager.resume(); wantToPlay=true; playerStatus.dataset.devicePaused='false'; playerStatus.dataset.deviceSpeaking='true'; setPlayerState('playing'); return; }
+    if (!deviceProvider?.isSupported()) { deviceStatus.textContent='TTS không khả dụng trên trình duyệt này.'; setPlayerState('error'); return; }
+    segmentIndex = visibleSegment(); playerStatus.dataset.deviceSpeaking='true'; speakDeviceSegment(segmentIndex);
+  };
+  const populateDeviceVoices = async () => {
+    const voices = await deviceProvider?.getVoices() || [];
+    const vietnamese = voices.filter(voice => voice.lang?.toLowerCase().startsWith('vi'));
+    deviceVoiceSelect.replaceChildren(...vietnamese.map(voice => {const option=document.createElement('option');option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang} · ${voice.localService?'Local':'Network/không rõ'}`;return option;}));
+    if (!vietnamese.length) { deviceVoiceSelect.disabled=true; deviceStatus.textContent='Không tìm thấy giọng đọc tiếng Việt trên thiết bị. Hãy chuyển sang Online TTS.'; return; }
+    selectedDeviceVoice = vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice)?selectedDeviceVoice:vietnamese[0].voiceURI;
+    deviceVoiceSelect.value=selectedDeviceVoice; deviceVoiceSelect.disabled=false;
+    deviceStatus.textContent='Giọng đọc phụ thuộc browser/OS; chỉ voice Local được xác nhận là chạy cục bộ.';
+  };
+  ttsModeSelect.value=manager?.mode||'server';
+  pitchControl.value=String(pitch);
+  populateDeviceVoices();
+  ttsModeSelect.addEventListener('change',()=>{wantToPlay=false;manager.setMode(ttsModeSelect.value);selectedMode=manager.mode;storage.set('ttsMode',selectedMode);playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';setPlayerState('paused');if(selectedMode==='device')populateDeviceVoices();});
+  window.addEventListener('offline',()=>{if(manager.mode!=='device'){ttsModeSelect.value='device';ttsModeSelect.dispatchEvent(new Event('change'));}});
+  deviceVoiceSelect.addEventListener('change',()=>{selectedDeviceVoice=deviceVoiceSelect.value;storage.set('deviceVoice',selectedDeviceVoice);if(playerStatus.dataset.deviceSpeaking==='true'){manager.stop();playerStatus.dataset.deviceSpeaking='false';speakDeviceSegment(segmentIndex);}});
+  pitchControl.addEventListener('input',()=>{pitch=Number(pitchControl.value);storage.set('pitch',String(pitch));if(manager.mode==='device'&&playerStatus.dataset.deviceSpeaking==='true'){manager.stop();playerStatus.dataset.deviceSpeaking='false';speakDeviceSegment(segmentIndex);}});
   audio.addEventListener('timeupdate', updateTimeline);
   audio.addEventListener('loadedmetadata', () => { if (Number.isFinite(audio.duration) && audio.duration > 0 && segments[segmentIndex]) segments[segmentIndex].duration = audio.duration; updateTimeline(); });
   audio.addEventListener('playing', () => { wantToPlay = true; setPlayerState('playing'); markSegment(segmentIndex); });
@@ -245,14 +293,15 @@
   audio.addEventListener('pause', () => { if (!wantToPlay) setPlayerState('paused'); });
   audio.addEventListener('ended', () => { if (sleepMode === 'chapter' || segmentIndex >= segments.length - 1) { wantToPlay = false; setPlayerState('ended'); return; } fetchSegment(segmentIndex + 1, true); });
   playButton.addEventListener('click', playCurrent);
-  previousButton.addEventListener('click', () => { if (audio.currentTime > 3) { audio.currentTime = 0; return; } fetchSegment(Math.max(0, segmentIndex - 1), !audio.paused); });
-  nextButton.addEventListener('click', () => fetchSegment(Math.min(segments.length - 1, segmentIndex + 1), !audio.paused));
+  previousButton.addEventListener('click', () => { if (manager.mode==='device') { wantToPlay=false;manager.stop();playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';speakDeviceSegment(Math.max(0,segmentIndex-1));return; } if (audio.currentTime > 3) { audio.currentTime = 0; return; } fetchSegment(Math.max(0, segmentIndex - 1), !audio.paused); });
+  nextButton.addEventListener('click', () => { if(manager.mode==='device'){wantToPlay=false;manager.stop();playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';speakDeviceSegment(Math.min(segments.length-1,segmentIndex+1));return;} fetchSegment(Math.min(segments.length - 1, segmentIndex + 1), !audio.paused); });
   seek.addEventListener('input', () => {
     let target = Number(seek.value) / 1000 * totalDuration();
     for (let index = 0; index < segments.length; index++) {
       if (target <= segments[index].duration || index === segments.length - 1) {
-        const offset = Math.min(target, segments[index].duration); const autoplay = !audio.paused;
-        if (index === segmentIndex && audio.src) audio.currentTime = offset;
+        const offset = Math.min(target, segments[index].duration); const autoplay = manager.mode==='device' ? playerStatus.dataset.deviceSpeaking==='true' : !audio.paused;
+        if (manager.mode==='device') { wantToPlay=false;manager.stop();playerStatus.dataset.devicePaused='false';if(autoplay)speakDeviceSegment(index);else{segmentIndex=index;updateTimeline();} }
+        else if (index === segmentIndex && audio.src) audio.currentTime = offset;
         else fetchSegment(index, autoplay, offset);
         break;
       }
@@ -260,8 +309,8 @@
     }
   });
   const reloadVoice = async () => { const index = segmentIndex; const offset = audio.currentTime || 0; const autoplay = !audio.paused; segments.forEach(segment => { segment.url = null; segment.duration = Math.max(1, segment.text.length / (14 * rate)); }); audio.pause(); audio.removeAttribute('src'); if (segments[index]) await fetchSegment(index, autoplay, offset); };
-  rateControl.addEventListener('input', () => { rate = Number(rateControl.value); storage.set('rate', String(rate)); rateStatus.textContent = `${rate.toFixed(1)}x`; reloadVoice(); });
-  volumeControl.addEventListener('input', () => { audio.volume = Number(volumeControl.value); storage.set('volume', String(audio.volume)); });
+  rateControl.addEventListener('input', () => { rate = Number(rateControl.value); storage.set('rate', String(rate)); rateStatus.textContent = `${rate.toFixed(1)}x`; if(manager.mode==='device'){const resume=playerStatus.dataset.deviceSpeaking==='true';manager.stop();playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';segments.forEach(segment=>segment.duration=Math.max(1,segment.text.length/(14*rate)));if(resume)speakDeviceSegment(segmentIndex);else updateTimeline();}else reloadVoice(); });
+  volumeControl.addEventListener('input', () => { volume = Number(volumeControl.value); audio.volume = volume; storage.set('volume', String(volume)); });
   followText?.addEventListener('change', () => storage.set('followText', String(followText.checked)));
   highlightText?.addEventListener('change', () => { storage.set('highlightText', String(highlightText.checked)); markSegment(segmentIndex); });
   window.addEventListener('scroll', () => { followPausedUntil = Date.now() + 8000; }, {passive:true});
@@ -272,12 +321,12 @@
   voiceButton.addEventListener('click', () => openSheet('voice'));
   sleepButton.addEventListener('click', () => openSheet('sleep'));
   sheetBackdrop.addEventListener('click', event => { if (event.target === sheetBackdrop || event.target.closest('[data-close-sheet]')) closeSheet(); });
-  sheetBackdrop.querySelectorAll('[data-voice-option]').forEach(button => button.addEventListener('click', () => { selectedVoice = button.dataset.voiceOption; storage.set('voice', selectedVoice); reloadVoice(); closeSheet(); }));
+  sheetBackdrop.querySelectorAll('[data-voice-option]').forEach(button => button.addEventListener('click', () => { const switching=manager.mode!=='server';selectedVoice = button.dataset.voiceOption; storage.set('voice', selectedVoice);if(switching){ttsModeSelect.value='server';ttsModeSelect.dispatchEvent(new Event('change'));}else reloadVoice();closeSheet(); }));
   const updateSleep = () => {
     if (sleepMode === 'chapter') { sleepCountdown.textContent = 'Hết chương'; sleepCountdown.classList.remove('hidden'); return; }
     if (sleepMode !== 'timer' || !sleepUntil) { sleepCountdown.classList.add('hidden'); return; }
     const remaining = Math.max(0, Math.ceil((sleepUntil - Date.now()) / 1000));
-    if (!remaining) { wantToPlay = false; audio.pause(); sleepMode = 'off'; storage.set('sleepMode', 'off'); localStorage.removeItem(`${prefix}reader.sleepUntil`); sleepCountdown.classList.add('hidden'); return; }
+    if (!remaining) { wantToPlay = false; if(manager.mode==='device')manager.stop();else audio.pause(); playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';sleepMode = 'off'; storage.set('sleepMode', 'off'); localStorage.removeItem(`${prefix}reader.sleepUntil`); sleepCountdown.classList.add('hidden'); return; }
     sleepCountdown.textContent = formatTime(remaining); sleepCountdown.classList.remove('hidden');
   };
   sheetBackdrop.querySelectorAll('[data-sleep-option]').forEach(button => button.addEventListener('click', () => {
@@ -293,7 +342,8 @@
     if (tocSort.value === 'desc') rows.reverse(); rows.forEach(row => tocList.append(row)); tocList.scrollTop = 0;
   });
   startSleepTimer();
+  window.addEventListener('pagehide',()=>manager.stop(),{once:true});
   function startSleepTimer() { updateSleep(); clearInterval(sleepTimer); sleepTimer = setInterval(updateSleep, 1000); }
-})();
+})(); });
 </script>
 {% endblock %}

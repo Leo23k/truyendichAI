@@ -224,7 +224,12 @@
           <h2 class="text-base font-semibold">Giọng đọc</h2>
           <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
         </div>
+        <label class="mb-3 block text-sm">Chế độ TTS<select data-tts-mode class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"><option value="device">Thiết bị (Browser/OS)</option><option value="server">Online (LeoTruyen)</option></select></label>
+        <p data-device-tts-status class="mb-3 text-sm text-stone-500" role="status" aria-live="polite"></p>
+        <label class="mb-3 block text-sm">Giọng trên thiết bị<select data-device-voice class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"></select></label>
+        <label class="mb-3 block text-sm">Cao độ <input data-pitch-control class="mt-2 w-full accent-teal-600" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
         <div class="grid gap-2">
+          <p class="text-xs text-stone-500">Giọng Online</p>
           <button type="button" data-voice-option="vi-VN-NamMinhNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button>
           <button type="button" data-voice-option="vi-VN-HoaiMyNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button>
         </div>
@@ -280,7 +285,7 @@
   </div>
 
   <script>
-    (() => {
+    document.addEventListener("DOMContentLoaded", () => { (() => {
       const player = document.querySelector("[data-reader-player]");
       if (!player) return;
       const readerHeader = document.querySelector("[data-reader-header]");
@@ -470,6 +475,14 @@
       const translatedViewUrl = player.dataset.translatedViewUrl || "";
       const defaultVoice = "vi-VN-NamMinhNeural";
       const supportedVoices = new Set(["vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"]);
+      const ttsModeSelect = document.querySelector("[data-tts-mode]");
+      const deviceVoiceSelect = document.querySelector("[data-device-voice]");
+      const deviceStatus = document.querySelector("[data-device-tts-status]");
+      const pitchControl = document.querySelector("[data-pitch-control]");
+      const deviceProvider = window.NovelTTS?.createDeviceProvider();
+      let selectedDeviceVoice = storage.getItem("reader.deviceVoice") || "";
+      let devicePitch = Number(storage.getItem("reader.pitch") || 1);
+      let selectedTtsMode = storage.getItem("reader.ttsMode") || (navigator.onLine === false ? "device" : "server");
 
       let sleepMode = storage.getItem("reader.sleepMode") || "off";
       let sleepUntil = Number(storage.getItem("reader.sleepUntil") || 0);
@@ -551,6 +564,8 @@
       const setPlayerState = (state) => {
         playerState = state;
         setPlayIcon(state === "loading" ? "loading" : state === "playing" ? "pause" : "play");
+        playButton.setAttribute("aria-label", state === "playing" ? "Tạm dừng đọc" : "Bắt đầu đọc");
+        playButton.setAttribute("aria-pressed", String(state === "playing"));
       };
 
       const buildManifestUrl = () => {
@@ -825,7 +840,7 @@
           });
       };
 
-      const playCurrent = () => {
+      const playServerCurrent = () => {
         const requestToken = ++segmentRequestToken;
         wantToPlay = true;
         if (playlistReady && audio.src && playerState === "paused") return audio.play().catch(() => setPlayerState("error"));
@@ -845,6 +860,63 @@
           .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(currentSegmentIndex, pendingSegmentOffset || audio.currentTime || 0, true); else if (!wantToPlay) setPlayerState("paused"); })
           .catch((error) => { console.warn("Không thể tải audio TTS", error); setPlayerState("error"); });
       };
+
+      let browserChunks = [], browserChunkIndex = 0;
+      const browserQueue = () => {
+        browserChunks = [];
+        readerContent?.querySelectorAll("p,li,blockquote").forEach((node) => {
+          const source = node.innerText.trim().replace(/\s+/g," ");
+          const sentences = source.match(/[^.!?。！？]+[.!?。！？]?/gu) || [source]; let chunk = "";
+          sentences.forEach((sentence) => {
+            const part = sentence.trim(); if (!part) return;
+            if (chunk && chunk.length + part.length > 600) { browserChunks.push({text:chunk,node}); chunk=""; }
+            if (part.length > 600) { let offset=0; while(offset<part.length){let end=Math.min(offset+600,part.length);if(end<part.length){const boundary=part.lastIndexOf(" ",end);if(boundary>offset+300)end=boundary;}browserChunks.push({text:part.slice(offset,end),node});offset=end;} }
+            else chunk += `${chunk?" ":""}${part}`;
+          });
+          if(chunk)browserChunks.push({text:chunk,node});
+        });
+      };
+      const speakBrowserChunk = (index) => {
+        if(index>=browserChunks.length){wantToPlay=false;setPlayerState("ended");return;}
+        browserChunkIndex=index;const chunk=browserChunks[index];
+        document.querySelectorAll(".reader-tts-active").forEach(node=>node.classList.remove("reader-tts-active"));
+        if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");
+        const rect=chunk.node.getBoundingClientRect();
+        if(followText?.checked&&Date.now()>=followPausedUntil&&(rect.top<innerHeight*.18||rect.bottom>innerHeight*.82))chunk.node.scrollIntoView({behavior:"smooth",block:"center"});
+        storage.setItem(`reader.device.position.${readerChapterKey}`,String(index));
+        const started=ttsManager.speak(chunk.text,{lang:"vi-VN",voiceURI:selectedDeviceVoice,rate:getRate(),pitch:devicePitch,volume:audio?.volume??.9,
+          onstart:()=>setPlayerState("playing"),onboundary:()=>{if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");},
+          onend:()=>{if(wantToPlay)speakBrowserChunk(browserChunkIndex+1);},
+          onerror:error=>{wantToPlay=false;setPlayerState("error");if(deviceStatus)deviceStatus.textContent=error.message||"Lỗi TTS thiết bị.";}
+        });
+        if(!started){wantToPlay=false;setPlayerState("error");}
+      };
+      const ttsManager = window.NovelTTS?.createManager({device:deviceProvider,server:{speak:playServerCurrent,pause:()=>audio?.pause(),resume:()=>audio?.play(),stop:()=>{audio?.pause();if(audio){audio.removeAttribute("src");audio.load();}}},initialMode:selectedTtsMode});
+      const playCurrent = () => {
+        if(ttsManager?.mode!=="device")return ttsManager?.speak();
+        if(playerState==="playing"||playerState==="loading"){wantToPlay=false;ttsManager.pause();setPlayerState("paused");return;}
+        if(playerState==="paused"){wantToPlay=true;ttsManager.resume();setPlayerState("playing");return;}
+        if(!deviceProvider?.isSupported()){setPlayerState("error");if(deviceStatus)deviceStatus.textContent="TTS không khả dụng trên trình duyệt này.";return;}
+        browserQueue();if(!browserChunks.length){setPlayerState("error");if(deviceStatus)deviceStatus.textContent="Không có nội dung để đọc.";return;}
+        wantToPlay=true;const saved=Number(storage.getItem(`reader.device.position.${readerChapterKey}`)||0);
+        const paragraphs=[...readerContent.querySelectorAll("p,li,blockquote")],visible=paragraphs.find(node=>node.getBoundingClientRect().bottom>=innerHeight*.38);
+        const visibleIndex=Math.max(0,browserChunks.findIndex(item=>item.node===visible));
+        speakBrowserChunk(Math.min(Math.max(saved,visibleIndex),browserChunks.length-1));
+      };
+      const populateDeviceVoices = async () => {
+        const voices=await deviceProvider?.getVoices()||[], vietnamese=voices.filter(voice=>voice.lang?.toLowerCase().startsWith("vi"));
+        deviceVoiceSelect?.replaceChildren(...vietnamese.map(voice=>{const option=document.createElement("option");option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang} · ${voice.localService?"Local":"Network/không rõ"}`;return option;}));
+        if(!vietnamese.length){if(deviceVoiceSelect)deviceVoiceSelect.disabled=true;if(deviceStatus)deviceStatus.textContent="Không tìm thấy giọng đọc tiếng Việt trên thiết bị. Hãy chuyển sang Online TTS.";return;}
+        if(!vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice))selectedDeviceVoice=vietnamese[0].voiceURI;
+        if(deviceVoiceSelect){deviceVoiceSelect.value=selectedDeviceVoice;deviceVoiceSelect.disabled=false;}
+        if(deviceStatus)deviceStatus.textContent="Voice phụ thuộc browser/OS; chỉ Local được xác nhận là chạy cục bộ.";
+      };
+      if(ttsModeSelect){ttsModeSelect.value=ttsManager?.mode||"server";ttsModeSelect.addEventListener("change",()=>{wantToPlay=false;ttsManager.setMode(ttsModeSelect.value);selectedTtsMode=ttsManager.mode;storage.setItem("reader.ttsMode",selectedTtsMode);setPlayerState("paused");if(selectedTtsMode==="device")populateDeviceVoices();else if(hasAudio)reloadAudio(Number(storage.getItem(`reader.position.${readerChapterKey}`)||0),false);});}
+      if(pitchControl){pitchControl.value=String(devicePitch);pitchControl.addEventListener("input",()=>{devicePitch=Number(pitchControl.value);storage.setItem("reader.pitch",String(devicePitch));if(ttsManager.mode==="device"&&playerState==="playing"){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}});}
+      deviceVoiceSelect?.addEventListener("change",()=>{selectedDeviceVoice=deviceVoiceSelect.value;storage.setItem("reader.deviceVoice",selectedDeviceVoice);if(ttsManager.mode==="device"&&playerState==="playing"){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}});
+      if(selectedTtsMode==="device")populateDeviceVoices();
+      window.addEventListener("offline",()=>{if(ttsManager.mode!=="device"){ttsModeSelect.value="device";ttsModeSelect.dispatchEvent(new Event("change"));}});
+      window.addEventListener("pagehide",()=>ttsManager?.stop(),{once:true});
 
       const saveState = () => {
         if (!hasAudio) return;
@@ -1132,7 +1204,7 @@
       };
 
       const stopFallbackSpeech = () => {
-        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        if (ttsManager?.mode === "device") ttsManager.stop();
       };
 
       const reloadAudio = (resumeAt = 0, autoplay = false) => {
@@ -1147,9 +1219,9 @@
       };
 
       if (!hasAudio) {
-        playButton.disabled = true;
-        rateControl.disabled = true;
-        volumeControl.disabled = true;
+        playButton.disabled = !deviceProvider?.isSupported();
+        rateControl.disabled = false;
+        volumeControl.disabled = false;
       } else {
         storage.setItem("reader.voice", getVoice());
         if (!storage.getItem("reader.rate")) storage.setItem("reader.rate", "1");
@@ -1272,27 +1344,10 @@
           setPlayerState("error");
         });
 
-        playButton.addEventListener("click", () => {
-          showBar();
-          if (playerState === "loading") {
-            wantToPlay = false;
-            segmentRequestToken += 1;
-            audio.pause();
-            setPlayerState("paused");
-            return;
-          }
-          if (audio.paused) {
-            playRequestedAt = performance.now();
-            playCurrent();
-          }
-          else {
-            wantToPlay = false;
-            audio.pause();
-            stopFallbackSpeech();
-          }
-        });
+        playButton.addEventListener("click", handlePlayButtonClick);
 
         segmentPrevButton.addEventListener("click", () => {
+          if(ttsManager.mode==="device"){const playing=playerState==="playing";ttsManager.stop();wantToPlay=false;browserQueue();if(playing){browserChunkIndex=Math.max(0,browserChunkIndex-1);wantToPlay=true;speakBrowserChunk(browserChunkIndex);}return;}
           if (!playlistReady) return;
           if (audio.currentTime >= 10) {
             audio.currentTime -= 10;
@@ -1304,6 +1359,7 @@
         });
 
         segmentNextButton.addEventListener("click", () => {
+          if(ttsManager.mode==="device"){const playing=playerState==="playing";ttsManager.stop();wantToPlay=false;browserQueue();if(playing){browserChunkIndex=Math.min(browserChunks.length-1,browserChunkIndex+1);wantToPlay=true;speakBrowserChunk(browserChunkIndex);}return;}
           if (!playlistReady) return;
           const duration = Number(playlist[currentSegmentIndex]?.duration || audio.duration || 0);
           if (!duration || audio.currentTime + 10 < duration) {
@@ -1315,18 +1371,19 @@
         });
 
         progress.addEventListener("input", () => {
+          if(ttsManager.mode==="device"){browserQueue();const index=Math.round(Number(progress.value)/1000*(browserChunks.length-1));const playing=playerState==="playing";ttsManager.stop();wantToPlay=playing;if(playing)speakBrowserChunk(index);else browserChunkIndex=index;return;}
           if (!totalDuration) return;
           seekTo(Number(progress.value) / 1000 * totalDuration, !audio.paused);
           saveState();
         });
 
         rateControl.addEventListener("input", () => {
-          const wasPlaying = !audio.paused;
+          const wasPlaying = ttsManager.mode==="device"?playerState==="playing":!audio.paused;
           const currentTime = getCurrentPosition();
           storage.setItem("reader.rate", String(Number(rateControl.value)));
           if (rateStatus) rateStatus.textContent = `${Number(rateControl.value).toFixed(1)}x`;
           saveState();
-          reloadAudio(currentTime, wasPlaying);
+          if(ttsManager.mode==="device"){browserQueue();if(wasPlaying){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}}else reloadAudio(currentTime, wasPlaying);
         });
 
         volumeControl.addEventListener("input", () => {
@@ -1339,8 +1396,33 @@
         const shouldAutoplay = storage.getItem("reader.autoplayNext") === window.location.pathname;
         storage.removeItem("reader.autoplayNext");
         if (shouldAutoplay) playCurrent();
-        else loadPlaylist(savedPosition, false, false);
+        else if(ttsManager.mode==="server")loadPlaylist(savedPosition, false, false);
       }
+
+      function handlePlayButtonClick() {
+        showBar();
+        if(ttsManager.mode==="device"){
+          if(playerState==="loading"){wantToPlay=false;ttsManager.stop();setPlayerState("paused");return;}
+          if(playerState==="playing"){wantToPlay=false;ttsManager.pause();setPlayerState("paused");return;}
+          playCurrent();return;
+        }
+        if(!hasAudio){if(deviceStatus)deviceStatus.textContent="Chưa có audio Online cho chương này. Hãy dùng TTS Thiết bị nếu có voice tiếng Việt.";return;}
+        if (playerState === "loading") {
+            wantToPlay = false;
+            segmentRequestToken += 1;
+            audio.pause();
+            setPlayerState("paused");
+            return;
+        }
+        if (audio.paused) {
+            playRequestedAt = performance.now();
+            playCurrent();
+        } else {
+            wantToPlay = false;
+            ttsManager.pause();
+        }
+      }
+      playButton.addEventListener("click", handlePlayButtonClick);
 
       updateTranslateButton();
       translateButton?.addEventListener("click", startTranslationFlow);
@@ -1354,11 +1436,13 @@
       });
       sheetBackdrop.querySelectorAll("[data-voice-option]").forEach((button) => {
         button.addEventListener("click", () => {
-          const wasPlaying = hasAudio && !audio.paused;
+          const switchingToServer=ttsManager.mode!=="server";
+          const wasPlaying = !switchingToServer && hasAudio && !audio.paused;
           const currentTime = hasAudio ? getCurrentPosition() : 0;
           storage.setItem("reader.voice", button.dataset.voiceOption);
+          if(switchingToServer){ttsModeSelect.value="server";ttsModeSelect.dispatchEvent(new Event("change"));}
           stopFallbackSpeech();
-          if (hasAudio) reloadAudio(currentTime, wasPlaying);
+          if (hasAudio && !switchingToServer) reloadAudio(currentTime, wasPlaying);
           closeSheet();
         });
       });
@@ -1383,7 +1467,7 @@
       updateToc();
       startSleepInterval();
       showBar();
-    })();
+    })(); });
   </script>
 </div>
 {% endblock %}
