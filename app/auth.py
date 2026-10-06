@@ -14,6 +14,10 @@ SERVICE = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPABASE_SECRET_KE
 _refresh_lock = threading.Lock()
 _refresh_locks: dict[str, threading.Lock] = {}
 _recent_refreshes: dict[str, tuple[float, tuple[str, str]]] = {}
+_profile_sync_guard = threading.Lock()
+_profile_sync_locks: dict[str, threading.Lock] = {}
+_recent_profile_syncs: dict[str, float] = {}
+_PROFILE_SYNC_TTL_SECONDS = 300
 
 @dataclass
 class CurrentUser:
@@ -39,8 +43,18 @@ def user_from_token(token: str) -> CurrentUser | None:
     role = "admin" if email.lower() in {x.strip().lower() for x in os.getenv("ADMIN_EMAILS", "").split(",") if x.strip()} else "user"
     if SERVICE:
         payload = {"id": raw["id"], "email": email, "display_name": meta.get("full_name") or meta.get("name") or email, "avatar_url": meta.get("avatar_url") or meta.get("picture"), "role": role}
-        with httpx.Client(timeout=10, trust_env=False) as c:
-            c.post(f"{URL}/rest/v1/profiles?on_conflict=id", headers={**_headers(SERVICE), "Prefer":"resolution=merge-duplicates,return=representation"}, json=payload)
+        user_id = str(raw["id"])
+        with _profile_sync_guard:
+            profile_lock = _profile_sync_locks.setdefault(user_id, threading.Lock())
+        with profile_lock:
+            now = time.monotonic()
+            with _profile_sync_guard:
+                profile_is_fresh = _recent_profile_syncs.get(user_id, 0) > now
+            if not profile_is_fresh:
+                with httpx.Client(timeout=10, trust_env=False) as c:
+                    c.post(f"{URL}/rest/v1/profiles?on_conflict=id", headers={**_headers(SERVICE), "Prefer":"resolution=merge-duplicates,return=representation"}, json=payload)
+                with _profile_sync_guard:
+                    _recent_profile_syncs[user_id] = time.monotonic() + _PROFILE_SYNC_TTL_SECONDS
     return CurrentUser(raw["id"], email, str(meta.get("full_name") or meta.get("name") or email), meta.get("avatar_url") or meta.get("picture"), role)
 
 

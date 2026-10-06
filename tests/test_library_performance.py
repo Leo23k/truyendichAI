@@ -1,9 +1,11 @@
+import json
 from types import SimpleNamespace
 
 from starlette.requests import Request
 
 import app.main as main
 import app.cdn as cdn
+import app.auth as auth
 
 
 def _request(path: str = "/") -> Request:
@@ -56,15 +58,65 @@ def test_library_metadata_endpoint_still_returns_lightweight_fields(monkeypatch)
     }]
     monkeypatch.setattr(main, "load_novels", lambda: rows)
 
-    response = main.get_library_novel_metadata(_request("/api/novels/metadata"))
+    response = main.get_library_novel_metadata()
 
-    assert response["items"] == [{
+    assert json.loads(response.body)["items"] == [{
         key: rows[0].get(key)
         for key in (
             "id", "slug", "title", "author", "reading_status", "cover", "cover_fallback",
             "latest_chapter", "updated_at", "total_chapters",
         )
     }]
+    assert response.headers["cache-control"] == "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+
+
+def test_vercel_chapter_read_does_not_start_bulk_supabase_sync(monkeypatch) -> None:
+    monkeypatch.setenv("VERCEL", "1")
+
+    def unexpected_thread(*args, **kwargs):
+        raise AssertionError("Vercel chapter reads must not start a bulk sync thread")
+
+    monkeypatch.setattr(main.threading, "Thread", unexpected_thread)
+    main._queue_supabase_sync()
+
+
+def test_profile_upsert_is_throttled_but_auth_is_still_checked(monkeypatch) -> None:
+    monkeypatch.setattr(auth, "URL", "https://supabase.example")
+    monkeypatch.setattr(auth, "ANON", "anon-key")
+    monkeypatch.setattr(auth, "SERVICE", "service-key")
+    monkeypatch.setattr(auth, "_recent_profile_syncs", {})
+    monkeypatch.setattr(auth, "_profile_sync_locks", {})
+    counts = {"auth": 0, "profile": 0}
+
+    class Response:
+        is_success = True
+
+        def json(self):
+            return {"id": "user-1", "email": "reader@example.test", "user_metadata": {}}
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url, **kwargs):
+            counts["auth"] += 1
+            return Response()
+
+        def post(self, url, **kwargs):
+            counts["profile"] += 1
+            return Response()
+
+    monkeypatch.setattr(auth.httpx, "Client", Client)
+
+    assert auth.user_from_token("valid-token") is not None
+    assert auth.user_from_token("valid-token") is not None
+    assert counts == {"auth": 2, "profile": 1}
 
 
 def test_novel_counts_use_one_embedded_query_and_keep_response_fields(monkeypatch) -> None:

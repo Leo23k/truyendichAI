@@ -216,11 +216,19 @@
       document.addEventListener("DOMContentLoaded", () => {
         window.lucide?.createIcons();
         let jobsRefreshTimer;
+        const scheduleJobsRefresh = (delay) => {
+          clearTimeout(jobsRefreshTimer);
+          if (document.visibilityState === "visible" && document.querySelector("[data-jobs-refresh]")) {
+            const root = document.querySelector("[data-jobs-refresh]");
+            const wait = delay === undefined ? (Number(root.dataset.refreshInterval) || 15000) : delay;
+            jobsRefreshTimer = window.setTimeout(refreshJobs, wait);
+          }
+        };
         const refreshJobs = async () => {
           const current = document.querySelector("[data-jobs-refresh]");
-          if (!current) return;
+          if (!current || document.visibilityState !== "visible") return;
           if (document.querySelector('form[hx-post="/jobs/crawler/search"].htmx-request')) {
-            jobsRefreshTimer = window.setTimeout(refreshJobs, 1000);
+            scheduleJobsRefresh(3000);
             return;
           }
           try {
@@ -251,13 +259,15 @@
           } catch (error) {
             console.warn("Could not refresh crawl jobs", error);
           } finally {
-            if (document.querySelector("[data-jobs-refresh]")) {
-              jobsRefreshTimer = window.setTimeout(refreshJobs, 3000);
-            }
+            scheduleJobsRefresh();
           }
         };
         if (document.querySelector("[data-jobs-refresh]")) {
-          jobsRefreshTimer = window.setTimeout(refreshJobs, 3000);
+          scheduleJobsRefresh(Number(document.querySelector("[data-jobs-refresh]").dataset.refreshInterval) || 15000);
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") scheduleJobsRefresh(0);
+            else clearTimeout(jobsRefreshTimer);
+          });
           window.addEventListener("pagehide", () => clearTimeout(jobsRefreshTimer), { once: true });
         }
       });

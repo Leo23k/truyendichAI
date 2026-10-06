@@ -140,7 +140,7 @@ def _synced_chapter_content_path(slug: str, entry: dict, chapter_number: int) ->
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health", "/manifest.webmanifest", "/service-worker.js", "/api/cron/check-sources", "/api/cron/deliver-push"}:
+    if path.startswith("/static") or path in {"/login", "/auth/callback", "/logout", "/health", "/manifest.webmanifest", "/service-worker.js", "/api/novels/metadata", "/api/cron/check-sources", "/api/cron/deliver-push"}:
         return await call_next(request)
     access_token = request.cookies.get("sb-access-token", "")
     request.state.user = user_from_token(access_token) if access_token else None
@@ -338,15 +338,17 @@ def get_reader_progress(request: Request, book_id: str | None = None) -> dict:
 
 
 @app.get("/api/novels/metadata")
-def get_library_novel_metadata(request: Request) -> dict:
+def get_library_novel_metadata() -> JSONResponse:
     """Return only public novel metadata for client-side Library search."""
-    require_authenticated(request)
     try:
         novels = load_novels()
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail="Could not load novel metadata") from exc
     fields = ("id", "slug", "title", "author", "reading_status", "cover", "cover_fallback", "latest_chapter", "updated_at", "total_chapters")
-    return {"items": [{field: novel.get(field) for field in fields} for novel in novels]}
+    return JSONResponse(
+        {"items": [{field: novel.get(field) for field in fields} for novel in novels]},
+        headers={"Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600"},
+    )
 
 
 @app.post("/api/reading-progress")
@@ -625,6 +627,10 @@ def _sync_supabase_background() -> None:
 
 
 def _queue_supabase_sync() -> None:
+    # Vercel's SQLite file is ephemeral; a full sync per chapter GET is wasted
+    # work and can outlive the request. Production data is owned by Supabase.
+    if os.getenv("VERCEL"):
+        return
     threading.Thread(target=_sync_supabase_background, daemon=True, name="leotruyen-sync-once").start()
 
 
@@ -779,7 +785,7 @@ def _crawl_job_cards() -> list[dict]:
     # The crawler and translator are separate workers. A crawl job can therefore
     # reach `completed` while rows it owns are still waiting in translation_queue.
     # Keep those cards visible until their translation work has also finished.
-    jobs = remote.rows("remote_crawl_jobs", {"select": "id,source_url,source_type,status,error,result,started_at,created_at,updated_at", "status": "in.(queued,crawling,syncing,translating,paused,completed,failed)", "order": "updated_at.desc"})
+    jobs = remote.rows("remote_crawl_jobs", {"select": "id,source_url,source_type,status,error,result,started_at,created_at,updated_at", "status": "in.(queued,crawling,syncing,translating,paused,completed,failed)", "order": "updated_at.desc", "limit": "100"})
     job_ids = [str(job["id"]) for job in jobs]
     all_queues = remote.rows(
         "translation_queue",
@@ -839,7 +845,7 @@ def _translation_queue_cards() -> list[dict]:
             "select": "id,chapter_id,status,current_chunk,total_chunks,updated_at",
             "status": "in.(queued,translating,paused,failed)",
             "order": "updated_at.desc",
-            "limit": "100",
+            "limit": "50",
         },
     )
     if not queue:
@@ -877,6 +883,7 @@ def _jobs_page_context(**extra: object) -> dict[str, object]:
         "translation_queue": _translation_queue_cards(),
         "workers": _worker_statuses(),
         "worker_controls_available": worker_manager.can_control_locally,
+        "job_refresh_interval_ms": 15000 if os.getenv("VERCEL") else 3000,
         "crawler_sources": [crawler.source_name for crawler in registry._crawlers],
         **extra,
     }
@@ -1053,12 +1060,11 @@ def _worker_statuses() -> dict[str, dict[str, object]]:
     if not os.getenv("VERCEL"):
         return workers
     remote = SupabaseSync()
-    crawling = remote.rows("remote_crawl_jobs", {"select": "id", "status": "in.(crawling,syncing)", "limit": "1"})
-    translating_jobs = remote.rows("remote_crawl_jobs", {"select": "id", "status": "eq.translating", "limit": "1"})
+    active_jobs = remote.rows("remote_crawl_jobs", {"select": "status", "status": "in.(crawling,syncing,translating)", "limit": "20"})
     translating = remote.rows("translation_queue", {"select": "id", "status": "eq.translating", "limit": "1"})
-    if crawling:
+    if any(row.get("status") in {"crawling", "syncing"} for row in active_jobs):
         workers["crawler"] = {"name": "crawler", "state": "running", "pid": None, "managed": False, "error": None, "detail": "Đang xử lý job trên PC (theo Supabase)."}
-    if translating or translating_jobs:
+    if translating or any(row.get("status") == "translating" for row in active_jobs):
         workers["translator"] = {"name": "translator", "state": "running", "pid": None, "managed": False, "error": None, "detail": "Đang dịch trên PC (theo hàng đợi Supabase)."}
     return workers
 
@@ -1828,9 +1834,9 @@ def library_search(request: Request, query: str = ""):
 
         rows = [row for row in rows if matches(row)]
         if not rows:
-            for row in remote.all_rows("novels", {"select": fields}):
+            for row in load_novels():
                 if matches(row):
-                    rows.append(row)
+                    rows.append({**row, "cover_url": row.get("cover_url") or row.get("cover")})
     except SyncError as exc:
         raise HTTPException(503, detail=str(exc)) from exc
     def rank(row: dict) -> tuple[int, int, str]:
