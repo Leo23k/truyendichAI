@@ -416,7 +416,7 @@ def download_original_ebook(ebook_id: str, request: Request):
 def read_ebook_chapter(ebook_id: str, chapter_number: int, request: Request, mode: str = "original"):
     user = require_authenticated(request)
     try:
-        result = get_ebook_chapter(user.id, ebook_id, chapter_number)
+        result = get_ebook_chapter(user.id, ebook_id, chapter_number, mode=mode)
     except EbookServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return templates.TemplateResponse(
@@ -425,6 +425,7 @@ def read_ebook_chapter(ebook_id: str, chapter_number: int, request: Request, mod
         context={
             **result,
             "mode": "original" if mode != "translated" else "translated",
+            "translated": result.get("translated", False),
             "back_url": "/ebooks",
         },
     )

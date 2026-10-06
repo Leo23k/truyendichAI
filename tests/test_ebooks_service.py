@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app import ebook_service
 from app import main as main_app
 from app.auth import CurrentUser
+from sync import service as sync_service
 
 
 class FakeRemote:
@@ -143,3 +144,45 @@ def test_translation_enqueue_is_owner_scoped_and_reuses_chunker(monkeypatch):
     writes = [call for call in remote.calls if call[0] == "insert_many_ignore"]
     assert [call[1] for call in writes] == ["ebook_translation_chunks", "ebook_translation_queue"]
     assert writes[0][2][0]["ebook_chapter_id"] == "41"
+
+
+def test_reader_can_load_owner_scoped_translated_chapter(monkeypatch):
+    remote = FakeRemote()
+    calls = iter([
+        [{"id": "book-id", "title": "Book", "chapter_count": 1}],
+        [{"chapter_number": 1, "title": "Chapter", "content_path": "ebooks/hash/book-id/chapters/0000.json", "content_index": 0, "translation_status": "translated", "translated_content_path": "ebooks/hash/book-id/translations/000001.json"}],
+        [], [],
+    ])
+    remote.rows = lambda _table, _params: next(calls)
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(ebook_service.hashlib, "sha256", lambda _value: type("Hash", (), {"hexdigest": lambda self: "hash"})())
+    monkeypatch.setattr(ebook_service, "b2_download", lambda path: (
+        b'{"chapters":[{"chapter_number":1,"original_content":"<p>Chinese</p>"}]}'
+        if path.endswith("0000.json") else b'{"chapter_number":1,"translated_content":"<p>Vietnamese</p>"}'
+    ))
+
+    result = ebook_service.get_ebook_chapter("owner-id", "book-id", 1, mode="translated")
+    assert result["content"] == "<p>Vietnamese</p>"
+    assert result["translated"] is True
+
+
+def test_ebook_translation_worker_publishes_separate_translation(monkeypatch):
+    remote = FakeRemote()
+    job = {"id": "job-1", "ebook_chapter_id": "chapter-1", "total_chunks": 1, "current_chunk": 0, "retry_count": 0}
+    remote.rows = lambda table, _params: {
+        "ebook_translation_queue": [job],
+        "ebook_chapters": [{"id": "chapter-1", "ebook_id": "book-1", "chapter_number": 1, "title": "Title"}],
+        "ebook_books": [{"id": "book-1", "owner_id": "owner-1", "source_language": "zh"}],
+        "ebook_translation_chunks": [{"id": "chunk-1", "original_text": "Chinese"}],
+    }.get(table, [])
+    remote.patch_rows = lambda table, _params, payload: ([{**job, **payload}] if table == "ebook_translation_queue" else [])
+    remote.all_rows = lambda _table, _params: [{"chunk_index": 0, "translated_text": "Vietnamese", "status": "completed"}]
+    monkeypatch.setattr(sync_service, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(sync_service, "reclaim_stale_ebook_translation_jobs", lambda _remote: 0)
+    monkeypatch.setattr(sync_service.translator, "translate_batch", lambda texts: ["Vietnamese" for _ in texts])
+    uploaded = []
+    monkeypatch.setattr(sync_service, "b2_upload", lambda *args, **kwargs: uploaded.append((args, kwargs)))
+
+    assert sync_service.run_ebook_translation_worker_once(remote) is True
+    assert uploaded and "translations/000001.json" in uploaded[0][0][0]
+    assert any(call[0] == "delete_rows" and call[1] == "ebook_translation_chunks" for call in remote.calls)

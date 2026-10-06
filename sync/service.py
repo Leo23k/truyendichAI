@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import contextmanager
+import hashlib
+from html import escape as escape_html
 import json
 import logging
 import os
@@ -861,6 +863,106 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
         return False
 
 
+def reclaim_stale_ebook_translation_jobs(remote: SupabaseSync) -> int:
+    stale_after = max(600, int(os.getenv("TRANSLATION_JOB_STALE_SECONDS", "900")))
+    stale_before = (datetime.now(timezone.utc) - timedelta(seconds=stale_after)).isoformat()
+    rows = remote.patch_rows(
+        "ebook_translation_queue",
+        {"status": "eq.translating", "updated_at": f"lt.{stale_before}"},
+        {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    return len(rows)
+
+
+def run_ebook_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
+    """Translate one owner-scoped ebook chapter using the existing MT service."""
+    remote = remote or SupabaseSync()
+    reclaim_stale_ebook_translation_jobs(remote)
+    queued = remote.rows("ebook_translation_queue", {
+        "select": "*", "status": "eq.queued", "order": "created_at.asc", "limit": "1",
+    })
+    if not queued:
+        return False
+    job = queued[0]
+    claimed = remote.patch_rows("ebook_translation_queue", {
+        "id": f"eq.{job['id']}", "status": "eq.queued",
+    }, {"status": "translating", "updated_at": datetime.now(timezone.utc).isoformat()})
+    if not claimed:
+        return False
+    job = claimed[0]
+    chapter_id = str(job["ebook_chapter_id"])
+    try:
+        chapters = remote.rows("ebook_chapters", {
+            "select": "id,ebook_id,chapter_number,title,translation_status",
+            "id": f"eq.{chapter_id}", "limit": "1",
+        })
+        if not chapters:
+            raise SyncError(f"Ebook chapter {chapter_id} was not found.")
+        chapter = chapters[0]
+        books = remote.rows("ebook_books", {
+            "select": "id,owner_id,source_language", "id": f"eq.{chapter['ebook_id']}", "limit": "1",
+        })
+        if not books or books[0].get("source_language") != "zh":
+            raise SyncError(f"Ebook {chapter['ebook_id']} is missing or is not a Chinese source.")
+        remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {
+            "translation_status": "translating", "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        total_chunks = int(job.get("total_chunks") or 0)
+        current_chunk = int(job.get("current_chunk") or 0)
+        while current_chunk < total_chunks:
+            rows = remote.rows("ebook_translation_chunks", {
+                "select": "id,chunk_index,original_text", "ebook_chapter_id": f"eq.{chapter_id}",
+                "status": "eq.queued", "order": "chunk_index.asc", "limit": "4",
+            })
+            if not rows:
+                raise SyncError(f"Queued ebook translation chunks are missing for chapter {chapter_id}.")
+            translated = translator.translate_batch([str(row["original_text"]) for row in rows])
+            if len(translated) != len(rows):
+                raise SyncError("Translator returned an unexpected ebook chunk count.")
+            for row, result in zip(rows, translated):
+                remote.patch_rows("ebook_translation_chunks", {"id": f"eq.{row['id']}"}, {
+                    "translated_text": result, "status": "completed",
+                })
+            current_chunk += len(rows)
+            status = "completed" if current_chunk >= total_chunks else "translating"
+            remote.patch_rows("ebook_translation_queue", {"id": f"eq.{job['id']}"}, {
+                "current_chunk": current_chunk, "status": status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+            job["current_chunk"] = current_chunk
+        chunks = remote.all_rows("ebook_translation_chunks", {
+            "select": "chunk_index,translated_text,status", "ebook_chapter_id": f"eq.{chapter_id}",
+            "order": "chunk_index.asc",
+        })
+        if not chunks or any(row.get("status") != "completed" or not row.get("translated_text") for row in chunks):
+            raise SyncError(f"Ebook translation is incomplete for chapter {chapter_id}.")
+        translated_text = "\n\n".join(str(row["translated_text"]) for row in chunks)
+        owner_key = hashlib.sha256(str(books[0]["owner_id"]).encode("utf-8")).hexdigest()[:32]
+        chapter_number = int(chapter["chapter_number"])
+        translation_path = f"ebooks/{owner_key}/{chapter['ebook_id']}/translations/{chapter_number:06d}.json"
+        output = json.dumps({
+            "ebook_id": str(chapter["ebook_id"]), "chapter_number": chapter_number,
+            "translated_content": f"<p>{escape_html(translated_text).replace(chr(10), '<br/>')}</p>",
+        }, ensure_ascii=False).encode("utf-8")
+        b2_upload(translation_path, output, "application/json", check_existing=False)
+        remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {
+            "translation_status": "translated", "translated_content_path": translation_path,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        remote.delete_rows("ebook_translation_chunks", {"ebook_chapter_id": f"eq.{chapter_id}"})
+        return True
+    except Exception:
+        logger.exception("Ebook translation failed for chapter %s", chapter_id)
+        remote.patch_rows("ebook_translation_queue", {"id": f"eq.{job['id']}"}, {
+            "status": "failed", "retry_count": int(job.get("retry_count") or 0) + 1,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        remote.patch_rows("ebook_chapters", {"id": f"eq.{chapter_id}"}, {
+            "translation_status": "failed", "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return False
+
+
 def sync_once() -> dict[str, int | bool]:
     if not DATABASE_PATH.exists():
         raise SyncError(f"SQLite database was not found: {DATABASE_PATH}")
@@ -1326,6 +1428,9 @@ def _run_translation_watch(stop_event: threading.Event, idle_delay: float) -> No
     while not stop_event.is_set():
         try:
             if run_translation_worker_once():
+                sync_status["last_error"] = None
+                continue
+            if run_ebook_translation_worker_once():
                 sync_status["last_error"] = None
                 continue
         except SyncError as exc:

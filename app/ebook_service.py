@@ -190,7 +190,7 @@ def get_original_download(owner_id: str, ebook_id: str) -> tuple[str, str]:
         raise EbookServiceError("Không thể tạo liên kết tải ebook.", 503) from exc
 
 
-def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int) -> dict:
+def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int, *, mode: str = "original") -> dict:
     if chapter_number < 1:
         raise EbookServiceError("Số chương không hợp lệ.", 404)
     remote = SupabaseSync()
@@ -203,7 +203,7 @@ def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int) -> dict
             raise EbookServiceError("Không tìm thấy ebook.", 404)
         book = books[0]
         chapters = remote.rows("ebook_chapters", {
-            "select": "chapter_number,title,content_path,content_index,translation_status",
+            "select": "chapter_number,title,content_path,content_index,translation_status,translated_content_path",
             "ebook_id": f"eq.{ebook_id}", "chapter_number": f"eq.{chapter_number}", "limit": "1",
         })
         if not chapters:
@@ -230,6 +230,18 @@ def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int) -> dict
             "select": "chapter_number,title", "ebook_id": f"eq.{ebook_id}",
             "chapter_number": f"gt.{chapter_number}", "order": "chapter_number.asc", "limit": "1",
         })
+        content = str(payload.get("original_content") or "")
+        translated = False
+        translated_path = str(chapter.get("translated_content_path") or "")
+        expected_translation_prefix = f"ebooks/{owner_key}/{ebook_id}/translations/"
+        if mode == "translated" and chapter.get("translation_status") == "translated":
+            if not translated_path.startswith(expected_translation_prefix):
+                raise EbookServiceError("ÄÆ°á»ng dáº«n báº£n dá»‹ch ebook khÃ´ng há»£p lá»‡.", 503)
+            translation = json.loads(b2_download(translated_path).decode("utf-8"))
+            if int(translation.get("chapter_number", 0)) != chapter_number:
+                raise EbookServiceError("Báº£n dá»‹ch khÃ´ng khá»›p vá»›i chÆ°Æ¡ng ebook.", 503)
+            content = str(translation.get("translated_content") or content)
+            translated = bool(translation.get("translated_content"))
     except EbookServiceError:
         raise
     except (SyncError, ValueError, KeyError, TypeError) as exc:
@@ -237,7 +249,8 @@ def get_ebook_chapter(owner_id: str, ebook_id: str, chapter_number: int) -> dict
     return {
         "book": book,
         "chapter": chapter,
-        "content": str(payload.get("original_content") or ""),
+        "content": content,
+        "translated": translated,
         "previous": previous[0] if previous else None,
         "following": following[0] if following else None,
     }
