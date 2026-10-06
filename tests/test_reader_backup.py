@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from starlette.requests import Request
 
 import app.main as main
@@ -78,3 +79,32 @@ def test_reader_uses_original_when_backup_has_no_translation(monkeypatch) -> Non
     assert response.context["translation_error"]
     assert response.context["tts_chunks"] == []
     assert progress_lookups == []
+
+
+@pytest.mark.asyncio
+async def test_synced_tts_stream_starts_at_segment_for_text_offset(monkeypatch) -> None:
+    entry = {"id": 88}
+    monkeypatch.setattr(main, "_synced_chapter_entry_and_payload", lambda slug, number: (entry, {"translated_content": "all text"}))
+    monkeypatch.setattr(main, "load_translation_progress", lambda chapter_id: None)
+    monkeypatch.setattr(main, "_replacement_text", lambda request, slug, text: text)
+    monkeypatch.setattr(main, "split_chapter_text", lambda text: ["first", "second"])
+    streamed = []
+
+    async def fake_stream(text, **kwargs):
+        streamed.append(text)
+        yield b"audio-frame"
+
+    monkeypatch.setattr(main, "stream_cached_edge_tts", fake_stream)
+    request = Request({
+        "type": "http", "http_version": "1.1", "method": "GET", "scheme": "http",
+        "path": "/truyen/sample/1/audio/tts/stream", "raw_path": b"/truyen/sample/1/audio/tts/stream",
+        "query_string": b"", "root_path": "", "headers": [],
+        "client": ("127.0.0.1", 12345), "server": ("test", 80),
+    })
+    request.state.user = None
+
+    response = await main.stream_synced_chapter_audio("sample", 1, request, offset=7)
+    body = b"".join([frame async for frame in response.body_iterator])
+
+    assert streamed == ["second"]
+    assert body == b"audio-frame"

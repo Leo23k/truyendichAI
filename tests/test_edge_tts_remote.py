@@ -77,3 +77,34 @@ async def test_edge_tts_uses_remote_service_when_configured(monkeypatch, tmp_pat
         {"text": "Xin chao", "voice": "vi-VN-HoaiMyNeural", "rate": 1.2},
     )
     assert calls[1] == ("get", "https://tts.example/audio/test.mp3", None)
+
+
+@pytest.mark.asyncio
+async def test_streamed_segment_is_cached_and_reused(monkeypatch, tmp_path) -> None:
+    calls = []
+
+    async def fake_stream(text, *, voice, rate):
+        calls.append((text, voice, rate))
+        yield b"mp3-frame-1"
+        yield b"mp3-frame-2"
+
+    monkeypatch.setattr(edge_tts_service.settings, "audio_dir", str(tmp_path))
+    monkeypatch.setattr(edge_tts_service, "stream_edge_tts", fake_stream)
+    expected_path = tmp_path / edge_tts_service.audio_filename(
+        text="segment text", voice="vi-VN-HoaiMyNeural", rate=1.2, chapter_id=42,
+    )
+
+    first = b"".join([
+        frame async for frame in edge_tts_service.stream_cached_edge_tts(
+            "segment text", chapter_id=42, voice="vi-VN-HoaiMyNeural", rate=1.2,
+        )
+    ])
+    second = b"".join([
+        frame async for frame in edge_tts_service.stream_cached_edge_tts(
+            "segment text", chapter_id=42, voice="vi-VN-HoaiMyNeural", rate=1.2,
+        )
+    ])
+
+    assert first == second == b"mp3-frame-1mp3-frame-2"
+    assert expected_path.read_bytes() == first
+    assert calls == [("segment text", "vi-VN-HoaiMyNeural", 1.2)]

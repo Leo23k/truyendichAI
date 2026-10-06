@@ -5,6 +5,8 @@ import hashlib
 import json
 import logging
 import re
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator
@@ -183,6 +185,63 @@ async def stream_edge_tts(
                 yield event["data"]
     except Exception as exc:  # pragma: no cover - network/service dependent
         raise EdgeTTSUnavailableError("Khong the stream audio bang Microsoft Edge TTS.") from exc
+
+
+async def stream_cached_edge_tts(
+    text: str,
+    *,
+    chapter_id: int,
+    voice: str | None = None,
+    rate: float | int | str | None = 1.0,
+) -> AsyncIterator[bytes]:
+    """Stream one segment immediately and persist it under the existing cache key."""
+    selected_voice = normalize_voice(voice)
+    selected_rate = normalize_rate(rate)
+    settings.ensure_directories()
+    path = settings.audio_path / audio_filename(
+        text=text.strip(), voice=selected_voice, rate=selected_rate, chapter_id=chapter_id,
+    )
+    if path.is_file() and path.stat().st_size > 0:
+        logger.info("TTS segment cache hit chapter_id=%s chars=%s", chapter_id, len(text))
+        with path.open("rb") as cached:
+            while frame := cached.read(64 * 1024):
+                yield frame
+        return
+
+    temporary_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        cache_file = temporary_path.open("wb")
+    except OSError:
+        logger.warning("Could not open streamed TTS cache for chapter_id=%s", chapter_id)
+        async for frame in stream_edge_tts(text, voice=selected_voice, rate=selected_rate):
+            yield frame
+        return
+    cache_writable = True
+    started_at = time.perf_counter()
+    first_frame = True
+    try:
+        with cache_file:
+            async for frame in stream_edge_tts(text, voice=selected_voice, rate=selected_rate):
+                if first_frame:
+                    logger.info(
+                        "TTS segment first frame chapter_id=%s chars=%s elapsed_ms=%.1f",
+                        chapter_id, len(text), (time.perf_counter() - started_at) * 1000,
+                    )
+                    first_frame = False
+                if cache_writable:
+                    try:
+                        cache_file.write(frame)
+                    except OSError:
+                        cache_writable = False
+                        logger.warning("Could not write streamed TTS cache for chapter_id=%s", chapter_id)
+                yield frame
+        if cache_writable and temporary_path.stat().st_size > 0 and not path.exists():
+            try:
+                temporary_path.replace(path)
+            except OSError:
+                logger.warning("Could not finalize streamed TTS cache for chapter_id=%s", chapter_id)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 _TERMINAL_MARKS = ".!?…。！？"

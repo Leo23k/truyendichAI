@@ -511,12 +511,16 @@
       let segmentRequestToken = 0;
       let playlistLoadToken = 0;
       let streamingFirstSegment = false;
+      let streamingSegmentIndex = 0;
+      let streamingSegmentIndexKnown = false;
+      let streamingTextOffset = 0;
       let priorityRequested = false;
       const voiceSessions = new Map();
       const segmentRequests = new Map();
       const PRELOAD_AHEAD = 3;
       let playerState = "idle";
       let wantToPlay = false;
+      let playRequestedAt = 0;
       const followText = document.querySelector("[data-follow-text]");
       const highlightText = document.querySelector("[data-highlight-text]");
       let followPausedUntil = 0;
@@ -554,9 +558,48 @@
         return `${player.dataset.audioManifestUrl}?${params.toString()}`;
       };
 
-      const buildStreamUrl = () => {
+      const buildStreamUrl = (index = null, offset = 0) => {
         const params = new URLSearchParams({ voice: getVoice(), rate: String(getRate()) });
+        if (index === null) params.set("offset", String(offset));
+        else params.set("index", String(index));
         return `${player.dataset.audioUrl}?${params.toString()}`;
+      };
+
+      const findSegmentForTextOffset = (offset) => {
+        let cursor = 0;
+        for (let index = 0; index < playlist.length; index += 1) {
+          const length = Number(playlist[index].characters || 0);
+          if (offset < cursor + length) return index;
+          cursor += length + 2;
+        }
+        return Math.max(0, playlist.length - 1);
+      };
+
+      const visibleTextOffset = () => {
+        if (!readerContent) return 0;
+        const paragraphs = [...readerContent.querySelectorAll("p")];
+        const targetY = window.innerHeight * 0.38;
+        let offset = 0;
+        for (const paragraph of paragraphs) {
+          const text = paragraph.textContent.trim().replace(/\s+/g, " ");
+          const rect = paragraph.getBoundingClientRect();
+          if (rect.bottom >= targetY) {
+            const ratio = rect.height > 0 ? Math.max(0, Math.min(1, (targetY - rect.top) / rect.height)) : 0;
+            return offset + Math.round(text.length * ratio);
+          }
+          offset += text.length + 2;
+        }
+        return Math.max(0, offset - 2);
+      };
+
+      const mapParagraphsToSegments = () => {
+        if (!playlist.length || !readerContent) return;
+        let offset = 0;
+        readerContent.querySelectorAll("p").forEach((paragraph) => {
+          const text = paragraph.textContent.trim().replace(/\s+/g, " ");
+          paragraph.dataset.ttsIndex = String(findSegmentForTextOffset(offset + text.length / 2));
+          offset += text.length + 2;
+        });
       };
 
       const voiceSessionKey = () => `${getVoice()}@${getRate()}`;
@@ -570,7 +613,8 @@
       const getCurrentPosition = () => {
         if (!hasAudio) return 0;
         if (!playlistReady) return audio.currentTime || 0;
-        return (segmentStarts[currentSegmentIndex] || 0) + (audio.currentTime || 0);
+        const index = streamingFirstSegment ? streamingSegmentIndex : currentSegmentIndex;
+        return (segmentStarts[index] || 0) + (audio.currentTime || 0);
       };
 
       const updateProgress = () => {
@@ -718,12 +762,21 @@
             if (!totalDuration) totalDuration = cursor;
             playlistReady = playlist.length > 0;
             if (!playlistReady) throw new Error("TTS playlist empty");
+            mapParagraphsToSegments();
             voiceSessions.set(voiceSessionKey(), { playlist, segmentStarts, totalDuration });
             durationLabel.textContent = formatTime(totalDuration);
             // Warm only the current segment on chapter load; Play reuses this promise.
             const initialIndex = findSegmentIndex(resumeAt);
-            currentSegmentIndex = initialIndex;
+            if (!streamingFirstSegment) currentSegmentIndex = initialIndex;
+            else if (!streamingSegmentIndexKnown) {
+              streamingSegmentIndex = findSegmentForTextOffset(streamingTextOffset);
+              streamingSegmentIndexKnown = true;
+              currentSegmentIndex = streamingSegmentIndex;
+              audio.dataset.ttsIndex = String(streamingSegmentIndex);
+              if (playerState === "playing") highlightSegment(streamingSegmentIndex);
+            }
             pendingSegmentOffset = Math.max(0, resumeAt - (segmentStarts[initialIndex] || 0));
+            if (!selectSegment) return Promise.resolve();
             return ensureSegment(initialIndex).then(() => {
               if (selectSegment && autoplay && wantToPlay) setAudioSegment(initialIndex, resumeAt - (segmentStarts[initialIndex] || 0), true);
             });
@@ -732,28 +785,42 @@
             if (loadToken !== playlistLoadToken) return;
             playlistReady = false;
             console.warn("Không thể tải audio TTS", error);
-            setPlayerState("error");
+            if (!streamingFirstSegment) setPlayerState("error");
           });
         return playlistLoading;
       };
 
-      const playFirstSegmentFromStream = () => {
+      const playFirstSegmentFromStream = (index = null, textOffset = 0, requestToken = segmentRequestToken) => {
         // Calling play() synchronously from the click keeps the browser's
         // user-gesture permission.  Fetching a generated blob first can lose
         // that permission on slower networks and leaves the Play button stuck.
         streamingFirstSegment = true;
+        streamingSegmentIndexKnown = index !== null;
+        streamingTextOffset = textOffset;
+        if (streamingSegmentIndexKnown) streamingSegmentIndex = index;
+        currentSegmentIndex = streamingSegmentIndex;
         audio.pause();
-        audio.dataset.ttsIndex = "0";
-        audio.src = buildStreamUrl();
+        audio.dataset.ttsIndex = String(streamingSegmentIndex);
+        audio.src = buildStreamUrl(index, textOffset);
         audio.playbackRate = 1;
         audio.load();
         audio.play()
-          .then(() => setPlayerState("playing"))
+          .then(() => {
+            if (requestToken === segmentRequestToken && wantToPlay) setPlayerState("playing");
+            else audio.pause();
+          })
           .catch(() => {
+            if (requestToken !== segmentRequestToken || !wantToPlay) return;
             streamingFirstSegment = false;
             (playlistLoading || loadPlaylist(0, false, false))
-              .then(() => ensureSegment(currentSegmentIndex))
-              .then(() => { if (wantToPlay) setAudioSegment(currentSegmentIndex, pendingSegmentOffset || 0, true); })
+              .then(() => {
+                const fallbackIndex = index === null ? findSegmentForTextOffset(textOffset) : index;
+                streamingSegmentIndex = fallbackIndex;
+                streamingSegmentIndexKnown = true;
+                currentSegmentIndex = fallbackIndex;
+                return ensureSegment(fallbackIndex);
+              })
+              .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(currentSegmentIndex, 0, true); })
               .catch(() => setPlayerState("error"));
           });
       };
@@ -763,8 +830,13 @@
         wantToPlay = true;
         if (playlistReady && audio.src && playerState === "paused") return audio.play().catch(() => setPlayerState("error"));
         setPlayerState("loading");
+        if (playlistReady && playlist.length) {
+          mapParagraphsToSegments();
+          currentSegmentIndex = findSegmentForTextOffset(visibleTextOffset());
+          pendingSegmentOffset = 0;
+        }
         if (!playlistReady || !playlist[currentSegmentIndex]?.objectUrl) {
-          playFirstSegmentFromStream();
+          playFirstSegmentFromStream(playlistReady ? currentSegmentIndex : null, visibleTextOffset(), requestToken);
           (playlistLoading || loadPlaylist(0, false, false)).catch(() => setPlayerState("error"));
           return;
         }
@@ -1111,6 +1183,10 @@
           if (!Number.isInteger(index)) return;
           currentPlayingChunkIndex = index;
           highlightSegment(currentPlayingChunkIndex);
+          if (playRequestedAt) {
+            console.debug(`[TTS] click-to-playing ${Math.round(performance.now() - playRequestedAt)} ms; segment=${index}`);
+            playRequestedAt = 0;
+          }
         });
         audio.addEventListener("pause", () => {
           if (playerState !== "loading") setPlayerState("paused");
@@ -1119,14 +1195,18 @@
 
         audio.addEventListener("ended", () => {
           if (streamingFirstSegment) {
-            streamingFirstSegment = false;
-            if (playlist[0] && Number.isFinite(audio.duration) && audio.duration > 0) {
-              playlist[0].duration = audio.duration;
-              refreshPlaylistDuration();
-            }
             setPlayerState("loading");
             (playlistLoading || loadPlaylist(0, false, false))
               .then(() => {
+                const streamedIndex = streamingSegmentIndexKnown
+                  ? streamingSegmentIndex
+                  : findSegmentForTextOffset(streamingTextOffset);
+                streamingFirstSegment = false;
+                streamingSegmentIndexKnown = true;
+                if (playlist[streamedIndex] && Number.isFinite(audio.duration) && audio.duration > 0) {
+                  playlist[streamedIndex].duration = audio.duration;
+                  refreshPlaylistDuration();
+                }
                 // A failed manifest used to look like an empty one here and
                 // incorrectly advance to the next chapter after the stream.
                 if (!playlistReady || !playlist.length) {
@@ -1134,16 +1214,16 @@
                   setPlayerState("error");
                   return;
                 }
-                if (playlist.length < 2) {
+                if (streamedIndex >= playlist.length - 1) {
                   wantToPlay = false;
                   setPlayerState("ended");
                   finishChapter();
                   return;
                 }
-                currentSegmentIndex = 1;
+                currentSegmentIndex = streamedIndex + 1;
                 const requestToken = ++segmentRequestToken;
-                return ensureSegment(1).then(() => {
-                  if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(1, 0, true);
+                return ensureSegment(currentSegmentIndex).then(() => {
+                  if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(streamedIndex + 1, 0, true);
                 });
               })
               .catch(() => setPlayerState("error"));
@@ -1167,10 +1247,20 @@
         });
 
         audio.addEventListener("error", () => {
-          const resumeAt = getCurrentPosition() || Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0);
+          const savedPosition = Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0);
+          const resumeAt = streamingFirstSegment && playlistReady
+            ? (segmentStarts[streamingSegmentIndex] || 0) + (audio.currentTime || 0)
+            : getCurrentPosition() || savedPosition;
           if (streamingFirstSegment) {
+            const failedIndex = streamingSegmentIndexKnown
+              ? streamingSegmentIndex
+              : findSegmentForTextOffset(streamingTextOffset);
             streamingFirstSegment = false;
-            (playlistLoading || loadPlaylist(resumeAt, false)).then(() => seekTo(resumeAt, true));
+            streamingSegmentIndexKnown = true;
+            (playlistLoading || loadPlaylist(0, false, false)).then(() => {
+              if (playlistReady) seekTo(segmentStarts[failedIndex] || 0, true);
+              else setPlayerState("error");
+            });
             return;
           }
           if (!audioRetryUsed) {
@@ -1186,10 +1276,15 @@
           showBar();
           if (playerState === "loading") {
             wantToPlay = false;
+            segmentRequestToken += 1;
+            audio.pause();
             setPlayerState("paused");
             return;
           }
-          if (audio.paused) playCurrent();
+          if (audio.paused) {
+            playRequestedAt = performance.now();
+            playCurrent();
+          }
           else {
             wantToPlay = false;
             audio.pause();
@@ -1244,7 +1339,7 @@
         const shouldAutoplay = storage.getItem("reader.autoplayNext") === window.location.pathname;
         storage.removeItem("reader.autoplayNext");
         if (shouldAutoplay) playCurrent();
-        else loadPlaylist(savedPosition, false);
+        else loadPlaylist(savedPosition, false, false);
       }
 
       updateTranslateButton();

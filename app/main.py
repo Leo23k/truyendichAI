@@ -75,7 +75,7 @@ from app.tts.edge_tts_service import (
     split_chapter_text,
     synthesize_chapter_playlist,
     synthesize_edge_tts,
-    stream_edge_tts,
+    stream_cached_edge_tts,
 )
 from sync.service import SyncError, SupabaseSync, enqueue_remote_crawl, prioritize_translation, sync_once
 from app.worker_control import worker_manager
@@ -282,6 +282,15 @@ _STRAY_TRANSLATION_DOT_RE = re.compile(r"(?m)^[ \t]*\.[ \t]*(?:\n|$)")
 def _remove_stray_translation_dots(text: str | None) -> str:
     """Hide legacy decoder artifacts without touching punctuation in sentences."""
     return _STRAY_TRANSLATION_DOT_RE.sub("", text or "")
+
+
+def _segment_index_for_text_offset(chunks: list[str], offset: int) -> int:
+    remaining = max(0, int(offset))
+    for index, chunk in enumerate(chunks):
+        if remaining < len(chunk):
+            return index
+        remaining -= len(chunk) + 2
+    return max(0, len(chunks) - 1)
 
 
 class TranslateRequest(BaseModel):
@@ -1434,7 +1443,7 @@ async def synced_audio_manifest(
             "voice": selected_voice,
             "rate": selected_rate,
             "segments": [
-                {"index": index, "url": f"/truyen/{slug}/{chapter_number}/audio/segments/{index}?voice={selected_voice}&rate={selected_rate}", "duration": estimate_duration_seconds(chunk, selected_rate)}
+                {"index": index, "url": f"/truyen/{slug}/{chapter_number}/audio/segments/{index}?voice={selected_voice}&rate={selected_rate}", "duration": estimate_duration_seconds(chunk, selected_rate), "characters": len(chunk)}
                 for index, chunk in enumerate(chunks)
             ],
         }
@@ -1474,6 +1483,8 @@ async def stream_synced_chapter_audio(
     request: Request,
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
+    index: int | None = None,
+    offset: int = 0,
 ) -> StreamingResponse:
     try:
         entry, chapter = _synced_chapter_entry_and_payload(slug, chapter_number)
@@ -1490,8 +1501,11 @@ async def stream_synced_chapter_audio(
     chunks = split_chapter_text(_replacement_text(request, slug, translated_content))
     if not chunks:
         raise HTTPException(status_code=400, detail="Hãy dịch chương trước khi nghe.")
+    index = _segment_index_for_text_offset(chunks, offset) if index is None else index
+    if index < 0 or index >= len(chunks):
+        raise HTTPException(status_code=404, detail="TTS segment not found.")
     return StreamingResponse(
-        stream_edge_tts(chunks[0], voice=normalize_voice(voice), rate=normalize_rate(rate)),
+        stream_cached_edge_tts(chunks[index], chapter_id=int(entry["id"]), voice=normalize_voice(voice), rate=normalize_rate(rate)),
         media_type="audio/mpeg",
         headers={"Cache-Control": "no-store"},
     )
@@ -1972,7 +1986,7 @@ async def chapter_audio_manifest(
         "voice": selected_voice,
         "rate": selected_rate,
         "segments": [
-            {"index": index, "url": f"/chapters/{chapter.id}/audio/segments/{index}?voice={selected_voice}&rate={selected_rate}", "duration": estimate_duration_seconds(chunk, selected_rate)}
+            {"index": index, "url": f"/chapters/{chapter.id}/audio/segments/{index}?voice={selected_voice}&rate={selected_rate}", "duration": estimate_duration_seconds(chunk, selected_rate), "characters": len(chunk)}
             for index, chunk in enumerate(chunks)
         ],
     }
@@ -2004,6 +2018,8 @@ async def stream_chapter_audio(
     request: Request,
     voice: str = DEFAULT_EDGE_VOICE,
     rate: float = 1.0,
+    index: int | None = None,
+    offset: int = 0,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     chapter = db.get(Chapter, chapter_id)
@@ -2012,8 +2028,11 @@ async def stream_chapter_audio(
     chunks = split_chapter_text(_replacement_text(request, str(chapter.book_id), chapter.translated_content))
     if not chunks:
         raise HTTPException(status_code=400, detail="Hãy dịch chương trước khi nghe.")
+    index = _segment_index_for_text_offset(chunks, offset) if index is None else index
+    if index < 0 or index >= len(chunks):
+        raise HTTPException(status_code=404, detail="TTS segment not found.")
     return StreamingResponse(
-        stream_edge_tts(chunks[0], voice=normalize_voice(voice), rate=normalize_rate(rate)),
+        stream_cached_edge_tts(chunks[index], chapter_id=chapter.id, voice=normalize_voice(voice), rate=normalize_rate(rate)),
         media_type="audio/mpeg",
         headers={"Cache-Control": "no-store"},
     )
