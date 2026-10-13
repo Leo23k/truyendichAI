@@ -23,6 +23,8 @@ MIN_CHUNK_CHARS = 100
 TARGET_CHUNK_CHARS = 360
 MAX_CHUNK_CHARS = 560
 EDGE_TTS_TIMEOUT_SECONDS = 120
+EDGE_TTS_ATTEMPTS = 3
+EDGE_TTS_ATTEMPT_TIMEOUT_SECONDS = 25
 logger = logging.getLogger(__name__)
 _inflight_synthesis: dict[Path, asyncio.Task["EdgeAudio"]] = {}
 
@@ -164,7 +166,7 @@ async def stream_edge_tts(
     selected_voice = normalize_voice(voice)
     selected_rate = normalize_rate(rate)
     use_remote = bool(settings.tts_api_url)
-    for attempt in range(2):
+    for attempt in range(EDGE_TTS_ATTEMPTS):
         received_audio = False
         try:
             if use_remote:
@@ -185,29 +187,33 @@ async def stream_edge_tts(
             else:
                 import edge_tts
 
-                communicate = edge_tts.Communicate(text, selected_voice, rate=edge_rate(selected_rate))
-                async for event in communicate.stream():
-                    if event["type"] == "audio" and event["data"]:
-                        received_audio = True
-                        yield event["data"]
+                communicate = edge_tts.Communicate(
+                    text, selected_voice, rate=edge_rate(selected_rate),
+                    boundary="SentenceBoundary" if attempt == 1 else "WordBoundary",
+                )
+                async with asyncio.timeout(EDGE_TTS_ATTEMPT_TIMEOUT_SECONDS):
+                    async for event in communicate.stream():
+                        if event["type"] == "audio" and event["data"]:
+                            received_audio = True
+                            yield event["data"]
             if not received_audio:
                 raise EdgeTTSUnavailableError("TTS service returned no audio frames.")
             return
         except Exception as exc:  # pragma: no cover - network/service dependent
             # Retry only before emitting audio. Restarting after the first frame
             # would duplicate speech in the already-open response stream.
-            if received_audio or attempt == 1:
+            if received_audio or attempt == EDGE_TTS_ATTEMPTS - 1:
                 provider = "TTS service" if use_remote else "Microsoft Edge TTS"
-                raise EdgeTTSUnavailableError(f"Khong the stream audio bang {provider}.") from exc
+                raise EdgeTTSUnavailableError(f"{provider} chưa trả được âm thanh cho {selected_voice}. Vui lòng thử lại.") from exc
             logger.warning(
-                "Edge TTS stream failed before first audio frame voice=%s attempt=1/2; retrying",
-                selected_voice,
+                "Edge TTS stream failed before first audio frame voice=%s attempt=%s/%s; retrying",
+                selected_voice, attempt + 1, EDGE_TTS_ATTEMPTS,
                 exc_info=True,
             )
             # A stale remote URL must not make both Vietnamese voices unusable.
             # Fall back only before emitting any audio, so speech is never repeated.
             use_remote = False
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.5 * (attempt + 1))
 
 
 async def stream_cached_edge_tts(
@@ -476,6 +482,21 @@ async def synthesize_edge_tts(
 async def _synthesize_edge_tts_uncached(
     text: str, selected_voice: str, selected_rate: float, path: Path, chapter_id: int | None
 ) -> EdgeAudio:
+    # Streams and simultaneous requests must never discover a half-written MP3.
+    temporary_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        await _synthesize_edge_tts_to_file(text, selected_voice, selected_rate, temporary_path, chapter_id)
+        if not temporary_path.is_file() or temporary_path.stat().st_size == 0:
+            raise EdgeTTSUnavailableError("TTS chưa trả được âm thanh. Vui lòng thử lại.")
+        temporary_path.replace(path)
+        return EdgeAudio(path=path, url=f"/api/tts/audio/{path.name}")
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+async def _synthesize_edge_tts_to_file(
+    text: str, selected_voice: str, selected_rate: float, path: Path, chapter_id: int | None
+) -> EdgeAudio:
 
     if settings.tts_api_url:
         try:
@@ -488,30 +509,35 @@ async def _synthesize_edge_tts_uncached(
             path.unlink(missing_ok=True)
 
     last_error: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(EDGE_TTS_ATTEMPTS):
         try:
             import edge_tts
 
-            communicate = edge_tts.Communicate(text, selected_voice, rate=edge_rate(selected_rate))
-            await asyncio.wait_for(communicate.save(str(path)), timeout=EDGE_TTS_TIMEOUT_SECONDS)
+            communicate = edge_tts.Communicate(
+                text, selected_voice, rate=edge_rate(selected_rate),
+                boundary="SentenceBoundary" if attempt == 1 else "WordBoundary",
+            )
+            await asyncio.wait_for(communicate.save(str(path)), timeout=EDGE_TTS_ATTEMPT_TIMEOUT_SECONDS)
             if path.exists() and path.stat().st_size > 0:
                 return EdgeAudio(path=path, url=f"/api/tts/audio/{path.name}")
         except Exception as exc:  # pragma: no cover - network/service dependent
             last_error = exc
             logger.warning(
-                "Edge TTS attempt failed voice=%s rate=%s chapter_id=%s chars=%s attempt=%s/2",
+                "Edge TTS attempt failed voice=%s rate=%s chapter_id=%s chars=%s attempt=%s/%s",
                 selected_voice,
                 selected_rate,
                 chapter_id,
                 len(text),
                 attempt + 1,
+                EDGE_TTS_ATTEMPTS,
                 exc_info=True,
             )
             if path.exists():
                 path.unlink(missing_ok=True)
-            await asyncio.sleep(0.4)
+            if attempt < EDGE_TTS_ATTEMPTS - 1:
+                await asyncio.sleep(0.5 * (attempt + 1))
 
-    raise EdgeTTSUnavailableError("Khong the tao audio bang Microsoft Edge TTS.") from last_error
+    raise EdgeTTSUnavailableError(f"Microsoft Edge TTS chưa trả được âm thanh cho {selected_voice}. Vui lòng thử lại.") from last_error
 
 
 async def synthesize_chapter_playlist(

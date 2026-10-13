@@ -118,7 +118,7 @@ async def test_edge_tts_stream_retries_before_first_audio_frame(monkeypatch) -> 
     calls = 0
 
     class Communicate:
-        def __init__(self, text, voice, rate) -> None:
+        def __init__(self, text, voice, rate, boundary=None) -> None:
             pass
 
         async def stream(self):
@@ -142,7 +142,7 @@ async def test_edge_tts_stream_does_not_retry_after_audio_started(monkeypatch) -
     calls = 0
 
     class Communicate:
-        def __init__(self, text, voice, rate) -> None:
+        def __init__(self, text, voice, rate, boundary=None) -> None:
             pass
 
         async def stream(self):
@@ -240,3 +240,80 @@ def test_tts_direct_response_returns_audio_without_second_request(monkeypatch, t
         assert direct.content == b"test-audio"
         legacy = client.post("/api/tts", json={"text": "Test"})
         assert legacy.json() == {"audio_url": "/api/tts/audio/test.mp3"}
+
+
+@pytest.mark.asyncio
+async def test_stream_recovers_after_two_empty_turns_without_changing_voice(monkeypatch) -> None:
+    calls = []
+
+    class Communicate:
+        def __init__(self, text, voice, **options):
+            calls.append((voice, options["boundary"]))
+
+        async def stream(self):
+            if len(calls) < 3:
+                raise RuntimeError("NoAudioReceived")
+            yield {"type": "audio", "data": b"complete-audio"}
+
+    monkeypatch.setattr(edge_tts_service.settings, "tts_api_url", None)
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=Communicate))
+    result = [frame async for frame in edge_tts_service.stream_edge_tts("Retry", voice="vi-VN-NamMinhNeural")]
+    assert result == [b"complete-audio"]
+    assert calls == [("vi-VN-NamMinhNeural", "WordBoundary"), ("vi-VN-NamMinhNeural", "SentenceBoundary"), ("vi-VN-NamMinhNeural", "WordBoundary")]
+
+
+@pytest.mark.asyncio
+async def test_synthesis_never_exposes_partial_cache_to_another_request(monkeypatch, tmp_path) -> None:
+    import asyncio
+    from pathlib import Path
+
+    started, finish = asyncio.Event(), asyncio.Event()
+    calls = 0
+    final_path = tmp_path / edge_tts_service.audio_filename(text="Atomic audio", voice=edge_tts_service.DEFAULT_EDGE_VOICE, rate=1.0)
+
+    class Communicate:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def save(self, path):
+            nonlocal calls
+            calls += 1
+            Path(path).write_bytes(b"partial")
+            started.set()
+            await finish.wait()
+            Path(path).write_bytes(b"complete-audio")
+
+    monkeypatch.setattr(edge_tts_service.settings, "tts_api_url", None)
+    monkeypatch.setattr(edge_tts_service.settings, "audio_dir", str(tmp_path))
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=Communicate))
+    first = asyncio.create_task(edge_tts_service.synthesize_edge_tts("Atomic audio"))
+    await started.wait()
+    assert not final_path.exists()
+    second = asyncio.create_task(edge_tts_service.synthesize_edge_tts("Atomic audio"))
+    await asyncio.sleep(0)
+    assert not second.done()
+    finish.set()
+    results = await asyncio.gather(first, second)
+    assert all(result.path.read_bytes() == b"complete-audio" for result in results)
+    assert calls == 1
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.asyncio
+async def test_failed_synthesis_removes_partial_file_and_reports_voice(monkeypatch, tmp_path) -> None:
+    from pathlib import Path
+
+    class Communicate:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def save(self, path):
+            Path(path).write_bytes(b"incomplete")
+            raise RuntimeError("NoAudioReceived")
+
+    monkeypatch.setattr(edge_tts_service.settings, "tts_api_url", None)
+    monkeypatch.setattr(edge_tts_service.settings, "audio_dir", str(tmp_path))
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=Communicate))
+    with pytest.raises(edge_tts_service.EdgeTTSUnavailableError, match="vi-VN-HoaiMyNeural"):
+        await edge_tts_service.synthesize_edge_tts("Fail", voice="vi-VN-HoaiMyNeural")
+    assert not list(tmp_path.iterdir())

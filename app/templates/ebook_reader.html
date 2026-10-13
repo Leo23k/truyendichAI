@@ -227,6 +227,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
   const totalDuration = () => segments.reduce((sum, segment) => sum + segment.duration, 0);
   const elapsedBefore = index => segments.slice(0, index).reduce((sum, segment) => sum + segment.duration, 0);
   const updateTimeline = () => {
+    if (selectedMode === 'server' && player.dataset.state === 'loading') return;
     const duration = totalDuration();
     const estimatedDuration = segments[segmentIndex]?.duration || 0;
     const segmentTime = selectedMode === 'device'
@@ -246,22 +247,37 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
     const rect = node.getBoundingClientRect();
     if (followText?.checked && Date.now() >= followPausedUntil && (rect.top < innerHeight * .18 || rect.bottom > innerHeight * .82)) node.scrollIntoView({behavior:'smooth', block:'center'});
   };
+  const prepareSegment = segment => {
+    const key = `${selectedVoice}@${rate}`;
+    if (segment.url && segment.voiceKey === key) return Promise.resolve(segment.url);
+    if (segment.request?.key === key) return segment.request.promise;
+    const request = {key, promise:null};
+    request.promise = fetch('/api/tts?direct_audio=true', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:segment.text, voice:selectedVoice, rate})})
+      .then(async response => {
+        if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/')) {
+          const result = await response.json().catch(() => ({}));
+          throw new Error(result.detail || `Không tải được audio (HTTP ${response.status}). Vui lòng thử lại.`);
+        }
+        return response.blob();
+      })
+      .then(blob => {
+        if (!blob.size) throw new Error('Giọng đọc chưa trả được âm thanh. Vui lòng thử lại.');
+        if (key !== `${selectedVoice}@${rate}`) throw Object.assign(new Error('Voice changed'), {name:'AbortError'});
+        segment.url = URL.createObjectURL(blob); segment.voiceKey = key;
+        return segment.url;
+      })
+      .finally(() => { if (segment.request === request) segment.request = null; });
+    segment.request = request;
+    return request.promise;
+  };
   const fetchSegment = async (index, autoplay, resumeAt = 0) => {
     const segment = segments[index]; if (!segment) return;
     segmentIndex = index; const token = ++loadingToken;
-    wantToPlay = Boolean(autoplay); setPlayerState('loading'); markSegment(index);
+    wantToPlay = Boolean(autoplay); audio.pause(); setPlayerState('loading');
+    const oldStatus = document.querySelector('[data-online-tts-status]');
+    if (oldStatus) oldStatus.textContent = '';
     try {
-      if (!segment.url) {
-        const response = await fetch('/api/tts?direct_audio=true', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:segment.text, voice:selectedVoice, rate})});
-        if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/')) {
-          const result = await response.json().catch(() => ({}));
-          throw new Error(result.detail || 'TTS hiện không khả dụng.');
-        }
-        const blob = await response.blob();
-        if (!blob.size) throw new Error('TTS không trả về âm thanh.');
-        if (token !== loadingToken) return;
-        segment.url = URL.createObjectURL(blob);
-      }
+      await prepareSegment(segment);
       if (token !== loadingToken) return;
       audio.pause();
       const metadataReady = new Promise(resolve => { audio.addEventListener('loadedmetadata', resolve, {once:true}); audio.addEventListener('error', resolve, {once:true}); });
@@ -278,7 +294,16 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
         if (token === loadingToken) setPlayerState('playing');
       } else setPlayerState('paused');
       updateTimeline();
-    } catch (error) { if (token === loadingToken) { wantToPlay = false; setPlayerState('error'); playerStatus.title = error.message || ''; } }
+    } catch (error) {
+      if (token !== loadingToken || error.name === 'AbortError') return;
+      wantToPlay = false; setPlayerState(error.name === 'NotAllowedError' ? 'paused' : 'error');
+      const message = error.name === 'NotAllowedError' ? 'Hãy nhấn Play để trình duyệt cho phép phát âm thanh.' : error.message || 'Giọng đọc chưa trả được âm thanh. Vui lòng thử lại.';
+      playerStatus.title = message;
+      const container = document.querySelector('[data-online-voice-options]');
+      let status = container.querySelector('[data-online-tts-status]');
+      if (!status) { status = document.createElement('p'); status.dataset.onlineTtsStatus = ''; status.className = 'text-sm text-stone-500'; status.setAttribute('role','status'); container.append(status); }
+      status.textContent = message;
+    }
   };
   const visibleSegment = () => {
     const target = innerHeight * .38;
@@ -314,9 +339,29 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
     if (!deviceProvider?.isSupported()) { deviceStatus.textContent='TTS không khả dụng trên trình duyệt này.'; setPlayerState('error'); return; }
     segmentIndex = visibleSegment(); playerStatus.dataset.deviceSpeaking='true'; speakDeviceSegment(segmentIndex);
   };
+  const updateChromeVoiceOption = (voices, onSelect) => {
+    const container = document.querySelector('[data-online-voice-options]');
+    if (!container) return;
+    let button = container.querySelector('[data-chrome-voice-option]');
+    if (!button) {
+      button = document.createElement('button'); button.type = 'button'; button.dataset.chromeVoiceOption = '';
+      button.className = 'rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50';
+      button.textContent = 'Google Tiếng Việt · Chrome'; container.append(button);
+    }
+    const voice = voices.find(item => item.lang?.toLowerCase().startsWith('vi') && /google/i.test(`${item.name} ${item.voiceURI}`));
+    button.hidden = !voice;
+    button.onclick = voice ? () => onSelect(voice) : null;
+  };
   const populateDeviceVoices = async () => {
     const voices = await deviceProvider?.getVoices() || [];
     const vietnamese = voices.filter(voice => voice.lang?.toLowerCase().startsWith('vi'));
+    updateChromeVoiceOption(vietnamese, voice => {
+      const resume = player.dataset.state === 'playing' || player.dataset.state === 'loading';
+      selectedDeviceVoice = voice.voiceURI; storage.set('deviceVoice',selectedDeviceVoice); deviceVoiceSelect.value = selectedDeviceVoice;
+      ttsModeSelect.value = 'device'; ttsModeSelect.dispatchEvent(new Event('change'));
+      if (resume) playCurrent();
+      closeSheet();
+    });
     deviceVoiceSelect.replaceChildren(...vietnamese.map(voice => {const option=document.createElement('option');option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang} · ${voice.localService?'Local':'Network/không rõ'}`;return option;}));
     if (!vietnamese.length) { deviceVoiceSelect.disabled=true; deviceStatus.textContent='Không tìm thấy giọng đọc tiếng Việt trên thiết bị. Hãy chuyển sang Online TTS.'; return; }
     selectedDeviceVoice = vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice)?selectedDeviceVoice:vietnamese[0].voiceURI;
@@ -339,16 +384,21 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
   syncVoiceOptions();
   pitchControl.value=String(pitch);
   populateDeviceVoices();
-  ttsModeSelect.addEventListener('change',()=>{wantToPlay=false;manager.setMode(ttsModeSelect.value);selectedMode=manager.mode;storage.set('ttsMode',selectedMode);playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';setPlayerState('paused');syncVoiceOptions();if(selectedMode==='device')populateDeviceVoices();});
+  window.speechSynthesis?.addEventListener('voiceschanged', populateDeviceVoices);
+  ttsModeSelect.addEventListener('change',()=>{wantToPlay=false;loadingToken++;manager.setMode(ttsModeSelect.value);selectedMode=manager.mode;storage.set('ttsMode',selectedMode);playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';setPlayerState('idle');syncVoiceOptions();if(selectedMode==='device')populateDeviceVoices();});
   window.addEventListener('offline',()=>{if(manager.mode!=='device'){ttsModeSelect.value='device';ttsModeSelect.dispatchEvent(new Event('change'));}});
   deviceVoiceSelect.addEventListener('change',()=>{selectedDeviceVoice=deviceVoiceSelect.value;storage.set('deviceVoice',selectedDeviceVoice);if(playerStatus.dataset.deviceSpeaking==='true'){manager.stop();playerStatus.dataset.deviceSpeaking='false';speakDeviceSegment(segmentIndex);}});
   pitchControl.addEventListener('input',()=>{pitch=Number(pitchControl.value);storage.set('pitch',String(pitch));if(manager.mode==='device'&&playerStatus.dataset.deviceSpeaking==='true'){manager.stop();playerStatus.dataset.deviceSpeaking='false';speakDeviceSegment(segmentIndex);}});
-  audio.addEventListener('timeupdate', updateTimeline);
-  audio.addEventListener('loadedmetadata', updateTimeline);
-  audio.addEventListener('playing', () => { wantToPlay = true; setPlayerState('playing'); markSegment(segmentIndex); });
-  audio.addEventListener('error', () => { if (segments.length) setPlayerState('error'); });
-  audio.addEventListener('pause', () => { if (!wantToPlay) setPlayerState('paused'); });
-  audio.addEventListener('ended', () => { if (sleepMode === 'chapter' || segmentIndex >= segments.length - 1) { wantToPlay = false; setPlayerState('ended'); return; } fetchSegment(segmentIndex + 1, true); });
+  audio.addEventListener('timeupdate', () => { if (selectedMode === 'server') updateTimeline(); });
+  audio.addEventListener('loadedmetadata', () => { if (selectedMode === 'server') updateTimeline(); });
+  audio.addEventListener('playing', () => {
+    if (selectedMode !== 'server' || !wantToPlay) return;
+    setPlayerState('playing'); markSegment(segmentIndex);
+    if (segments[segmentIndex + 1]) prepareSegment(segments[segmentIndex + 1]).catch(error => console.warn('TTS preload failed', error));
+  });
+  audio.addEventListener('error', () => { if (selectedMode === 'server' && wantToPlay && segments.length) setPlayerState('error'); });
+  audio.addEventListener('pause', () => { if (selectedMode === 'server' && !wantToPlay && player.dataset.state !== 'loading') setPlayerState('paused'); });
+  audio.addEventListener('ended', () => { if (selectedMode !== 'server' || !wantToPlay) return; if (sleepMode === 'chapter' || segmentIndex >= segments.length - 1) { wantToPlay = false; setPlayerState('ended'); return; } fetchSegment(segmentIndex + 1, true); });
   playButton.addEventListener('click', playCurrent);
   previousButton.addEventListener('click', () => { if (manager.mode==='device') { wantToPlay=false;manager.stop();playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';speakDeviceSegment(Math.max(0,segmentIndex-1));return; } if (audio.currentTime > 3) { audio.currentTime = 0; return; } fetchSegment(Math.max(0, segmentIndex - 1), !audio.paused); });
   nextButton.addEventListener('click', () => { if(manager.mode==='device'){wantToPlay=false;manager.stop();playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';speakDeviceSegment(Math.min(segments.length-1,segmentIndex+1));return;} fetchSegment(Math.min(segments.length - 1, segmentIndex + 1), !audio.paused); });
@@ -365,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
       target -= segments[index].duration;
     }
   });
-  const reloadVoice = async () => { const index = segmentIndex; const offset = audio.currentTime || 0; const autoplay = !audio.paused; segments.forEach(segment => { if(segment.url?.startsWith('blob:'))URL.revokeObjectURL(segment.url); segment.url = null; segment.duration = Math.max(1, segment.text.length / (14 * rate)); }); audio.pause(); audio.removeAttribute('src'); if (segments[index]) await fetchSegment(index, autoplay, offset); };
+  const reloadVoice = async () => { const index = segmentIndex; const offset = window.NovelTTSTimeline.mediaTimeToTimelineTime(audio.currentTime, audio.duration, segments[index]?.duration); const autoplay = !audio.paused; loadingToken++; segments.forEach(segment => { if(segment.url?.startsWith('blob:'))URL.revokeObjectURL(segment.url); segment.url = null; segment.duration = Math.max(1, segment.text.length / (14 * rate)); }); audio.pause(); audio.removeAttribute('src'); if (segments[index] && autoplay) await fetchSegment(index, true, offset); else { setPlayerState('idle'); updateTimeline(); } };
   rateControl.addEventListener('input', () => { rate = Number(rateControl.value); storage.set('rate', String(rate)); rateStatus.textContent = `${rate.toFixed(1)}x`; if(manager.mode==='device'){const resume=playerStatus.dataset.deviceSpeaking==='true';manager.stop();playerStatus.dataset.deviceSpeaking='false';playerStatus.dataset.devicePaused='false';segments.forEach(segment=>segment.duration=Math.max(1,segment.text.length/(14*rate)));if(resume)speakDeviceSegment(segmentIndex);else updateTimeline();}else reloadVoice(); });
   volumeControl.addEventListener('input', () => { volume = Number(volumeControl.value); audio.volume = volume; storage.set('volume', String(volume)); });
   followText?.addEventListener('change', () => storage.set('followText', String(followText.checked)));

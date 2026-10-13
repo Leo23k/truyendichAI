@@ -250,6 +250,7 @@
             <label class="block text-sm">Cao độ <input data-pitch-control class="mt-2 w-full accent-teal-600" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
           </div>
           <div data-online-voice-options class="grid gap-2">
+            <p data-online-tts-status class="text-sm text-stone-500" role="status" aria-live="polite" hidden></p>
             <p class="text-sm">Giọng đọc</p>
             <button type="button" data-voice-option="vi-VN-NamMinhNeural" aria-pressed="false" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button>
             <button type="button" data-voice-option="vi-VN-HoaiMyNeural" aria-pressed="false" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button>
@@ -560,14 +561,16 @@
       let streamingSegmentIndex = 0;
       let streamingSegmentIndexKnown = false;
       let streamingTextOffset = 0;
+      let streamRecovery = null;
       let priorityRequested = false;
       const voiceSessions = new Map();
       const segmentRequests = new Map();
-      const PRELOAD_AHEAD = 3;
+      const PRELOAD_AHEAD = 1;
       let playerState = "idle";
       let wantToPlay = false;
       let playRequestedAt = 0;
       let deviceElapsed = 0, deviceStartedAt = 0;
+      let devicePaused = false;
       const followText = document.querySelector("[data-follow-text]");
       const highlightText = document.querySelector("[data-highlight-text]");
       let followPausedUntil = 0;
@@ -576,8 +579,11 @@
       if (followText) followText.checked = storage.getItem("reader.followText") !== "false";
       if (highlightText) highlightText.checked = storage.getItem("reader.highlightText") !== "false";
       const highlightSegment = (index) => {
-        document.querySelectorAll("[data-tts-index].reader-tts-active").forEach((item) => item.classList.remove("reader-tts-active"));
-        const target = document.querySelector(`[data-tts-index="${index}"]`);
+        document.querySelectorAll(".reader-tts-active").forEach((item) => item.classList.remove("reader-tts-active"));
+        if (!Number.isInteger(index)) return;
+        const target = [...document.querySelectorAll("[data-tts-start]")].find(node =>
+          index >= Number(node.dataset.ttsStart) && index <= Number(node.dataset.ttsEnd)
+        );
         if (!target || !highlightText?.checked) return;
         target.classList.add("reader-tts-active");
         const rect = target.getBoundingClientRect();
@@ -607,6 +613,20 @@
         playButton.setAttribute("aria-label", state === "playing" ? "Tạm dừng đọc" : "Bắt đầu đọc");
         playButton.setAttribute("aria-pressed", String(state === "playing"));
         if (playerStatus) playerStatus.textContent = state === "loading" ? "ĐANG TẢI AUDIO" : state === "playing" ? "ĐANG PHÁT ÂM THANH" : state === "error" ? "LỖI TTS · MỞ GIỌNG ĐỌC ĐỂ KIỂM TRA" : state === "ended" ? "ĐÃ ĐỌC XONG" : "SẴN SÀNG";
+      };
+
+      const reportTtsError = (error) => {
+        if (error?.name === "AbortError") return;
+        wantToPlay = false;
+        const message = error?.name === "NotAllowedError"
+          ? "Trình duyệt chưa cho phép phát âm thanh. Hãy nhấn Play để nghe."
+          : error?.message || "Giọng đọc hiện chưa trả được âm thanh. Vui lòng thử lại.";
+        if (deviceStatus) deviceStatus.textContent = message;
+        const onlineStatus = document.querySelector("[data-online-tts-status]");
+        if (onlineStatus) { onlineStatus.textContent = message; onlineStatus.hidden = false; }
+        if (playerStatus) playerStatus.title = message;
+        console.warn("Reader TTS playback failed", error);
+        setPlayerState(error?.name === "NotAllowedError" ? "paused" : "error");
       };
 
       const buildManifestUrl = () => {
@@ -653,7 +673,8 @@
         let offset = 0;
         readerContent.querySelectorAll("p").forEach((paragraph) => {
           const text = paragraph.textContent.trim().replace(/\s+/g, " ");
-          paragraph.dataset.ttsIndex = String(findSegmentForTextOffset(offset + text.length / 2));
+          paragraph.dataset.ttsStart = String(findSegmentForTextOffset(offset));
+          paragraph.dataset.ttsEnd = String(findSegmentForTextOffset(offset + Math.max(0, text.length - 1)));
           offset += text.length + 2;
         });
       };
@@ -718,22 +739,34 @@
         const segment = playlist[index];
         if (!segment) return Promise.reject(new Error("TTS segment missing"));
         if (segment.objectUrl) return Promise.resolve(segment);
-        if (segmentRequests.has(index)) return segmentRequests.get(index);
+        const key = segment.url;
+        if (segmentRequests.has(key)) return segmentRequests.get(key);
         segment.status = "loading";
         const request = fetch(segment.url)
-          .then((response) => { if (!response.ok || !response.headers.get("content-type")?.startsWith("audio/")) throw new Error(`TTS segment ${response.status}: không nhận được audio`); return response.blob(); })
+          .then(async (response) => {
+            if (!response.ok || !response.headers.get("content-type")?.startsWith("audio/")) {
+              const body = await response.json().catch(() => ({}));
+              const message = response.status === 401 || response.status === 403
+                ? "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại để nghe."
+                : body.detail || `Không tải được audio (HTTP ${response.status}). Vui lòng thử lại.`;
+              throw new Error(message);
+            }
+            return response.blob();
+          })
           .then((blob) => {
+            if (!blob.size) throw new Error("Giọng đọc chưa trả được âm thanh. Vui lòng thử lại.");
             segment.objectUrl = URL.createObjectURL(blob);
             segment.status = "ready";
             return segment;
           })
           .catch((error) => { segment.status = "error"; throw error; })
-          .finally(() => segmentRequests.delete(index));
-        segmentRequests.set(index, request);
+          .finally(() => segmentRequests.delete(key));
+        segmentRequests.set(key, request);
         return request;
       };
 
       const preloadAhead = () => {
+        if (selectedTtsMode !== "server" || playerState !== "playing") return;
         for (let index = currentSegmentIndex + 1; index <= currentSegmentIndex + PRELOAD_AHEAD && index < playlist.length; index += 1) {
           ensureSegment(index).catch((error) => console.warn("TTS preload failed", index, error));
         }
@@ -762,7 +795,9 @@
           updateProgress();
           updateSegmentButtons();
           preloadAhead();
-          if (autoplay && wantToPlay) audio.play().catch(() => setPlayerState("error"));
+          if (autoplay && wantToPlay) audio.play().catch(error => {
+            if (loadToken === audioLoadToken && selectedTtsMode === "server" && wantToPlay) reportTtsError(error);
+          });
         };
         audio.load();
       };
@@ -782,7 +817,7 @@
         if (autoplay) setPlayerState("loading");
         ensureSegment(index)
           .then(() => { if (requestToken === segmentRequestToken) setAudioSegment(index, offset, autoplay && wantToPlay, resetRetry); })
-          .catch(() => setPlayerState("error"));
+          .catch((error) => { if (requestToken === segmentRequestToken && wantToPlay) reportTtsError(error); });
       };
 
       const loadPlaylist = (resumeAt = 0, autoplay = false, selectSegment = true) => {
@@ -841,9 +876,31 @@
             if (loadToken !== playlistLoadToken) return;
             playlistReady = false;
             console.warn("Không thể tải audio TTS", error);
-            if (!streamingFirstSegment) setPlayerState("error");
+            if (!streamingFirstSegment && wantToPlay) reportTtsError(error);
           });
         return playlistLoading;
+      };
+
+      const recoverStream = (index, textOffset, requestToken) => {
+        if (streamRecovery?.token === requestToken) return streamRecovery.promise;
+        const recovery = { token: requestToken, promise: null };
+        streamingFirstSegment = false;
+        recovery.promise = (playlistLoading || loadPlaylist(0, false, false))
+          .then(() => {
+            if (requestToken !== segmentRequestToken || !wantToPlay) return;
+            if (!playlistReady) throw new Error("Không tải được danh sách audio. Vui lòng thử lại.");
+            const fallbackIndex = index === null ? findSegmentForTextOffset(textOffset) : index;
+            streamingSegmentIndex = fallbackIndex;
+            streamingSegmentIndexKnown = true;
+            currentSegmentIndex = fallbackIndex;
+            return ensureSegment(fallbackIndex).then(() => {
+              if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(fallbackIndex, 0, true);
+            });
+          })
+          .catch((error) => { if (requestToken === segmentRequestToken && wantToPlay) reportTtsError(error); })
+          .finally(() => { if (streamRecovery === recovery) streamRecovery = null; });
+        streamRecovery = recovery;
+        return recovery.promise;
       };
 
       const playFirstSegmentFromStream = (index = null, textOffset = 0, requestToken = segmentRequestToken) => {
@@ -856,35 +913,30 @@
         if (streamingSegmentIndexKnown) streamingSegmentIndex = index;
         currentSegmentIndex = streamingSegmentIndex;
         audio.pause();
+        audio.onloadedmetadata = null;
         audio.dataset.ttsIndex = String(streamingSegmentIndex);
         audio.src = buildStreamUrl(index, textOffset);
         audio.playbackRate = 1;
         audio.load();
-        audio.play()
+        return audio.play()
           .then(() => {
             if (requestToken === segmentRequestToken && wantToPlay) setPlayerState("playing");
-            else audio.pause();
+            else if (requestToken === segmentRequestToken) audio.pause();
           })
-          .catch(() => {
+          .catch((error) => {
             if (requestToken !== segmentRequestToken || !wantToPlay) return;
-            streamingFirstSegment = false;
-            (playlistLoading || loadPlaylist(0, false, false))
-              .then(() => {
-                const fallbackIndex = index === null ? findSegmentForTextOffset(textOffset) : index;
-                streamingSegmentIndex = fallbackIndex;
-                streamingSegmentIndexKnown = true;
-                currentSegmentIndex = fallbackIndex;
-                return ensureSegment(fallbackIndex);
-              })
-              .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(currentSegmentIndex, 0, true); })
-              .catch(() => setPlayerState("error"));
+            if (error.name === "AbortError") return;
+            if (error.name === "NotAllowedError") { reportTtsError(error); return; }
+            recoverStream(index, textOffset, requestToken);
           });
       };
 
       const playServerCurrent = () => {
         const requestToken = ++segmentRequestToken;
         wantToPlay = true;
-        if (playlistReady && audio.src && playerState === "paused") return audio.play().catch(() => setPlayerState("error"));
+        const onlineStatus = document.querySelector("[data-online-tts-status]");
+        if (onlineStatus) onlineStatus.hidden = true;
+        if (playlistReady && audio.src && playerState === "paused" && !audio.error) return audio.play().catch(reportTtsError);
         setPlayerState("loading");
         if (playlistReady && playlist.length) {
           mapParagraphsToSegments();
@@ -893,13 +945,17 @@
         }
         if (!playlistReady || !playlist[currentSegmentIndex]?.objectUrl) {
           playFirstSegmentFromStream(playlistReady ? currentSegmentIndex : null, visibleTextOffset(), requestToken);
-          (playlistLoading || loadPlaylist(0, false, false)).catch(() => setPlayerState("error"));
+          (playlistLoading || loadPlaylist(0, false, false)).catch(error => {
+            if (requestToken === segmentRequestToken && wantToPlay) reportTtsError(error);
+          });
           return;
         }
+        const targetIndex = currentSegmentIndex;
+        const targetOffset = pendingSegmentOffset;
         (playlistReady ? Promise.resolve() : loadPlaylist(0, false, false))
-          .then(() => ensureSegment(currentSegmentIndex))
-          .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(currentSegmentIndex, pendingSegmentOffset || audio.currentTime || 0, true); else if (!wantToPlay) setPlayerState("paused"); })
-          .catch((error) => { console.warn("Không thể tải audio TTS", error); setPlayerState("error"); });
+          .then(() => ensureSegment(targetIndex))
+          .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(targetIndex, targetOffset, true); else if (requestToken === segmentRequestToken && !wantToPlay) setPlayerState("paused"); })
+          .catch((error) => { if (requestToken === segmentRequestToken && wantToPlay) reportTtsError(error); });
       };
 
       let browserChunks = [], browserChunkIndex = 0;
@@ -918,8 +974,9 @@
         });
       };
       const speakBrowserChunk = (index) => {
-        if(index>=browserChunks.length){wantToPlay=false;setPlayerState("ended");return;}
+        if(index>=browserChunks.length){wantToPlay=false;setPlayerState("ended");finishChapter();return;}
         browserChunkIndex=index;const chunk=browserChunks[index];
+        devicePaused=false;
         deviceElapsed=0;deviceStartedAt=performance.now();
         document.querySelectorAll(".reader-tts-active").forEach(node=>node.classList.remove("reader-tts-active"));
         if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");
@@ -963,7 +1020,7 @@
       const playCurrent = () => {
         if(ttsManager?.mode!=="device")return ttsManager?.speak();
         if(playerState==="playing"||playerState==="loading"){wantToPlay=false;ttsManager.pause();setPlayerState("paused");return;}
-        if(playerState==="paused"){wantToPlay=true;ttsManager.resume();setPlayerState("playing");return;}
+        if(playerState==="paused"&&devicePaused){devicePaused=false;wantToPlay=true;ttsManager.resume();setPlayerState("playing");return;}
         if(!deviceProvider?.isSupported()){setPlayerState("error");if(deviceStatus)deviceStatus.textContent="TTS không khả dụng trên trình duyệt này.";return;}
         browserQueue();if(!browserChunks.length){setPlayerState("error");if(deviceStatus)deviceStatus.textContent="Không có nội dung để đọc.";return;}
         wantToPlay=true;const saved=Number(storage.getItem(`reader.device.position.${readerChapterKey}`)||0);
@@ -971,18 +1028,43 @@
         const visibleIndex=Math.max(0,browserChunks.findIndex(item=>item.node===visible));
         speakBrowserChunk(Math.min(Math.max(saved,visibleIndex),browserChunks.length-1));
       };
+      const updateChromeVoiceOption = (voices, onSelect) => {
+        const container = document.querySelector("[data-online-voice-options]");
+        if (!container) return;
+        let button = container.querySelector("[data-chrome-voice-option]");
+        if (!button) {
+          button = document.createElement("button"); button.type = "button";
+          button.dataset.chromeVoiceOption = "";
+          button.className = "rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50";
+          button.textContent = "Google Tiếng Việt · Chrome";
+          container.append(button);
+        }
+        const voice = voices.find(item => item.lang?.toLowerCase().startsWith("vi") && /google/i.test(`${item.name} ${item.voiceURI}`));
+        button.hidden = !voice;
+        button.onclick = voice ? () => onSelect(voice) : null;
+      };
       const populateDeviceVoices = async () => {
         const voices=await deviceProvider?.getVoices()||[], vietnamese=voices.filter(voice=>voice.lang?.toLowerCase().startsWith("vi"));
+        updateChromeVoiceOption(vietnamese, voice => {
+          const resume = playerState === "playing" || playerState === "loading";
+          selectedDeviceVoice = voice.voiceURI;
+          storage.setItem("reader.deviceVoice", selectedDeviceVoice);
+          if (deviceVoiceSelect) deviceVoiceSelect.value = selectedDeviceVoice;
+          ttsModeSelect.value = "device"; ttsModeSelect.dispatchEvent(new Event("change"));
+          if (resume) playCurrent();
+          closeSheet();
+        });
         deviceVoiceSelect?.replaceChildren(...vietnamese.map(voice=>{const option=document.createElement("option");option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang} · ${voice.localService?"Local":"Network/không rõ"}`;return option;}));
         if(!vietnamese.length){if(deviceVoiceSelect)deviceVoiceSelect.disabled=true;if(deviceStatus)deviceStatus.textContent="Không tìm thấy giọng đọc tiếng Việt trên thiết bị. Hãy chuyển sang Online TTS.";return;}
         if(!vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice))selectedDeviceVoice=vietnamese[0].voiceURI;
         if(deviceVoiceSelect){deviceVoiceSelect.value=selectedDeviceVoice;deviceVoiceSelect.disabled=false;}
         if(deviceStatus)deviceStatus.textContent="Voice phụ thuộc browser/OS; chỉ Local được xác nhận là chạy cục bộ.";
       };
-      if(ttsModeSelect){ttsModeSelect.value=ttsManager?.mode||"server";syncVoiceOptions();ttsModeSelect.addEventListener("change",()=>{wantToPlay=false;ttsManager.setMode(ttsModeSelect.value);selectedTtsMode=ttsManager.mode;storage.setItem("reader.ttsMode",selectedTtsMode);setPlayerState("paused");syncVoiceOptions();if(selectedTtsMode==="device")populateDeviceVoices();else if(hasAudio)reloadAudio(Number(storage.getItem(`reader.position.${readerChapterKey}`)||0),false);});}
+      if(ttsModeSelect){ttsModeSelect.value=ttsManager?.mode||"server";syncVoiceOptions();ttsModeSelect.addEventListener("change",()=>{wantToPlay=false;devicePaused=false;segmentRequestToken++;audioLoadToken++;streamRecovery=null;streamingFirstSegment=false;ttsManager.setMode(ttsModeSelect.value);selectedTtsMode=ttsManager.mode;storage.setItem("reader.ttsMode",selectedTtsMode);setPlayerState("idle");syncVoiceOptions();if(selectedTtsMode==="device")populateDeviceVoices();else if(hasAudio)reloadAudio(Number(storage.getItem(`reader.position.${readerChapterKey}`)||0),false);});}
       if(pitchControl){pitchControl.value=String(devicePitch);pitchControl.addEventListener("input",()=>{devicePitch=Number(pitchControl.value);storage.setItem("reader.pitch",String(devicePitch));if(ttsManager.mode==="device"&&playerState==="playing"){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}});}
       deviceVoiceSelect?.addEventListener("change",()=>{selectedDeviceVoice=deviceVoiceSelect.value;storage.setItem("reader.deviceVoice",selectedDeviceVoice);if(ttsManager.mode==="device"&&playerState==="playing"){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}});
-      if(selectedTtsMode==="device")populateDeviceVoices();
+      populateDeviceVoices();
+      window.speechSynthesis?.addEventListener("voiceschanged", populateDeviceVoices);
       window.addEventListener("offline",()=>{if(ttsManager.mode!=="device"){ttsModeSelect.value="device";ttsModeSelect.dispatchEvent(new Event("change"));}});
       window.addEventListener("pagehide",()=>ttsManager?.stop(),{once:true});
 
@@ -1289,11 +1371,14 @@
         if (!hasAudio) return;
         segmentRequestToken += 1;
         audioLoadToken += 1;
+        streamingFirstSegment = false;
+        streamRecovery = null;
+        audioRetryUsed = false;
         wantToPlay = autoplay;
         audio.pause();
         audio.removeAttribute("src");
         audio.load();
-        loadPlaylist(resumeAt, autoplay);
+        loadPlaylist(resumeAt, autoplay, autoplay);
       };
 
       if (!hasAudio) {
@@ -1310,17 +1395,20 @@
         volumeControl.value = String(audio.volume);
 
         audio.addEventListener("loadedmetadata", () => {
+          if (selectedTtsMode !== "server") return;
           updateProgress();
           preloadAhead();
         });
 
         audio.addEventListener("timeupdate", () => {
+          if (selectedTtsMode !== "server") return;
           updateProgress();
           updateSegmentButtons();
           scheduleSave();
         });
 
         audio.addEventListener("play", () => {
+          if (selectedTtsMode !== "server" || !wantToPlay) return;
           setPlayerState("playing");
           if (!priorityRequested) {
             priorityRequested = true;
@@ -1329,25 +1417,32 @@
           }
         });
         audio.addEventListener("playing", () => {
+          if (selectedTtsMode !== "server" || !wantToPlay) return;
+          setPlayerState("playing");
           const index = Number(audio.dataset.ttsIndex);
           if (!Number.isInteger(index)) return;
           currentPlayingChunkIndex = index;
           highlightSegment(currentPlayingChunkIndex);
+          preloadAhead();
           if (playRequestedAt) {
             console.debug(`[TTS] click-to-playing ${Math.round(performance.now() - playRequestedAt)} ms; segment=${index}`);
             playRequestedAt = 0;
           }
         });
         audio.addEventListener("pause", () => {
+          if (selectedTtsMode !== "server") return;
           if (playerState !== "loading") setPlayerState("paused");
           saveState();
         });
 
         audio.addEventListener("ended", () => {
+          if (selectedTtsMode !== "server" || !wantToPlay || streamRecovery) return;
           if (streamingFirstSegment) {
             setPlayerState("loading");
+            let endToken = segmentRequestToken;
             (playlistLoading || loadPlaylist(0, false, false))
               .then(() => {
+                if (endToken !== segmentRequestToken || !wantToPlay || selectedTtsMode !== "server") return;
                 const streamedIndex = streamingSegmentIndexKnown
                   ? streamingSegmentIndex
                   : findSegmentForTextOffset(streamingTextOffset);
@@ -1356,8 +1451,7 @@
                 // A failed manifest used to look like an empty one here and
                 // incorrectly advance to the next chapter after the stream.
                 if (!playlistReady || !playlist.length) {
-                  wantToPlay = false;
-                  setPlayerState("error");
+                  reportTtsError(new Error("Không tải được danh sách audio. Vui lòng thử lại."));
                   return;
                 }
                 if (streamedIndex >= playlist.length - 1) {
@@ -1368,11 +1462,12 @@
                 }
                 currentSegmentIndex = streamedIndex + 1;
                 const requestToken = ++segmentRequestToken;
+                endToken = requestToken;
                 return ensureSegment(currentSegmentIndex).then(() => {
                   if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(streamedIndex + 1, 0, true);
                 });
               })
-              .catch(() => setPlayerState("error"));
+              .catch(error => { if (endToken === segmentRequestToken && wantToPlay) reportTtsError(error); });
             return;
           }
           if (!playlistReady) {
@@ -1382,9 +1477,10 @@
           if (currentSegmentIndex < playlist.length - 1) {
             setPlayerState("loading");
             const requestToken = ++segmentRequestToken;
-            ensureSegment(currentSegmentIndex + 1)
-              .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(currentSegmentIndex + 1, 0, true); })
-              .catch(() => setPlayerState("error"));
+            const nextIndex = currentSegmentIndex + 1;
+            ensureSegment(nextIndex)
+              .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(nextIndex, 0, true); })
+              .catch((error) => { if (requestToken === segmentRequestToken && wantToPlay) reportTtsError(error); });
           } else {
             wantToPlay = false;
             setPlayerState("ended");
@@ -1393,6 +1489,7 @@
         });
 
         audio.addEventListener("error", () => {
+          if (selectedTtsMode !== "server" || !audio.getAttribute("src") || !wantToPlay || streamRecovery) return;
           const savedPosition = Number(storage.getItem(`reader.position.${readerChapterKey}`) || 0);
           const resumeAt = streamingFirstSegment && playlistReady
             ? (segmentStarts[streamingSegmentIndex] || 0) + (audio.currentTime || 0)
@@ -1401,12 +1498,7 @@
             const failedIndex = streamingSegmentIndexKnown
               ? streamingSegmentIndex
               : findSegmentForTextOffset(streamingTextOffset);
-            streamingFirstSegment = false;
-            streamingSegmentIndexKnown = true;
-            (playlistLoading || loadPlaylist(0, false, false)).then(() => {
-              if (playlistReady) seekTo(segmentStarts[failedIndex] || 0, true);
-              else setPlayerState("error");
-            });
+            recoverStream(failedIndex, streamingTextOffset, segmentRequestToken);
             return;
           }
           if (!audioRetryUsed) {
@@ -1414,8 +1506,9 @@
             seekTo(resumeAt, true, false);
             return;
           }
-          wantToPlay = false;
-          setPlayerState("error");
+          reportTtsError(new Error(audio.error?.code === 2
+            ? "Mất kết nối khi tải âm thanh. Vui lòng thử lại."
+            : "Âm thanh nhận về không phát được. Hãy thử lại hoặc chọn giọng khác."));
         });
 
         playButton.addEventListener("click", handlePlayButtonClick);
@@ -1477,7 +1570,7 @@
         showBar();
         if(ttsManager.mode==="device"){
           if(playerState==="loading"){wantToPlay=false;ttsManager.stop();setPlayerState("paused");return;}
-          if(playerState==="playing"){wantToPlay=false;ttsManager.pause();setPlayerState("paused");return;}
+          if(playerState==="playing"){wantToPlay=false;devicePaused=true;ttsManager.pause();setPlayerState("paused");return;}
           playCurrent();return;
         }
         if(!hasAudio){if(deviceStatus)deviceStatus.textContent="Chưa có audio Online cho chương này. Hãy dùng TTS Thiết bị nếu có voice tiếng Việt.";return;}
