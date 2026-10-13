@@ -114,3 +114,67 @@ def test_reader_player_buttons_work_in_browser(width, mobile, stale_bridge):
             assert not errors, diagnostics()
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("availability", ["ready", "late", "missing"])
+def test_chrome_mobile_defaults_to_available_google_online_voice(availability):
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as runtime:
+        browser = runtime.chromium.launch(channel="chrome", headless=True)
+        try:
+            context = browser.new_context(
+                viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True,
+                user_agent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
+            )
+            page = context.new_page()
+            voices = ([{"name": "Google Tiếng Việt 2 (Natural)", "lang": "vi-VN", "voiceURI": "google-vi-2-natural", "localService": False}]
+                      if availability != "missing" else [{"name": "Giọng Việt cục bộ", "lang": "vi-VN", "voiceURI": "local-vi", "localService": True}])
+            page.add_init_script(f"""
+                window.__voicesReady = {str(availability != "late").lower()};
+                const voiceListeners = [];
+                Object.defineProperty(window, 'speechSynthesis', {{configurable:true, value:{{
+                    getVoices:() => window.__voicesReady ? {json.dumps(voices, ensure_ascii=False)} : [],
+                    addEventListener(type, listener){{if(type==='voiceschanged')voiceListeners.push(listener);}},
+                    cancel(){{}}, pause(){{}}, resume(){{}},
+                    speak(utterance){{window.__spokenVoiceURI=utterance.voice?.voiceURI; setTimeout(()=>utterance.onstart?.(),0);}}
+                }}}});
+                window.SpeechSynthesisUtterance = class {{constructor(text){{this.text=text;}}}};
+                if ({str(availability == "late").lower()}) setTimeout(()=>{{window.__voicesReady=true;voiceListeners.forEach(listener=>listener());}},1100);
+            """)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            html = _page_html()
+
+            def serve(route):
+                path = urlparse(route.request.url).path
+                if path == "/chapter":
+                    return route.fulfill(body=html, content_type="text/html; charset=utf-8")
+                if path.startswith("/static/"):
+                    return route.fulfill(body=(ROOT / "app" / path.lstrip("/")).read_bytes(), content_type="application/javascript")
+                if path == "/audio/manifest":
+                    return route.fulfill(json={"segments": [], "total_duration": 0})
+                if path == "/service-worker.js":
+                    return route.fulfill(body="", content_type="application/javascript")
+                return route.fulfill(json={"items": [], "progress": 0})
+
+            page.route("http://reader.test/**", serve)
+            page.goto("http://reader.test/chapter", wait_until="domcontentloaded")
+            page.wait_for_timeout(900)
+            mode = page.locator("[data-tts-mode]").input_value()
+            if availability != "missing":
+                page.wait_for_function("document.querySelector('[data-tts-mode]').value === 'device' && document.querySelector('[data-device-voice]').value === 'google-vi-2-natural'", timeout=4000)
+                assert page.locator("[data-tts-mode]").input_value() == "device", errors
+                assert page.locator("[data-device-voice]").input_value() == "google-vi-2-natural", errors
+                page.locator("[data-reader-player] [data-mobile-player-toggle]").click()
+                page.locator("[data-reader-player] [data-play-toggle]").click()
+                page.wait_for_function("window.__spokenVoiceURI === 'google-vi-2-natural'")
+                assert page.locator("[data-reader-player]").get_attribute("data-state") == "playing", errors
+            else:
+                assert mode == "server", errors
+                assert page.evaluate('localStorage.getItem("reader.anonymous.reader.ttsMode")') is None
+                page.locator("[data-tts-mode]").select_option("device")
+                page.wait_for_timeout(200)
+                assert page.locator("[data-tts-mode]").input_value() == "device", errors
+            assert not errors
+        finally:
+            browser.close()

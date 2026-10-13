@@ -245,7 +245,7 @@
           <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
         </div>
         <div class="space-y-3 rounded-xl border border-stone-200 p-3">
-          <label class="block text-sm">Chế độ TTS<select data-tts-mode class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"><option value="server">Online (LeoTruyen)</option><option value="device">Thiết bị (Browser/OS)</option></select></label>
+          <label class="block text-sm">Chế độ TTS<select data-tts-mode class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"><option value="server">Online (LeoTruyen)</option><option value="device">Trình duyệt (Chrome Online / thiết bị)</option></select></label>
           <div data-device-voice-options class="space-y-3" hidden>
             <p data-device-tts-status class="text-sm text-stone-500" role="status" aria-live="polite"></p>
             <label class="block text-sm">Giọng đọc<select data-device-voice class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"></select></label>
@@ -518,7 +518,12 @@
       const deviceProvider = window.NovelTTS?.createDeviceProvider();
       let selectedDeviceVoice = storage.getItem("reader.deviceVoice") || "";
       let devicePitch = Number(storage.getItem("reader.pitch") || 1);
-      let selectedTtsMode = window.NovelTTS?.getInitialTtsMode?.(storage.getItem("reader.ttsMode")) || storage.getItem("reader.ttsMode") || (navigator.onLine === false ? "device" : "server");
+      const storedTtsMode = storage.getItem("reader.ttsMode");
+      const chromeMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && /Chrome\/|CriOS\//i.test(navigator.userAgent) && !/Edg|OPR|SamsungBrowser/i.test(navigator.userAgent);
+      const defaultChromeOnline = chromeMobile && navigator.onLine !== false && !storedTtsMode;
+      let selectedTtsMode = chromeMobile && navigator.onLine !== false
+        ? storedTtsMode || "device"
+        : window.NovelTTS?.getInitialTtsMode?.(storedTtsMode) || storedTtsMode || (navigator.onLine === false ? "device" : "server");
 
       let sleepMode = storage.getItem("reader.sleepMode") || "off";
       let sleepUntil = Number(storage.getItem("reader.sleepUntil") || 0);
@@ -1061,6 +1066,11 @@
         const visibleIndex=Math.max(0,browserChunks.findIndex(item=>item.node===visible));
         speakBrowserChunk(Math.min(Math.max(saved,visibleIndex),browserChunks.length-1));
       };
+      const getChromeOnlineVoice = voices => {
+        const google = voices.filter(voice => voice.lang?.toLowerCase().startsWith("vi") && voice.localService === false && /google/i.test(`${voice.name} ${voice.voiceURI}`));
+        return google.find(voice => /\b2\b/.test(`${voice.name} ${voice.voiceURI}`) && /natural/i.test(`${voice.name} ${voice.voiceURI}`))
+          || google.find(voice => /\b2\b/.test(`${voice.name} ${voice.voiceURI}`)) || google[0];
+      };
       const updateChromeVoiceOption = (voices, onSelect) => {
         const container = document.querySelector("[data-online-voice-options]");
         if (!container) return;
@@ -1069,15 +1079,20 @@
           button = document.createElement("button"); button.type = "button";
           button.dataset.chromeVoiceOption = "";
           button.className = "rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50";
-          button.textContent = "Google Tiếng Việt · Chrome";
           container.append(button);
         }
-        const voice = voices.find(item => item.lang?.toLowerCase().startsWith("vi") && /google/i.test(`${item.name} ${item.voiceURI}`));
+        const voice = navigator.onLine === false ? null : getChromeOnlineVoice(voices);
         button.hidden = !voice;
+        if (voice) button.textContent = `${voice.name} · Chrome Online`;
         button.onclick = voice ? () => onSelect(voice) : null;
       };
       const populateDeviceVoices = async () => {
         const voices=await deviceProvider?.getVoices()||[], vietnamese=voices.filter(voice=>voice.lang?.toLowerCase().startsWith("vi"));
+        const chromeVoice = navigator.onLine === false ? null : getChromeOnlineVoice(vietnamese);
+        if (defaultChromeOnline && chromeVoice && ttsManager.mode === "server" && !storage.getItem("reader.ttsMode") && !wantToPlay) {
+          ttsModeSelect.value = "device"; ttsModeSelect.dispatchEvent(new Event("change"));
+          storage.removeItem("reader.ttsMode");
+        }
         updateChromeVoiceOption(vietnamese, voice => {
           const resume = playerState === "playing" || playerState === "loading";
           selectedDeviceVoice = voice.voiceURI;
@@ -1088,8 +1103,13 @@
           closeSheet();
         });
         deviceVoiceSelect?.replaceChildren(...vietnamese.map(voice=>{const option=document.createElement("option");option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang} · ${voice.localService?"Local":"Network/không rõ"}`;return option;}));
+        if (defaultChromeOnline && !chromeVoice && ttsManager.mode === "device" && !storage.getItem("reader.ttsMode")) {
+          ttsModeSelect.value = "server"; ttsModeSelect.dispatchEvent(new Event("change"));
+          storage.removeItem("reader.ttsMode");
+          return;
+        }
         if(!vietnamese.length){if(deviceVoiceSelect)deviceVoiceSelect.disabled=true;if(deviceStatus)deviceStatus.textContent="Không tìm thấy giọng đọc tiếng Việt trên thiết bị. Hãy chuyển sang Online TTS.";return;}
-        if(!vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice))selectedDeviceVoice=window.NovelTTS?.getPreferredDeviceVoice?.(vietnamese)?.voiceURI||vietnamese[0].voiceURI;
+        if(!vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice))selectedDeviceVoice=(defaultChromeOnline ? chromeVoice : null)?.voiceURI||window.NovelTTS?.getPreferredDeviceVoice?.(vietnamese)?.voiceURI||vietnamese[0].voiceURI;
         if(deviceVoiceSelect){deviceVoiceSelect.value=selectedDeviceVoice;deviceVoiceSelect.disabled=false;}
         if(deviceStatus)deviceStatus.textContent="Voice phụ thuộc browser/OS; chỉ Local được xác nhận là chạy cục bộ.";
       };

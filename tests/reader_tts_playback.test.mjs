@@ -250,12 +250,14 @@ test('browser cancellation is ignored and autoplay denial asks for a Play tap', 
 });
 
 test('Reader and Ebook offer only the actual Vietnamese Google Chrome voice', () => {
-  for (const templateSource of [source, ebookSource]) {
+  for (const [templateSource, firstName] of [[source, 'getChromeOnlineVoice'], [ebookSource, 'updateChromeVoiceOption']]) {
     let button, selected = null;
     const container = {querySelector:()=>button, append:value=>{button=value;}};
-    const context = loadFunction('updateChromeVoiceOption','populateDeviceVoices', {
+    const context = loadFunction(firstName,'populateDeviceVoices', {
       document:{querySelector:()=>container, createElement:()=>({dataset:{}})},
+      navigator:{onLine:true},
     }, templateSource);
+    if (firstName === 'getChromeOnlineVoice') vm.runInContext('globalThis.run = updateChromeVoiceOption', context);
     context.run([{name:'Google US English',lang:'en-US',voiceURI:'google-en'}], voice=>{selected=voice;});
     assert.equal(button.hidden, true);
     const google = {name:'Google Tiếng Việt',lang:'vi-VN',voiceURI:'Google Vietnamese',localService:false};
@@ -267,6 +269,35 @@ test('Reader and Ebook offer only the actual Vietnamese Google Chrome voice', ()
     assert.equal(button.hidden, true);
     assert.equal(button.onclick, null);
   }
+});
+
+test('Reader Chrome Online prefers the available Vietnamese 2 Natural network voice', () => {
+  const context = loadFunction('getChromeOnlineVoice', 'updateChromeVoiceOption', {});
+  const voices = [
+    {name:'Google Tiếng Việt 2 (Natural)',lang:'vi-VN',voiceURI:'local-2',localService:true},
+    {name:'Google Tiếng Việt',lang:'vi-VN',voiceURI:'remote-1',localService:false},
+    {name:'Google Tiếng Việt 2',lang:'vi-VN',voiceURI:'remote-2',localService:false},
+    {name:'Google Tiếng Việt 2 (Natural)',lang:'vi-VN',voiceURI:'remote-natural',localService:false},
+  ];
+  assert.equal(context.run(voices).voiceURI, 'remote-natural');
+  assert.equal(context.run(voices.slice(0, 3)).voiceURI, 'remote-2');
+  assert.equal(context.run(voices.slice(0, 2)).voiceURI, 'remote-1');
+  assert.equal(context.run(voices.slice(0, 1)), undefined);
+});
+
+test('Reader defaults to Chrome browser TTS only on online Chrome mobile without a saved choice', () => {
+  const start = source.indexOf('const storedTtsMode =');
+  const end = source.indexOf('let sleepMode =', start);
+  assert.ok(start >= 0 && end > start);
+  const choose = (userAgent, online, saved) => {
+    const context = vm.createContext({storage:{getItem:()=>saved}, navigator:{userAgent,onLine:online}, window:{NovelTTS:{getInitialTtsMode:()=>online?'server':'device'}}});
+    vm.runInContext(`${source.slice(start, end)}; globalThis.mode = selectedTtsMode;`, context);
+    return context.mode;
+  };
+  assert.equal(choose('Android Mobile Chrome/130.0', true, null), 'device');
+  assert.equal(choose('Android Mobile Chrome/130.0', true, 'server'), 'server');
+  assert.equal(choose('Android Mobile EdgA/130.0 Chrome/130.0', true, null), 'server');
+  assert.equal(choose('Android Mobile Chrome/130.0', false, null), 'device');
 });
 
 test('browser TTS chooses Nam Minh on Edge and Google Vietnamese 2 on Chrome', () => {
