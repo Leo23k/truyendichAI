@@ -32,5 +32,80 @@
     return { current: clamp(current, total), total, value: total ? Math.round(clamp(current, total) / total * 1000) : 0 };
   };
 
-  return { calculateProgress, mediaTimeToTimelineTime, timelineTimeToMediaTime };
+  const createRequestQueue = (concurrency = 2) => {
+    const limit = Math.max(1, Math.trunc(Number(concurrency) || 2));
+    const pending = [];
+    const requests = new Map();
+    let active = 0;
+    let sequence = 0;
+
+    const orderPending = () => pending.sort((left, right) => left.priority - right.priority || left.sequence - right.sequence);
+    const pump = () => {
+      while (active < limit && pending.length) {
+        const request = pending.shift();
+        if (requests.get(request.key) !== request) continue;
+        request.pending = false;
+        active += 1;
+        const finish = () => {
+          active -= 1;
+          if (requests.get(request.key) === request) requests.delete(request.key);
+          pump();
+        };
+        Promise.resolve()
+          .then(request.task)
+          .then(value => { finish(); request.resolve(value); }, error => { finish(); request.reject(error); });
+      }
+    };
+
+    const run = (key, task, priority = 0) => {
+      const requestKey = String(key);
+      const existing = requests.get(requestKey);
+      const selectedPriority = Number.isFinite(Number(priority)) ? Number(priority) : 0;
+      if (existing) {
+        if (existing.pending && selectedPriority < existing.priority) {
+          existing.priority = selectedPriority;
+          orderPending();
+          pump();
+        }
+        return existing.promise;
+      }
+
+      let resolve;
+      let reject;
+      const promise = new Promise((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      const request = { key: requestKey, task, priority: selectedPriority, sequence: sequence++, resolve, reject, promise, pending: true };
+      requests.set(requestKey, request);
+      pending.push(request);
+      orderPending();
+      pump();
+      return promise;
+    };
+
+    const cancelPending = (matches = () => true) => {
+      let cancelled = 0;
+      for (let index = pending.length - 1; index >= 0; index -= 1) {
+        const request = pending[index];
+        if (!matches(request.key)) continue;
+        pending.splice(index, 1);
+        if (requests.get(request.key) === request) requests.delete(request.key);
+        const error = new Error("TTS request cancelled before starting.");
+        error.name = "AbortError";
+        request.reject(error);
+        cancelled += 1;
+      }
+      return cancelled;
+    };
+
+    return {
+      run,
+      cancelPending,
+      get activeCount() { return active; },
+      get pendingCount() { return pending.length; },
+    };
+  };
+
+  return { calculateProgress, createRequestQueue, mediaTimeToTimelineTime, timelineTimeToMediaTime };
 });

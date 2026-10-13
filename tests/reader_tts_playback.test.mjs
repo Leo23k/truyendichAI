@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
 
+const require = createRequire(import.meta.url);
+const { createRequestQueue } = require('../app/static/tts_timeline.js');
 const source = readFileSync(new URL('../app/templates/reader.html', import.meta.url), 'utf8');
 const ebookSource = readFileSync(new URL('../app/templates/ebook_reader.html', import.meta.url), 'utf8');
 test('both complete Reader scripts have valid JavaScript syntax', () => {
@@ -24,7 +27,7 @@ function loadFunction(name, nextName, bindings, templateSource = source) {
 function segmentContext(response) {
   let requests = 0;
   const context = loadFunction('ensureSegment', 'preloadAhead', {
-    playlist: [{url:'/audio/segment'}], segmentRequests: new Map(),
+    playlist: [{url:'/audio/segment'}], segmentRequests: new Map(), ttsRequestQueue:createRequestQueue(2),
     fetch: async () => { requests++; return response; },
     URL: {createObjectURL: () => 'blob:complete'},
   });
@@ -59,19 +62,43 @@ test('simultaneous requests for the same segment share one complete blob', async
 test('changing voice cannot reuse an in-flight segment from the previous voice', async () => {
   const pending=[];
   const context=loadFunction('ensureSegment','preloadAhead', {
-    playlist:[{url:'/audio/0?voice=nam-minh'}],segmentRequests:new Map(),
+    playlist:[{url:'/audio/0?voice=nam-minh'}],segmentRequests:new Map(),ttsRequestQueue:createRequestQueue(2),
     fetch:url=>new Promise(resolve=>pending.push({url,resolve})),
     URL:{createObjectURL:blob=>`blob:${blob.voice}`},
   });
   const first=context.run(0);
   context.playlist=[{url:'/audio/0?voice=hoai-my'}];
   const second=context.run(0);
+  await Promise.resolve();
   assert.notEqual(first,second);
   assert.equal(pending.length,2);
   for (const item of pending) item.resolve({ok:true,headers:new Map([['content-type','audio/mpeg']]),blob:async()=>({size:100,voice:item.url})});
   const [oldSegment,newSegment]=await Promise.all([first,second]);
   assert.match(oldSegment.objectUrl,/nam-minh/);
   assert.match(newSegment.objectUrl,/hoai-my/);
+});
+
+test('a retry after cancelling queued audio is not erased by the cancelled request cleanup', async () => {
+  const queue = createRequestQueue(1);
+  let releaseBlocker, fetches = 0;
+  const blocker = queue.run('blocker', () => new Promise(resolve => { releaseBlocker = resolve; }));
+  await Promise.resolve();
+  const context = loadFunction('ensureSegment', 'preloadAhead', {
+    playlist:[{url:'/audio/retry'}],segmentRequests:new Map(),ttsRequestQueue:queue,
+    fetch:async()=>{fetches++;return {ok:true,headers:new Map([['content-type','audio/mpeg']]),blob:async()=>({size:100})};},
+    URL:{createObjectURL:()=> 'blob:retry'},
+  });
+  const cancelled = context.run(0);
+  queue.cancelPending();
+  context.segmentRequests.clear();
+  const retry = context.run(0);
+  await assert.rejects(cancelled, error => error.name === 'AbortError');
+  releaseBlocker();
+  await blocker;
+  const segment = await retry;
+  assert.equal(segment.objectUrl,'blob:retry');
+  assert.equal(fetches,1);
+  assert.equal(context.segmentRequests.size,0);
 });
 
 test('media error and rejected play recover the stream only once', async () => {
@@ -215,4 +242,9 @@ test('Ebook discards a preload returned after its voice changed', async () => {
   await assert.rejects(pending,error=>error.name==='AbortError');
   assert.equal(segment.url,undefined);
   assert.equal(segment.request,null);
+});
+
+test('reader player state waits for real audio playing event', () => {
+  assert.doesNotMatch(source, /audio\.addEventListener\("play",\s*\(\)\s*=>\s*\{[^}]*setPlayerState\("playing"\)/s);
+  assert.match(source, /audio\.addEventListener\("playing",\s*\(\)\s*=>\s*\{\s*if \(selectedTtsMode !== "server" \|\| !wantToPlay\) return;\s*setPlayerState\("playing"\)/);
 });

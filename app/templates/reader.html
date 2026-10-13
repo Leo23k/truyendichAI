@@ -565,7 +565,8 @@
       let priorityRequested = false;
       const voiceSessions = new Map();
       const segmentRequests = new Map();
-      const PRELOAD_AHEAD = 1;
+      const ttsRequestQueue = window.NovelTTSTimeline.createRequestQueue(2);
+      const PRELOAD_AHEAD = 3;
       let playerState = "idle";
       let wantToPlay = false;
       let playRequestedAt = 0;
@@ -735,14 +736,18 @@
         segmentNextButton.disabled = currentSegmentIndex >= playlist.length - 1;
       };
 
-      const ensureSegment = (index) => {
+      const ensureSegment = (index, priority = 0) => {
         const segment = playlist[index];
         if (!segment) return Promise.reject(new Error("TTS segment missing"));
         if (segment.objectUrl) return Promise.resolve(segment);
         const key = segment.url;
-        if (segmentRequests.has(key)) return segmentRequests.get(key);
+        if (segmentRequests.has(key)) {
+          const pendingRequest = segmentRequests.get(key);
+          ttsRequestQueue.run(key, () => Promise.resolve(), priority);
+          return pendingRequest;
+        }
         segment.status = "loading";
-        const request = fetch(segment.url)
+        const request = ttsRequestQueue.run(key, () => fetch(segment.url)
           .then(async (response) => {
             if (!response.ok || !response.headers.get("content-type")?.startsWith("audio/")) {
               const body = await response.json().catch(() => ({}));
@@ -759,8 +764,8 @@
             segment.status = "ready";
             return segment;
           })
-          .catch((error) => { segment.status = "error"; throw error; })
-          .finally(() => segmentRequests.delete(key));
+          .catch((error) => { segment.status = error.name === "AbortError" ? "idle" : "error"; throw error; }), priority)
+          .finally(() => { if (segmentRequests.get(key) === request) segmentRequests.delete(key); });
         segmentRequests.set(key, request);
         return request;
       };
@@ -768,8 +773,13 @@
       const preloadAhead = () => {
         if (selectedTtsMode !== "server" || playerState !== "playing") return;
         for (let index = currentSegmentIndex + 1; index <= currentSegmentIndex + PRELOAD_AHEAD && index < playlist.length; index += 1) {
-          ensureSegment(index).catch((error) => console.warn("TTS preload failed", index, error));
+          ensureSegment(index, 1).catch((error) => { if (error.name !== "AbortError") console.warn("TTS preload failed", index, error); });
         }
+      };
+
+      const cancelQueuedTtsRequests = () => {
+        ttsRequestQueue.cancelPending();
+        segmentRequests.clear();
       };
 
       const setAudioSegment = (index, offset = 0, autoplay = false, resetRetry = true) => {
@@ -920,8 +930,7 @@
         audio.load();
         return audio.play()
           .then(() => {
-            if (requestToken === segmentRequestToken && wantToPlay) setPlayerState("playing");
-            else if (requestToken === segmentRequestToken) audio.pause();
+            if (requestToken === segmentRequestToken && !wantToPlay) audio.pause();
           })
           .catch((error) => {
             if (requestToken !== segmentRequestToken || !wantToPlay) return;
@@ -933,16 +942,18 @@
 
       const playServerCurrent = () => {
         const requestToken = ++segmentRequestToken;
+        const retrying = playerState === "error";
+        const retryPosition = retrying ? getCurrentPosition() : 0;
         wantToPlay = true;
         const onlineStatus = document.querySelector("[data-online-tts-status]");
         if (onlineStatus) onlineStatus.hidden = true;
         if (playlistReady && audio.src && playerState === "paused" && !audio.error) return audio.play().catch(reportTtsError);
         setPlayerState("loading");
-        if (playlistReady && playlist.length) {
+        if (playlistReady && playlist.length && !retrying) {
           mapParagraphsToSegments();
           currentSegmentIndex = findSegmentForTextOffset(visibleTextOffset());
-          pendingSegmentOffset = 0;
         }
+        if (playlistReady && playlist.length) pendingSegmentOffset = retrying ? Math.max(0, retryPosition - (segmentStarts[currentSegmentIndex] || 0)) : 0;
         if (!playlistReady || !playlist[currentSegmentIndex]?.objectUrl) {
           playFirstSegmentFromStream(playlistReady ? currentSegmentIndex : null, visibleTextOffset(), requestToken);
           (playlistLoading || loadPlaylist(0, false, false)).catch(error => {
@@ -1060,7 +1071,7 @@
         if(deviceVoiceSelect){deviceVoiceSelect.value=selectedDeviceVoice;deviceVoiceSelect.disabled=false;}
         if(deviceStatus)deviceStatus.textContent="Voice phụ thuộc browser/OS; chỉ Local được xác nhận là chạy cục bộ.";
       };
-      if(ttsModeSelect){ttsModeSelect.value=ttsManager?.mode||"server";syncVoiceOptions();ttsModeSelect.addEventListener("change",()=>{wantToPlay=false;devicePaused=false;segmentRequestToken++;audioLoadToken++;streamRecovery=null;streamingFirstSegment=false;ttsManager.setMode(ttsModeSelect.value);selectedTtsMode=ttsManager.mode;storage.setItem("reader.ttsMode",selectedTtsMode);setPlayerState("idle");syncVoiceOptions();if(selectedTtsMode==="device")populateDeviceVoices();else if(hasAudio)reloadAudio(Number(storage.getItem(`reader.position.${readerChapterKey}`)||0),false);});}
+      if(ttsModeSelect){ttsModeSelect.value=ttsManager?.mode||"server";syncVoiceOptions();ttsModeSelect.addEventListener("change",()=>{cancelQueuedTtsRequests();wantToPlay=false;devicePaused=false;segmentRequestToken++;audioLoadToken++;streamRecovery=null;streamingFirstSegment=false;ttsManager.setMode(ttsModeSelect.value);selectedTtsMode=ttsManager.mode;storage.setItem("reader.ttsMode",selectedTtsMode);setPlayerState("idle");syncVoiceOptions();if(selectedTtsMode==="device")populateDeviceVoices();else if(hasAudio)reloadAudio(Number(storage.getItem(`reader.position.${readerChapterKey}`)||0),false);});}
       if(pitchControl){pitchControl.value=String(devicePitch);pitchControl.addEventListener("input",()=>{devicePitch=Number(pitchControl.value);storage.setItem("reader.pitch",String(devicePitch));if(ttsManager.mode==="device"&&playerState==="playing"){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}});}
       deviceVoiceSelect?.addEventListener("change",()=>{selectedDeviceVoice=deviceVoiceSelect.value;storage.setItem("reader.deviceVoice",selectedDeviceVoice);if(ttsManager.mode==="device"&&playerState==="playing"){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}});
       populateDeviceVoices();
@@ -1369,6 +1380,7 @@
 
       const reloadAudio = (resumeAt = 0, autoplay = false) => {
         if (!hasAudio) return;
+        cancelQueuedTtsRequests();
         segmentRequestToken += 1;
         audioLoadToken += 1;
         streamingFirstSegment = false;
@@ -1407,7 +1419,7 @@
           scheduleSave();
         });
 
-        audio.addEventListener("play", () => {
+        audio.addEventListener("playing", () => {
           if (selectedTtsMode !== "server" || !wantToPlay) return;
           setPlayerState("playing");
           if (!priorityRequested) {
@@ -1415,10 +1427,6 @@
             requestTranslationPriority(player.dataset.queueChapterId, 100);
             requestTranslationPriority(player.dataset.nextQueueChapterId, 80);
           }
-        });
-        audio.addEventListener("playing", () => {
-          if (selectedTtsMode !== "server" || !wantToPlay) return;
-          setPlayerState("playing");
           const index = Number(audio.dataset.ttsIndex);
           if (!Number.isInteger(index)) return;
           currentPlayingChunkIndex = index;
@@ -1577,6 +1585,7 @@
         if (playerState === "loading") {
             wantToPlay = false;
             segmentRequestToken += 1;
+            cancelQueuedTtsRequests();
             audio.pause();
             setPlayerState("paused");
             return;
