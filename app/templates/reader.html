@@ -28,7 +28,7 @@
   .reader-reading-footer{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(0,13rem);align-items:center;gap:1rem;border-top:1px solid rgba(130,140,135,.28);padding-top:1.8rem}
   .reader-reading-footer .reader-nav-card{min-height:3.25rem}
   .reader-progress-chip{position:fixed;z-index:35;top:calc(env(safe-area-inset-top,0px) + .55rem);right:max(.65rem,calc((100vw - 64rem)/2));display:inline-flex;align-items:center;border:1px solid rgba(130,145,140,.38);border-radius:9999px;background:rgba(29,33,31,.9);padding:.27rem .55rem;color:#f0eee3;font-size:.72rem;font-weight:700;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.16);backdrop-filter:blur(8px);pointer-events:none}
-  @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer .reader-nav-card{grid-row:1}.reader-player-controls{gap:.5rem;justify-content:center}.reader-player-status{display:none}.reader-player-controls .reader-player-actions{margin-left:0;gap:.45rem}.reader-player-controls [data-voice-button],.reader-player-controls [data-sleep-button],.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:none}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}.reader-player-shell{padding:.7rem .8rem!important}}
+  @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer .reader-nav-card{grid-row:1}.reader-player-controls{gap:.5rem;justify-content:center}.reader-player-status{display:none}.reader-player-shell[data-state="error"] .reader-player-status{display:inline-flex!important;color:#b91c1c}.reader-player-controls .reader-player-actions{margin-left:0;gap:.45rem}.reader-player-controls [data-voice-button]{display:inline-flex;align-items:center;justify-content:center;width:2rem;height:2rem;padding:0}.reader-player-controls [data-sleep-button],.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:none}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}.reader-player-shell{padding:.7rem .8rem!important}}
   @media(max-width:639px){.reader-page-nav{grid-template-columns:1fr 1fr}.reader-page-nav>span{display:none}.reader-nav-card{min-width:0}.reader-nav-card strong{max-width:8rem}}
   @media(max-width:639px){
     .reader-player-shell{bottom:.75rem!important;width:calc(100% - 1rem)!important;padding:.7rem .75rem!important}
@@ -37,7 +37,7 @@
     .reader-player-controls [data-play-toggle]{grid-column:2;width:3.1rem;height:3.1rem}
     .reader-player-controls [data-segment-next]{grid-column:3;justify-self:start}
     .reader-player-controls .reader-player-actions{grid-column:4;margin:0;gap:.3rem;justify-self:end}
-    .reader-player-controls [data-voice-button]{display:none}
+    .reader-player-controls [data-voice-button]{display:inline-flex}
     .reader-player-controls [data-sleep-button]{display:inline-flex}
     .reader-player-controls [data-rate-control]{display:block;width:2.8rem}
     .reader-player-controls .reader-player-actions label{display:flex!important}
@@ -209,7 +209,7 @@
       <button type="button" data-segment-prev disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc lại đoạn trước" title="Đoạn trước"><i data-lucide="skip-back" class="h-4 w-4"></i></button>
       <button type="button" data-play-toggle class="inline-flex items-center justify-center rounded-full text-white hover:bg-teal-800 disabled:bg-stone-300" aria-label="Phát hoặc tạm dừng"><i data-play-icon="play" data-lucide="play" class="h-5 w-5"></i><i data-play-icon="pause" data-lucide="pause" class="hidden h-5 w-5"></i><i data-play-icon="loading" data-lucide="loader-circle" class="hidden h-5 w-5 animate-spin"></i></button>
       <button type="button" data-segment-next disabled class="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300" aria-label="Đọc đoạn kế tiếp" title="Đoạn kế tiếp"><i data-lucide="skip-forward" class="h-4 w-4"></i></button>
-      <div class="reader-player-actions"><button type="button" data-voice-button class="rounded px-1 hover:bg-stone-100">Giọng đọc</button><span data-rate-status>1.0x</span><button type="button" data-sleep-button class="rounded px-1 hover:bg-stone-100">Hẹn giờ</button><span data-sleep-countdown class="hidden rounded bg-teal-50 px-1.5 py-0.5 text-teal-700"></span><label title="Tốc độ" class="hidden sm:flex items-center gap-1"><i data-lucide="gauge" class="h-3.5 w-3.5"></i><input data-rate-control class="reader-range w-14" type="range" min="0.75" max="2" step="0.05"></label><label title="Âm lượng" class="flex items-center gap-1"><i data-lucide="volume-2" class="h-3.5 w-3.5"></i><input data-volume-control class="reader-range w-14" type="range" min="0" max="1" step="0.05"></label></div>
+      <div class="reader-player-actions"><button type="button" data-voice-button class="inline-flex h-8 w-8 items-center justify-center rounded hover:bg-stone-100" aria-label="Chọn giọng đọc" title="Chọn giọng đọc"><i data-lucide="audio-lines" class="h-4 w-4"></i><span class="sr-only">Giọng đọc</span></button><span data-rate-status>1.0x</span><button type="button" data-sleep-button class="rounded px-1 hover:bg-stone-100">Hẹn giờ</button><span data-sleep-countdown class="hidden rounded bg-teal-50 px-1.5 py-0.5 text-teal-700"></span><label title="Tốc độ" class="hidden sm:flex items-center gap-1"><i data-lucide="gauge" class="h-3.5 w-3.5"></i><input data-rate-control class="reader-range w-14" type="range" min="0.75" max="2" step="0.05"></label><label title="Âm lượng" class="flex items-center gap-1"><i data-lucide="volume-2" class="h-3.5 w-3.5"></i><input data-volume-control class="reader-range w-14" type="range" min="0" max="1" step="0.05"></label></div>
     </div>
   </div>
 
@@ -458,6 +458,7 @@
       const volumeControl = player.querySelector("[data-volume-control]");
       const voiceButton = player.querySelector("[data-voice-button]");
       const sleepButton = player.querySelector("[data-sleep-button]");
+      const playerStatus = player.querySelector(".reader-player-status");
       const tocButton = document.querySelector("[data-toc-button]");
       const translateButton = document.querySelector("[data-translate-button]");
       const translationPanel = document.querySelector("[data-translation-panel]");
@@ -564,9 +565,11 @@
       }, { passive: true });
       const setPlayerState = (state) => {
         playerState = state;
+        player.dataset.state = state;
         setPlayIcon(state === "loading" ? "loading" : state === "playing" ? "pause" : "play");
         playButton.setAttribute("aria-label", state === "playing" ? "Tạm dừng đọc" : "Bắt đầu đọc");
         playButton.setAttribute("aria-pressed", String(state === "playing"));
+        if (playerStatus) playerStatus.textContent = state === "loading" ? "ĐANG TẢI AUDIO" : state === "playing" ? "ĐANG PHÁT ÂM THANH" : state === "error" ? "LỖI TTS · MỞ GIỌNG ĐỌC ĐỂ KIỂM TRA" : state === "ended" ? "ĐÃ ĐỌC XONG" : "SẴN SÀNG";
       };
 
       const buildManifestUrl = () => {
