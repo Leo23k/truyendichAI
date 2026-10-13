@@ -47,11 +47,13 @@
     .reader-player-controls [data-volume-control]{width:2.4rem}
   }
   @media(max-width:359px){.reader-player-controls{gap:.35rem}.reader-player-controls [data-volume-control]{display:none}.reader-player-track{font-size:.6rem}}
+  @media(max-width:639px){
     .reader-mobile-player-toggle{position:absolute;inset:0;z-index:2;display:grid;place-items:center;width:100%;height:100%;border:0;background:transparent;color:#0f9d92}
     .reader-mobile-player-toggle svg{width:1.45rem;height:1.45rem}
     .reader-player-shell[data-mobile-expanded="false"]{width:3.25rem!important;height:3.25rem!important;min-height:3.25rem;padding:0!important;border-radius:9999px!important;overflow:hidden}
     .reader-player-shell[data-mobile-expanded="false"]>:not([data-mobile-player-toggle]){display:none!important}
     .reader-player-shell[data-mobile-expanded="true"] [data-mobile-player-toggle]{top:auto;right:.45rem;bottom:calc(100% + .25rem);left:auto;width:2rem;height:2rem;border:1px solid rgba(140,145,142,.22);border-radius:9999px;background:rgba(255,255,255,.98)}
+  }
   @media(max-width:639px){
     .reader-chapter-nav{display:none!important}
     .reader-player-shell[data-state="error"] .reader-player-status{grid-column:1/-1;grid-row:1;justify-self:stretch;width:auto;max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
@@ -609,7 +611,7 @@
         } else if (state === "playing" && playerState !== "playing" && selectedTtsMode === "device") deviceStartedAt = performance.now();
         playerState = state;
         player.dataset.state = state;
-        window.NovelTTS?.setMediaSessionState(state === "playing" || (state === "loading" && wantToPlay) ? "playing" : state === "paused" ? "paused" : "none");
+        window.NovelTTS?.setMediaSessionState?.(state === "playing" || (state === "loading" && wantToPlay) ? "playing" : state === "paused" ? "paused" : "none");
         if (state === "playing" || state === "loading") player.classList.remove("is-hidden");
         setPlayIcon(state === "loading" ? "loading" : state === "playing" ? "pause" : "play");
         playButton.setAttribute("aria-label", state === "playing" ? "Tạm dừng đọc" : "Bắt đầu đọc");
@@ -1619,7 +1621,7 @@
         }
       }
       playButton.addEventListener("click", handlePlayButtonClick);
-      window.NovelTTS?.configureMediaSession(document.title, {
+      window.NovelTTS?.configureMediaSession?.(document.title, {
         play: () => { if (playerState !== "playing" && playerState !== "loading") handlePlayButtonClick(); },
         pause: () => { if (playerState === "playing" || playerState === "loading") handlePlayButtonClick(); },
       });

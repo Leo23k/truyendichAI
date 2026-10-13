@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const { createRequestQueue } = require('../app/static/tts_timeline.js');
 const source = readFileSync(new URL('../app/templates/reader.html', import.meta.url), 'utf8');
 const ebookSource = readFileSync(new URL('../app/templates/ebook_reader.html', import.meta.url), 'utf8');
+const serviceWorkerSource = readFileSync(new URL('../service-worker.js', import.meta.url), 'utf8');
 test('both complete Reader scripts have valid JavaScript syntax', () => {
   for (const template of [source,ebookSource]) {
     const scripts=[...template.matchAll(/<script>([\s\S]*?)<\/script>/g)];
@@ -311,6 +312,21 @@ test('unsupported Media Session APIs do not interrupt Reader player setup', () =
   assert.doesNotThrow(() => context.configure('Chapter', {play(){}, pause(){}}));
   assert.doesNotThrow(() => context.setState('playing'));
   assert.equal(warnings.length, 3);
+});
+
+test('Reader controls tolerate a stale cached TTS bridge and keep mobile toggle off desktop', () => {
+  const stateStart = source.indexOf('window.NovelTTS?.setMediaSessionState');
+  const stateEnd = source.indexOf(';', stateStart) + 1;
+  const configureStart = source.indexOf('window.NovelTTS?.configureMediaSession');
+  const configureEnd = source.indexOf('\n      });', configureStart) + '\n      });'.length;
+  assert.ok(stateStart >= 0 && stateEnd > stateStart);
+  assert.ok(configureStart >= 0 && configureEnd > configureStart);
+  const context = vm.createContext({window:{NovelTTS:{}}, document:{title:'Reader'}, state:'idle', wantToPlay:false});
+  assert.doesNotThrow(() => vm.runInContext(`${source.slice(stateStart,stateEnd)}\n${source.slice(configureStart,configureEnd)}\nglobalThis.readerControlsContinue=true;`, context));
+  assert.equal(context.readerControlsContinue, true);
+
+  assert.match(source, /@media\(max-width:639px\)\{\s*\.reader-mobile-player-toggle\{position:absolute/);
+  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v6"/);
 });
 
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {
