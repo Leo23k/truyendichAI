@@ -242,14 +242,18 @@
           <h2 class="text-base font-semibold">Giọng đọc</h2>
           <button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button>
         </div>
-        <label class="mb-3 block text-sm">Chế độ TTS<select data-tts-mode class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"><option value="device">Thiết bị (Browser/OS)</option><option value="server">Online (LeoTruyen)</option></select></label>
-        <p data-device-tts-status class="mb-3 text-sm text-stone-500" role="status" aria-live="polite"></p>
-        <label class="mb-3 block text-sm">Giọng trên thiết bị<select data-device-voice class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"></select></label>
-        <label class="mb-3 block text-sm">Cao độ <input data-pitch-control class="mt-2 w-full accent-teal-600" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
-        <div class="grid gap-2">
-          <p class="text-xs text-stone-500">Giọng Online</p>
-          <button type="button" data-voice-option="vi-VN-NamMinhNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button>
-          <button type="button" data-voice-option="vi-VN-HoaiMyNeural" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button>
+        <div class="space-y-3 rounded-xl border border-stone-200 p-3">
+          <label class="block text-sm">Chế độ TTS<select data-tts-mode class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"><option value="server">Online (LeoTruyen)</option><option value="device">Thiết bị (Browser/OS)</option></select></label>
+          <div data-device-voice-options class="space-y-3" hidden>
+            <p data-device-tts-status class="text-sm text-stone-500" role="status" aria-live="polite"></p>
+            <label class="block text-sm">Giọng đọc<select data-device-voice class="mt-1 h-11 w-full rounded-md border border-stone-200 bg-white px-3"></select></label>
+            <label class="block text-sm">Cao độ <input data-pitch-control class="mt-2 w-full accent-teal-600" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+          </div>
+          <div data-online-voice-options class="grid gap-2">
+            <p class="text-sm">Giọng đọc</p>
+            <button type="button" data-voice-option="vi-VN-NamMinhNeural" aria-pressed="false" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Nam Minh - Nam</button>
+            <button type="button" data-voice-option="vi-VN-HoaiMyNeural" aria-pressed="false" class="rounded-lg border border-stone-200 px-4 py-3 text-left hover:bg-stone-50">Hoài My - Nữ</button>
+          </div>
         </div>
       </div>
     </section>
@@ -940,6 +944,19 @@
         if(!started){wantToPlay=false;setPlayerState("error");}
       };
       const ttsManager = window.NovelTTS?.createManager({device:deviceProvider,server:{speak:playServerCurrent,pause:()=>audio?.pause(),resume:()=>audio?.play(),stop:()=>{audio?.pause();if(audio){audio.removeAttribute("src");audio.load();}}},initialMode:selectedTtsMode});
+      const deviceVoiceOptions = document.querySelector("[data-device-voice-options]");
+      const onlineVoiceOptions = document.querySelector("[data-online-voice-options]");
+      const syncVoiceOptions = () => {
+        const deviceMode = ttsManager.mode === "device";
+        deviceVoiceOptions.hidden = !deviceMode;
+        onlineVoiceOptions.hidden = deviceMode;
+        onlineVoiceOptions.querySelectorAll("[data-voice-option]").forEach(button => {
+          const selected = button.dataset.voiceOption === getVoice();
+          button.setAttribute("aria-pressed", String(selected));
+          button.classList.toggle("border-[#D6A84F]", selected);
+          button.classList.toggle("bg-[#D6A84F]/10", selected);
+        });
+      };
       const deviceProgressTimer = setInterval(() => { if (selectedTtsMode === "device" && playerState === "playing") updateProgress(); }, 250);
       window.addEventListener("pagehide", () => clearInterval(deviceProgressTimer), { once: true });
       progress.disabled = !hasAudio && !deviceProvider?.isSupported();
@@ -972,7 +989,7 @@
         if(deviceVoiceSelect){deviceVoiceSelect.value=selectedDeviceVoice;deviceVoiceSelect.disabled=false;}
         if(deviceStatus)deviceStatus.textContent="Voice phụ thuộc browser/OS; chỉ Local được xác nhận là chạy cục bộ.";
       };
-      if(ttsModeSelect){ttsModeSelect.value=ttsManager?.mode||"server";ttsModeSelect.addEventListener("change",()=>{wantToPlay=false;ttsManager.setMode(ttsModeSelect.value);selectedTtsMode=ttsManager.mode;storage.setItem("reader.ttsMode",selectedTtsMode);setPlayerState("paused");if(selectedTtsMode==="device")populateDeviceVoices();else if(hasAudio)reloadAudio(Number(storage.getItem(`reader.position.${readerChapterKey}`)||0),false);});}
+      if(ttsModeSelect){ttsModeSelect.value=ttsManager?.mode||"server";syncVoiceOptions();ttsModeSelect.addEventListener("change",()=>{wantToPlay=false;ttsManager.setMode(ttsModeSelect.value);selectedTtsMode=ttsManager.mode;storage.setItem("reader.ttsMode",selectedTtsMode);setPlayerState("paused");syncVoiceOptions();if(selectedTtsMode==="device")populateDeviceVoices();else if(hasAudio)reloadAudio(Number(storage.getItem(`reader.position.${readerChapterKey}`)||0),false);});}
       if(pitchControl){pitchControl.value=String(devicePitch);pitchControl.addEventListener("input",()=>{devicePitch=Number(pitchControl.value);storage.setItem("reader.pitch",String(devicePitch));if(ttsManager.mode==="device"&&playerState==="playing"){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}});}
       deviceVoiceSelect?.addEventListener("change",()=>{selectedDeviceVoice=deviceVoiceSelect.value;storage.setItem("reader.deviceVoice",selectedDeviceVoice);if(ttsManager.mode==="device"&&playerState==="playing"){ttsManager.stop();wantToPlay=true;speakBrowserChunk(browserChunkIndex);}});
       if(selectedTtsMode==="device")populateDeviceVoices();
@@ -1511,6 +1528,7 @@
           const wasPlaying = !switchingToServer && hasAudio && !audio.paused;
           const currentTime = hasAudio ? getCurrentPosition() : 0;
           storage.setItem("reader.voice", button.dataset.voiceOption);
+          syncVoiceOptions();
           if(switchingToServer){ttsModeSelect.value="server";ttsModeSelect.dispatchEvent(new Event("change"));}
           stopFallbackSpeech();
           if (hasAudio && !switchingToServer) reloadAudio(currentTime, wasPlaying);
