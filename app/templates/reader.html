@@ -1086,7 +1086,7 @@
         });
         deviceVoiceSelect?.replaceChildren(...vietnamese.map(voice=>{const option=document.createElement("option");option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang} · ${voice.localService?"Local":"Network/không rõ"}`;return option;}));
         if(!vietnamese.length){if(deviceVoiceSelect)deviceVoiceSelect.disabled=true;if(deviceStatus)deviceStatus.textContent="Không tìm thấy giọng đọc tiếng Việt trên thiết bị. Hãy chuyển sang Online TTS.";return;}
-        if(!vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice))selectedDeviceVoice=vietnamese[0].voiceURI;
+        if(!vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice))selectedDeviceVoice=window.NovelTTS?.getPreferredDeviceVoice(vietnamese)?.voiceURI||vietnamese[0].voiceURI;
         if(deviceVoiceSelect){deviceVoiceSelect.value=selectedDeviceVoice;deviceVoiceSelect.disabled=false;}
         if(deviceStatus)deviceStatus.textContent="Voice phụ thuộc browser/OS; chỉ Local được xác nhận là chạy cục bộ.";
       };

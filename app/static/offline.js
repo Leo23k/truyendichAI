@@ -189,7 +189,7 @@
     document.querySelector("[data-next-segment]").onclick = () => { provider?.stop(); clearTimeout(timer); segmentIndex = Math.min(segments.length - 1, segmentIndex + 1); say(); };
     document.querySelector("[data-prev-segment]").onclick = () => { provider?.stop(); clearTimeout(timer); segmentIndex = Math.max(0, segmentIndex - 1); say(); };
     seek.oninput = () => seekTo(seek.value);
-    provider?.getVoices().then(voices => { offlineVoices = voices.filter(voice => voice.lang?.toLowerCase().startsWith("vi") && voice.localService); voiceSelect.replaceChildren(); if (!offlineVoices.length) { const option = new Option("Không có giọng Tiếng Việt offline", ""); voiceSelect.add(option); status.textContent = "Cài giọng Tiếng Việt dùng offline trên thiết bị để bật TTS."; return; } offlineVoices.forEach(voice => voiceSelect.add(new Option(`${voice.name} · Offline`, voice.voiceURI))); voiceSelect.value = offlineVoices.some(voice => voice.voiceURI === preferences.voice) ? preferences.voice : offlineVoices[0].voiceURI; persistPreferences(); if (autoplayNextChapter) { sessionStorage.removeItem(autoplayKey); setTimeout(say, 150); } });
+    provider?.getVoices().then(voices => { offlineVoices = voices.filter(voice => voice.lang?.toLowerCase().startsWith("vi") && voice.localService); voiceSelect.replaceChildren(); if (!offlineVoices.length) { const option = new Option("Không có giọng Tiếng Việt offline", ""); voiceSelect.add(option); status.textContent = "Cài giọng Tiếng Việt dùng offline trên thiết bị để bật TTS."; return; } offlineVoices.forEach(voice => voiceSelect.add(new Option(`${voice.name} · Offline`, voice.voiceURI))); const preferredVoice = window.NovelTTS?.getPreferredDeviceVoice(offlineVoices)?.voiceURI; voiceSelect.value = offlineVoices.some(voice => voice.voiceURI === preferences.voice) ? preferences.voice : preferredVoice || offlineVoices[0].voiceURI; persistPreferences(); if (autoplayNextChapter) { sessionStorage.removeItem(autoplayKey); setTimeout(say, 150); } });
     rateSelect.addEventListener("change", persistPreferences);
     voiceSelect.addEventListener("change", persistPreferences);
     sleepSelect.onchange = () => { clearTimeout(sleepTimer); const value = sleepSelect.value; asleepAtEnd = value === "end"; sleepUntil = Number(value) ? Date.now() + Number(value) * 60_000 : 0; persistPreferences(); if (Number(value)) sleepTimer = setTimeout(() => { sleepSelect.value = "0"; sleepUntil = 0; asleepAtEnd = false; persistPreferences(); finish(); }, Number(value) * 60_000); };
@@ -297,6 +297,15 @@
     });
   }
 
+  const getPreferredDeviceVoice = (voices, userAgent = navigator.userAgent) => {
+    const vietnamese = voices.filter(voice => voice.lang?.toLowerCase().startsWith("vi"));
+    const edge = /Edg\//i.test(userAgent);
+    const chrome = /Chrome\//i.test(userAgent) && !edge;
+    if (edge) return vietnamese.find(voice => /nam\s*minh/i.test(`${voice.name} ${voice.voiceURI}`)) || vietnamese[0];
+    if (chrome) return vietnamese.find(voice => /google/i.test(`${voice.name} ${voice.voiceURI}`) && /(?:tiếng\s*việt|vietnamese).*2|2.*(?:tiếng\s*việt|vietnamese)/i.test(`${voice.name} ${voice.voiceURI}`))
+      || vietnamese.find(voice => /google/i.test(`${voice.name} ${voice.voiceURI}`)) || vietnamese[0];
+    return vietnamese[0];
+  };
   const createDeviceProvider = () => {
     const synth = window.speechSynthesis; let active = null, generation = 0, speaking = false;
     const supported = () => Boolean(synth && window.SpeechSynthesisUtterance);
@@ -306,5 +315,5 @@
   const createManager = ({ device, server, initialMode = "server" } = {}) => { let mode = initialMode === "device" ? "device" : "server"; const active = () => mode === "device" ? device : server; return { get mode() { return mode; }, setMode(value) { if (value !== "device" && value !== "server") throw new Error("TTS mode không hợp lệ"); if (mode !== value) { device?.stop?.(); server?.stop?.(); mode = value; } }, isSupported() { return Boolean(active()?.isSupported?.() ?? active()); }, getVoices() { return device?.getVoices?.() || Promise.resolve([]); }, speak(...args) { return active()?.speak?.(...args); }, pause() { return active()?.pause?.(); }, resume() { return active()?.resume?.(); }, stop() { device?.stop?.(); server?.stop?.(); } }; };
   document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error)); });
   window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader };
-  window.NovelTTS = { createDeviceProvider, createManager };
+  window.NovelTTS = { createDeviceProvider, createManager, getPreferredDeviceVoice };
 })();

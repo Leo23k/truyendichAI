@@ -364,7 +364,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
     });
     deviceVoiceSelect.replaceChildren(...vietnamese.map(voice => {const option=document.createElement('option');option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang} · ${voice.localService?'Local':'Network/không rõ'}`;return option;}));
     if (!vietnamese.length) { deviceVoiceSelect.disabled=true; deviceStatus.textContent='Không tìm thấy giọng đọc tiếng Việt trên thiết bị. Hãy chuyển sang Online TTS.'; return; }
-    selectedDeviceVoice = vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice)?selectedDeviceVoice:vietnamese[0].voiceURI;
+    selectedDeviceVoice = vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice)?selectedDeviceVoice:window.NovelTTS?.getPreferredDeviceVoice(vietnamese)?.voiceURI||vietnamese[0].voiceURI;
     deviceVoiceSelect.value=selectedDeviceVoice; deviceVoiceSelect.disabled=false;
     deviceStatus.textContent='Giọng đọc phụ thuộc browser/OS; chỉ voice Local được xác nhận là chạy cục bộ.';
   };

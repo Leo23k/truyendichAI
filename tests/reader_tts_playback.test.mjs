@@ -268,6 +268,24 @@ test('Reader and Ebook offer only the actual Vietnamese Google Chrome voice', ()
   }
 });
 
+test('browser TTS chooses Nam Minh on Edge and Google Vietnamese 2 on Chrome', () => {
+  const source = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
+  const start = source.indexOf('const getPreferredDeviceVoice =');
+  const end = source.indexOf('const createDeviceProvider =', start);
+  assert.ok(start >= 0 && end > start);
+  const context = vm.createContext({navigator:{userAgent:''}});
+  vm.runInContext(`${source.slice(start, end)}; globalThis.choose = getPreferredDeviceVoice;`, context);
+  const voices = [
+    {name:'Microsoft An',lang:'vi-VN',voiceURI:'vi-an'},
+    {name:'Microsoft NamMinh Online (Natural)',lang:'vi-VN',voiceURI:'vi-namminh'},
+    {name:'Google Tiếng Việt',lang:'vi-VN',voiceURI:'google-vi'},
+    {name:'Google Tiếng Việt 2',lang:'vi-VN',voiceURI:'google-vi-2'},
+  ];
+  assert.equal(context.choose(voices, 'Mozilla/5.0 Edg/130.0').voiceURI, 'vi-namminh');
+  assert.equal(context.choose(voices, 'Mozilla/5.0 Chrome/130.0').voiceURI, 'google-vi-2');
+  assert.equal(context.choose(voices.slice(0, 1), 'Mozilla/5.0 Edg/130.0').voiceURI, 'vi-an');
+});
+
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {
   let spoken = 0, resumed = 0;
   const node = {getBoundingClientRect:()=>({bottom:1000})};
