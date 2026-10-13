@@ -28,6 +28,7 @@
   .reader-reading-footer{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(0,13rem);align-items:center;gap:1rem;border-top:1px solid rgba(130,140,135,.28);padding-top:1.8rem}
   .reader-reading-footer .reader-nav-card{min-height:3.25rem}
   .reader-progress-chip{position:fixed;z-index:35;top:calc(env(safe-area-inset-top,0px) + .55rem);right:max(.65rem,calc((100vw - 64rem)/2));display:inline-flex;align-items:center;border:1px solid rgba(130,145,140,.38);border-radius:9999px;background:rgba(29,33,31,.9);padding:.27rem .55rem;color:#f0eee3;font-size:.72rem;font-weight:700;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.16);backdrop-filter:blur(8px);pointer-events:none}
+  .reader-mobile-player-toggle{display:none}
   @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer .reader-nav-card{grid-row:1}.reader-player-controls{gap:.5rem;justify-content:center}.reader-player-status{display:none}.reader-player-shell[data-state="error"] .reader-player-status{display:inline-flex!important;color:#b91c1c}.reader-player-controls .reader-player-actions{margin-left:0;gap:.45rem}.reader-player-controls [data-voice-button]{display:inline-flex;align-items:center;justify-content:center;width:2rem;height:2rem;padding:0}.reader-player-controls [data-sleep-button],.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:none}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}.reader-player-shell{padding:.7rem .8rem!important}}
   @media(max-width:639px){.reader-page-nav{grid-template-columns:1fr 1fr}.reader-page-nav>span{display:none}.reader-nav-card{min-width:0}.reader-nav-card strong{max-width:8rem}}
   @media(max-width:639px){
@@ -44,6 +45,19 @@
     .reader-player-controls [data-volume-control]{width:2.4rem}
   }
   @media(max-width:359px){.reader-player-controls{gap:.35rem}.reader-player-controls [data-volume-control]{display:none}.reader-player-track{font-size:.6rem}}
+  @media(max-width:639px){
+    .reader-mobile-player-toggle{position:absolute;inset:0;z-index:2;display:grid;place-items:center;width:100%;height:100%;border:0;background:transparent;color:#0f9d92}
+    .reader-mobile-player-toggle svg{width:1.45rem;height:1.45rem}
+    .reader-player-shell[data-mobile-expanded="false"]{width:3.25rem!important;height:3.25rem!important;min-height:3.25rem;padding:0!important;border-radius:9999px!important;overflow:hidden}
+    .reader-player-shell[data-mobile-expanded="false"]>:not([data-mobile-player-toggle]){display:none!important}
+    .reader-player-shell[data-mobile-expanded="true"] [data-mobile-player-toggle]{top:auto;right:.45rem;bottom:calc(100% + .25rem);left:auto;width:2rem;height:2rem;border:1px solid rgba(140,145,142,.22);border-radius:9999px;background:rgba(255,255,255,.98)}
+    .reader-player-shell.is-hidden{transform:translate(-50%,calc(100% + 1.25rem))}
+    .reader-player-shell[data-state="error"] .reader-player-status{grid-column:1/-1;grid-row:1;justify-self:stretch;width:auto;max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
+    .reader-player-shell[data-state="error"] .reader-player-controls [data-segment-prev]{grid-column:1;grid-row:2;justify-self:end}
+    .reader-player-shell[data-state="error"] .reader-player-controls [data-play-toggle]{grid-column:2;grid-row:2}
+    .reader-player-shell[data-state="error"] .reader-player-controls [data-segment-next]{grid-column:3;grid-row:2;justify-self:start}
+    .reader-player-shell[data-state="error"] .reader-player-controls .reader-player-actions{grid-column:4;grid-row:2}
+  }
   [data-replacement-dialog]:not([hidden]){display:flex}
 </style>
 <div
@@ -198,11 +212,13 @@
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
     data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
     data-has-audio="{% if showing_translation and chapter.translated_content %}true{% else %}false{% endif %}"
+    data-mobile-expanded="false"
     class="reader-player-shell reader-bottom-bar fixed bottom-4 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-4xl -translate-x-1/2 border px-3 py-3 text-stone-900 backdrop-blur sm:px-5"
   >
     {% if showing_translation and chapter.translated_content %}
     <audio data-reader-audio preload="metadata"></audio>
     {% endif %}
+    <button type="button" data-mobile-player-toggle class="reader-mobile-player-toggle" aria-label="Mở trình phát đọc giọng nói" aria-expanded="false"><i data-lucide="headphones" class="h-6 w-6"></i></button>
     <div class="reader-player-track"><span data-current-time>0:00</span><input data-audio-progress class="reader-range" type="range" min="0" max="1000" value="0" aria-label="Tiến trình audio" {% if not showing_translation or not chapter.translated_content %}disabled{% endif %}><span class="text-right" data-duration>0:00</span></div>
     <div class="reader-player-controls">
       <span class="reader-player-status">ĐANG PHÁT ÂM THANH</span>
@@ -290,6 +306,14 @@
       if (!player) return;
       const readerHeader = document.querySelector("[data-reader-header]");
       const chapterNav = document.querySelector("[data-reader-chapter-nav]");
+      const mobilePlayerToggle = player.querySelector("[data-mobile-player-toggle]");
+      mobilePlayerToggle?.addEventListener("click", () => {
+        const expanded = player.dataset.mobileExpanded !== "true";
+        player.dataset.mobileExpanded = String(expanded);
+        mobilePlayerToggle.setAttribute("aria-expanded", String(expanded));
+        mobilePlayerToggle.setAttribute("aria-label", expanded ? "Thu gọn trình phát đọc giọng nói" : "Mở trình phát đọc giọng nói");
+        clearTimeout(hideTimer);
+      });
 
       const readerChapterKey = player.dataset.chapterId || "";
       const readerBookKey = player.dataset.bookId || "";
@@ -943,6 +967,9 @@
         hideTimer = setTimeout(() => {
           if (!sheetBackdrop.classList.contains("is-open")) {
             player.classList.add("is-hidden");
+            player.dataset.mobileExpanded = "false";
+            mobilePlayerToggle?.setAttribute("aria-expanded", "false");
+            mobilePlayerToggle?.setAttribute("aria-label", "Mở trình phát đọc giọng nói");
             readerHeader?.classList.add("is-hidden");
             chapterNav?.classList.add("is-hidden");
           }
@@ -952,6 +979,9 @@
       const hideBar = () => {
         if (!sheetBackdrop.classList.contains("is-open")) {
           player.classList.add("is-hidden");
+          player.dataset.mobileExpanded = "false";
+          mobilePlayerToggle?.setAttribute("aria-expanded", "false");
+          mobilePlayerToggle?.setAttribute("aria-label", "Mở trình phát đọc giọng nói");
           readerHeader?.classList.add("is-hidden");
           chapterNav?.classList.add("is-hidden");
         }

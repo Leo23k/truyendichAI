@@ -1,3 +1,6 @@
+import sys
+import types
+
 import pytest
 
 from app.tts import edge_tts_service
@@ -108,3 +111,53 @@ async def test_streamed_segment_is_cached_and_reused(monkeypatch, tmp_path) -> N
     assert first == second == b"mp3-frame-1mp3-frame-2"
     assert expected_path.read_bytes() == first
     assert calls == [("segment text", "vi-VN-HoaiMyNeural", 1.2)]
+
+
+@pytest.mark.asyncio
+async def test_edge_tts_stream_retries_before_first_audio_frame(monkeypatch) -> None:
+    calls = 0
+
+    class Communicate:
+        def __init__(self, text, voice, rate) -> None:
+            pass
+
+        async def stream(self):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("transient no-audio response")
+            yield {"type": "audio", "data": b"audio-frame"}
+
+    monkeypatch.setattr(edge_tts_service.settings, "tts_api_url", None)
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=Communicate))
+
+    frames = [frame async for frame in edge_tts_service.stream_edge_tts("Test", voice="vi-VN-NamMinhNeural")]
+
+    assert frames == [b"audio-frame"]
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_edge_tts_stream_does_not_retry_after_audio_started(monkeypatch) -> None:
+    calls = 0
+
+    class Communicate:
+        def __init__(self, text, voice, rate) -> None:
+            pass
+
+        async def stream(self):
+            nonlocal calls
+            calls += 1
+            yield {"type": "audio", "data": b"first-frame"}
+            raise RuntimeError("connection lost after first frame")
+
+    monkeypatch.setattr(edge_tts_service.settings, "tts_api_url", None)
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=Communicate))
+    frames = []
+
+    with pytest.raises(edge_tts_service.EdgeTTSUnavailableError):
+        async for frame in edge_tts_service.stream_edge_tts("Test", voice="vi-VN-HoaiMyNeural"):
+            frames.append(frame)
+
+    assert frames == [b"first-frame"]
+    assert calls == 1

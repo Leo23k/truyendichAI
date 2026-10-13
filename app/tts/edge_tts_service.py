@@ -160,31 +160,44 @@ async def stream_edge_tts(
         raise EdgeTTSUnavailableError("Khong co van ban de tao audio.")
     selected_voice = normalize_voice(voice)
     selected_rate = normalize_rate(rate)
-    if settings.tts_api_url:
+    for attempt in range(2):
+        received_audio = False
         try:
-            async with httpx.AsyncClient(timeout=EDGE_TTS_TIMEOUT_SECONDS, trust_env=False) as client:
-                async with client.stream(
-                    "POST",
-                    tts_stream_url(),
-                    json={"text": text, "voice": selected_voice, "rate": selected_rate},
-                ) as response:
-                    response.raise_for_status()
-                    async for frame in response.aiter_bytes():
-                        if frame:
-                            yield frame
+            if settings.tts_api_url:
+                async with httpx.AsyncClient(timeout=EDGE_TTS_TIMEOUT_SECONDS, trust_env=False) as client:
+                    async with client.stream(
+                        "POST",
+                        tts_stream_url(),
+                        json={"text": text, "voice": selected_voice, "rate": selected_rate},
+                    ) as response:
+                        response.raise_for_status()
+                        async for frame in response.aiter_bytes():
+                            if frame:
+                                received_audio = True
+                                yield frame
+            else:
+                import edge_tts
+
+                communicate = edge_tts.Communicate(text, selected_voice, rate=edge_rate(selected_rate))
+                async for event in communicate.stream():
+                    if event["type"] == "audio" and event["data"]:
+                        received_audio = True
+                        yield event["data"]
+            if not received_audio:
+                raise EdgeTTSUnavailableError("TTS service returned no audio frames.")
             return
-        except httpx.HTTPError as exc:
-            raise EdgeTTSUnavailableError("Khong the stream audio bang TTS service.") from exc
-
-    try:
-        import edge_tts
-
-        communicate = edge_tts.Communicate(text, selected_voice, rate=edge_rate(selected_rate))
-        async for event in communicate.stream():
-            if event["type"] == "audio":
-                yield event["data"]
-    except Exception as exc:  # pragma: no cover - network/service dependent
-        raise EdgeTTSUnavailableError("Khong the stream audio bang Microsoft Edge TTS.") from exc
+        except Exception as exc:  # pragma: no cover - network/service dependent
+            # Retry only before emitting audio. Restarting after the first frame
+            # would duplicate speech in the already-open response stream.
+            if received_audio or attempt == 1:
+                provider = "TTS service" if settings.tts_api_url else "Microsoft Edge TTS"
+                raise EdgeTTSUnavailableError(f"Khong the stream audio bang {provider}.") from exc
+            logger.warning(
+                "Edge TTS stream failed before first audio frame voice=%s attempt=1/2; retrying",
+                selected_voice,
+                exc_info=True,
+            )
+            await asyncio.sleep(0.4)
 
 
 async def stream_cached_edge_tts(

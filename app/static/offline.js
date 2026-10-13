@@ -107,6 +107,21 @@
     const voiceTrigger = document.createElement("button"); voiceTrigger.type = "button"; voiceTrigger.className = "off-btn"; voiceTrigger.dataset.voiceTrigger = ""; voiceTrigger.setAttribute("aria-haspopup", "dialog"); voiceTrigger.setAttribute("aria-label", "Chọn giọng đọc offline"); voiceTrigger.textContent = "Giọng đọc";
     playerActions.append(voiceTrigger, rateLabel, sleepSelect, stopControl);
     controls.replaceChildren(previousSegment, playControl, nextSegment, playerActions); extras.remove();
+    player.dataset.mobileExpanded = "false";
+    const mobilePlayerToggle = document.createElement("button");
+    mobilePlayerToggle.type = "button"; mobilePlayerToggle.className = "off-mobile-player-toggle"; mobilePlayerToggle.setAttribute("aria-label", "Mở trình phát đọc giọng nói"); mobilePlayerToggle.setAttribute("aria-expanded", "false");
+    mobilePlayerToggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14v-3a9 9 0 0 1 18 0v3"/><path d="M5 14h3v7H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Zm11 0h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-3z"/></svg>';
+    player.prepend(mobilePlayerToggle);
+    if (!document.getElementById("offline-mobile-player-styles")) {
+      const style = document.createElement("style"); style.id = "offline-mobile-player-styles";
+      style.textContent = '@media(max-width:639px){.off-reader-player{transition:transform .19s ease,opacity .19s ease}.off-reader-player.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem));pointer-events:none}.off-reader-player[data-mobile-expanded="false"]{display:grid;place-items:center;width:3.25rem;height:3.25rem;padding:0;border-radius:50%;overflow:hidden}.off-reader-player[data-mobile-expanded="false"]>:not(.off-mobile-player-toggle){display:none!important}.off-mobile-player-toggle{position:absolute;inset:0;display:grid;place-items:center;width:100%;height:100%;border:0;border-radius:50%;background:transparent;color:var(--off-accent)}.off-mobile-player-toggle svg{width:1.5rem;height:1.5rem}.off-reader-player[data-mobile-expanded="true"] .off-mobile-player-toggle{top:auto;right:.35rem;bottom:calc(100% + .25rem);left:auto;width:2rem;height:2rem;border:1px solid var(--off-border);background:var(--off-card2)}}@media(min-width:640px){.off-mobile-player-toggle{display:none}}';
+      document.head.append(style);
+    }
+    mobilePlayerToggle.addEventListener("click", () => {
+      const expanded = player.dataset.mobileExpanded !== "true";
+      player.dataset.mobileExpanded = String(expanded); mobilePlayerToggle.setAttribute("aria-expanded", String(expanded));
+      mobilePlayerToggle.setAttribute("aria-label", expanded ? "Thu gọn trình phát đọc giọng nói" : "Mở trình phát đọc giọng nói");
+    });
     const voiceSheet = document.createElement("div"); voiceSheet.className = "off-sheet"; voiceSheet.hidden = true; voiceSheet.dataset.voiceSheet = "";
     voiceSheet.innerHTML = '<section class="off-sheet-panel" role="dialog" aria-modal="true" aria-label="Chọn giọng đọc"><div class="off-sheet-head"><strong>Giọng đọc offline</strong><button class="off-btn" type="button" data-close-voice>Đóng</button></div><label class="off-voice-sheet-label">Giọng Tiếng Việt trên thiết bị</label><p class="off-voice-note">Chỉ hiển thị các giọng Tiếng Việt đã cài trên thiết bị và có thể dùng offline.</p></section>';
     voiceSheet.querySelector(".off-voice-sheet-label").append(voiceSelect); document.body.append(voiceSheet);
@@ -131,24 +146,40 @@
     document.querySelector("[data-font-down]").onclick = () => { const node = document.querySelector(".off-reader-content"), size = parseFloat(getComputedStyle(node).fontSize); node.style.fontSize = `${Math.max(15, size - 1)}px`; };
     document.querySelector("[data-font-up]").onclick = () => { const node = document.querySelector(".off-reader-content"), size = parseFloat(getComputedStyle(node).fontSize); node.style.fontSize = `${Math.min(32, size + 1)}px`; };
     const sheet = document.querySelector("[data-toc-sheet]"); document.querySelector("[data-open-toc]").onclick = () => sheet.hidden = false; document.querySelector("[data-close-toc]").onclick = () => sheet.hidden = true; sheet.onclick = event => { if (event.target === sheet) sheet.hidden = true; };
-    let previousY = scrollY; addEventListener("scroll", () => { const toolbar = document.querySelector(".off-reader-toolbar"); if (scrollY < 80 || scrollY < previousY - 6) toolbar.classList.remove("is-hidden"); else if (scrollY > previousY + 6) toolbar.classList.add("is-hidden"); previousY = scrollY; }, { passive: true });
+    let previousY = scrollY; addEventListener("scroll", () => { const toolbar = document.querySelector(".off-reader-toolbar"); if (scrollY < 80 || scrollY < previousY - 6) { toolbar.classList.remove("is-hidden"); player.classList.remove("is-hidden"); } else if (scrollY > previousY + 6) { toolbar.classList.add("is-hidden"); player.classList.add("is-hidden"); player.dataset.mobileExpanded = "false"; mobilePlayerToggle.setAttribute("aria-expanded", "false"); mobilePlayerToggle.setAttribute("aria-label", "Mở trình phát đọc giọng nói"); } previousY = scrollY; }, { passive: true });
+    document.addEventListener("click", event => { if (event.target.closest(".off-reader-player, .off-sheet")) return; document.querySelector(".off-reader-toolbar")?.classList.remove("is-hidden"); player.classList.remove("is-hidden"); });
     const provider = window.NovelTTS?.createDeviceProvider(), status = document.querySelector("[data-tts-status]"), play = document.querySelector("[data-play]"), rateSelect = document.querySelector("[data-rate]");
+    const preferencesKey = `reader.${owner || "anonymous"}.offline.tts.preferences`;
+    let preferences = {}; try { preferences = JSON.parse(localStorage.getItem(preferencesKey) || "{}"); } catch { /* Ignore malformed preferences. */ }
+    rateSelect.value = String(Math.max(.75, Math.min(2, Number(preferences.rate) || 1)));
+    const validSleepModes = new Set(["0", "15", "30", "45", "60", "end"]);
+    sleepSelect.value = validSleepModes.has(String(preferences.sleepMode)) ? String(preferences.sleepMode) : "0";
+    let sleepUntil = Number(preferences.sleepUntil) || 0;
+    const autoplayKey = `reader.${owner || "anonymous"}.offline.tts.autoplay.${ebook ? "ebook" : "novel"}.${book.id}`;
+    const pendingAutoplayUrl = sessionStorage.getItem(autoplayKey);
+    const autoplayNextChapter = Boolean(pendingAutoplayUrl && new URL(pendingAutoplayUrl, location.href).pathname === location.pathname);
+    const persistPreferences = () => localStorage.setItem(preferencesKey, JSON.stringify({ rate: Number(rateSelect.value), sleepMode: sleepSelect.value, sleepUntil, voice: voiceSelect.value }));
     const segments = [];
     for (const [paragraphIndex, node] of paragraphs.entries()) {
       const sentences = node.textContent.match(/[^.!?。！？]+[.!?。！？]?/gu) || [node.textContent]; let current = "";
       for (const sentence of sentences) { if (current.length + sentence.length > 850 && current) { segments.push({ text: current.trim(), paragraphIndex, node }); current = ""; } current += sentence; }
       if (current.trim()) segments.push({ text: current.trim(), paragraphIndex, node });
     }
-    let segmentIndex = 0, timer = 0, sleepTimer = 0, asleepAtEnd = false, paused = false, offlineVoices = [];
+    let segmentIndex = 0, timer = 0, sleepTimer = 0, asleepAtEnd = sleepSelect.value === "end", paused = false, offlineVoices = [];
     const markSegment = i => { segmentIndex = Math.max(0, Math.min(segments.length - 1, i)); const item = segments[segmentIndex]; if (!item) return; paragraphs.forEach(node => node.classList.remove("off-active")); item.node.classList.add("off-active"); seek.value = String(item.paragraphIndex); item.node.scrollIntoView({ block: "center", behavior: "smooth" }); };
     const finish = () => { provider?.stop(); clearTimeout(timer); timer = 0; paused = false; play.textContent = "▶"; play.setAttribute("aria-label", "Phát"); status.textContent = "Đã đọc xong"; status.classList.remove("playing"); };
+    if (Number(sleepSelect.value) > 0 && sleepUntil) {
+      const remaining = sleepUntil - Date.now();
+      if (remaining > 0) sleepTimer = setTimeout(() => { sleepSelect.value = "0"; sleepUntil = 0; asleepAtEnd = false; persistPreferences(); finish(); }, remaining);
+      else { sleepSelect.value = "0"; sleepUntil = 0; persistPreferences(); }
+    }
     const say = () => {
       if (!provider?.isSupported() || !segments.length) { status.textContent = "Trình duyệt chưa hỗ trợ TTS offline."; return; }
       if (!offlineVoices.length) { status.textContent = "Cài giọng Tiếng Việt dùng offline trên thiết bị để bật TTS."; return; }
       if (segmentIndex >= segments.length) { finish(); return; }
       const segment = segments[segmentIndex]; markSegment(segmentIndex); play.textContent = "Ⅱ"; play.setAttribute("aria-label", "Tạm dừng"); status.textContent = `Đang đọc ${segmentIndex + 1}/${segments.length}`; status.classList.add("playing"); paused = false;
       provider.speak(segment.text, { lang: "vi-VN", voiceURI: voiceSelect.value || undefined, rate: Number(rateSelect.value) || 1, pitch: 1, volume: 1,
-        onend: () => { segmentIndex += 1; if (segmentIndex < segments.length && !asleepAtEnd) timer = setTimeout(say, 90); else finish(); },
+        onend: () => { segmentIndex += 1; if (segmentIndex < segments.length) timer = setTimeout(say, 90); else if (!asleepAtEnd && next) { status.textContent = "Đang chuyển chương…"; sessionStorage.setItem(autoplayKey, chapterUrl(next)); location.assign(chapterUrl(next)); } else finish(); },
         onerror: error => { status.textContent = error.message || "Không thể phát giọng đọc"; play.textContent = "▶"; status.classList.remove("playing"); },
       });
     };
@@ -158,8 +189,10 @@
     document.querySelector("[data-next-segment]").onclick = () => { provider?.stop(); clearTimeout(timer); segmentIndex = Math.min(segments.length - 1, segmentIndex + 1); say(); };
     document.querySelector("[data-prev-segment]").onclick = () => { provider?.stop(); clearTimeout(timer); segmentIndex = Math.max(0, segmentIndex - 1); say(); };
     seek.oninput = () => seekTo(seek.value);
-    provider?.getVoices().then(voices => { offlineVoices = voices.filter(voice => voice.lang?.toLowerCase().startsWith("vi") && voice.localService); voiceSelect.replaceChildren(); if (!offlineVoices.length) { const option = new Option("Không có giọng Tiếng Việt offline", ""); voiceSelect.add(option); status.textContent = "Cài giọng Tiếng Việt dùng offline trên thiết bị để bật TTS."; return; } offlineVoices.forEach(voice => voiceSelect.add(new Option(`${voice.name} · Offline`, voice.voiceURI))); });
-    sleepSelect.onchange = () => { clearTimeout(sleepTimer); const value = sleepSelect.value; asleepAtEnd = value === "end"; if (Number(value)) sleepTimer = setTimeout(finish, Number(value) * 60_000); };
+    provider?.getVoices().then(voices => { offlineVoices = voices.filter(voice => voice.lang?.toLowerCase().startsWith("vi") && voice.localService); voiceSelect.replaceChildren(); if (!offlineVoices.length) { const option = new Option("Không có giọng Tiếng Việt offline", ""); voiceSelect.add(option); status.textContent = "Cài giọng Tiếng Việt dùng offline trên thiết bị để bật TTS."; return; } offlineVoices.forEach(voice => voiceSelect.add(new Option(`${voice.name} · Offline`, voice.voiceURI))); voiceSelect.value = offlineVoices.some(voice => voice.voiceURI === preferences.voice) ? preferences.voice : offlineVoices[0].voiceURI; persistPreferences(); if (autoplayNextChapter) { sessionStorage.removeItem(autoplayKey); setTimeout(say, 150); } });
+    rateSelect.addEventListener("change", persistPreferences);
+    voiceSelect.addEventListener("change", persistPreferences);
+    sleepSelect.onchange = () => { clearTimeout(sleepTimer); const value = sleepSelect.value; asleepAtEnd = value === "end"; sleepUntil = Number(value) ? Date.now() + Number(value) * 60_000 : 0; persistPreferences(); if (Number(value)) sleepTimer = setTimeout(() => { sleepSelect.value = "0"; sleepUntil = 0; asleepAtEnd = false; persistPreferences(); finish(); }, Number(value) * 60_000); };
     addEventListener("pagehide", () => { provider?.stop(); clearTimeout(sleepTimer); }, { once: true });
   }
 
