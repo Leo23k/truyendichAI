@@ -518,7 +518,7 @@
       const deviceProvider = window.NovelTTS?.createDeviceProvider();
       let selectedDeviceVoice = storage.getItem("reader.deviceVoice") || "";
       let devicePitch = Number(storage.getItem("reader.pitch") || 1);
-      let selectedTtsMode = window.NovelTTS?.getInitialTtsMode(storage.getItem("reader.ttsMode")) || storage.getItem("reader.ttsMode") || (navigator.onLine === false ? "device" : "server");
+      let selectedTtsMode = window.NovelTTS?.getInitialTtsMode?.(storage.getItem("reader.ttsMode")) || storage.getItem("reader.ttsMode") || (navigator.onLine === false ? "device" : "server");
 
       let sleepMode = storage.getItem("reader.sleepMode") || "off";
       let sleepUntil = Number(storage.getItem("reader.sleepUntil") || 0);
@@ -1089,7 +1089,7 @@
         });
         deviceVoiceSelect?.replaceChildren(...vietnamese.map(voice=>{const option=document.createElement("option");option.value=voice.voiceURI;option.textContent=`${voice.name} · ${voice.lang} · ${voice.localService?"Local":"Network/không rõ"}`;return option;}));
         if(!vietnamese.length){if(deviceVoiceSelect)deviceVoiceSelect.disabled=true;if(deviceStatus)deviceStatus.textContent="Không tìm thấy giọng đọc tiếng Việt trên thiết bị. Hãy chuyển sang Online TTS.";return;}
-        if(!vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice))selectedDeviceVoice=window.NovelTTS?.getPreferredDeviceVoice(vietnamese)?.voiceURI||vietnamese[0].voiceURI;
+        if(!vietnamese.some(voice=>voice.voiceURI===selectedDeviceVoice))selectedDeviceVoice=window.NovelTTS?.getPreferredDeviceVoice?.(vietnamese)?.voiceURI||vietnamese[0].voiceURI;
         if(deviceVoiceSelect){deviceVoiceSelect.value=selectedDeviceVoice;deviceVoiceSelect.disabled=false;}
         if(deviceStatus)deviceStatus.textContent="Voice phụ thuộc browser/OS; chỉ Local được xác nhận là chạy cục bộ.";
       };
@@ -1540,8 +1540,6 @@
             ? "Mất kết nối khi tải âm thanh. Vui lòng thử lại."
             : "Âm thanh nhận về không phát được. Hãy thử lại hoặc chọn giọng khác."));
         });
-
-        playButton.addEventListener("click", handlePlayButtonClick);
 
         segmentPrevButton.addEventListener("click", () => {
           if(ttsManager.mode==="device"){const playing=playerState==="playing";ttsManager.stop();wantToPlay=false;browserQueue();if(playing){browserChunkIndex=Math.max(0,browserChunkIndex-1);wantToPlay=true;speakBrowserChunk(browserChunkIndex);}return;}

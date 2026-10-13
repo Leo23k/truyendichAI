@@ -14,7 +14,7 @@
   <script defer src="https://unpkg.com/lucide@latest"></script>
   <script>document.addEventListener("DOMContentLoaded", () => { if (window.htmx) window.htmx.config.responseHandling = [{code: "204", swap: false}, {code: "[23]xx", swap: true}, {code: "[45]xx", swap: true, error: true}]; });</script>
   <script defer src="/static/reader_resume.js"></script>
-  <script defer src="/static/offline.js"></script>
+  <script defer src="/static/offline.js?v=7"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js").catch(() => {}));

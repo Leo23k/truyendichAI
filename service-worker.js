@@ -1,4 +1,4 @@
-const CACHE = "novel-reader-static-v6";
+const CACHE = "novel-reader-static-v7";
 const MEDIA_CACHE = "novel-reader-media-v1";
 const STATIC = ["/static/offline.js", "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
@@ -85,6 +85,21 @@ self.addEventListener("fetch", event => {
     return;
   }
   if (url.pathname.startsWith("/static/") || url.pathname === "/manifest.webmanifest") {
+    if (url.pathname === "/static/offline.js") {
+      event.respondWith(caches.open(CACHE).then(async cache => {
+        try {
+          const response = await fetch(request);
+          if (response.ok) {
+            await cache.put(request, response.clone());
+            return response;
+          }
+          return await cache.match(request) || await cache.match("/static/offline.js") || response;
+        } catch {
+          return await cache.match(request) || await cache.match("/static/offline.js") || Response.error();
+        }
+      }));
+      return;
+    }
     event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => {
       if (response.ok) caches.open(CACHE).then(cache => cache.put(request, response.clone()));
       return response;
