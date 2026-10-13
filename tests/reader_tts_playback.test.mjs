@@ -101,6 +101,85 @@ test('a retry after cancelling queued audio is not erased by the cancelled reque
   assert.equal(context.segmentRequests.size,0);
 });
 
+test('loading the Reader warms the current online TTS segment without starting playback', async () => {
+  const ensured = [], selected = [];
+  const context = loadFunction('loadPlaylist', 'recoverStream', {
+    hasAudio:true, playlistLoadToken:0, stopFallbackSpeech(){}, playlistReady:false,
+    voiceSessions:new Map(), voiceSessionKey:()=> 'voice', playlist:[], segmentStarts:[], totalDuration:0,
+    durationLabel:{textContent:''}, fetch:async()=>({ok:true,json:async()=>({segments:[{url:'/audio/0',duration:5}],total_duration:5})}),
+    buildManifestUrl:()=>'/manifest', findSegmentIndex:()=>0, mapParagraphsToSegments(){},
+    streamingFirstSegment:false, streamingSegmentIndexKnown:false, streamingSegmentIndex:0,
+    streamingTextOffset:0, currentSegmentIndex:0, pendingSegmentOffset:0, audio:{dataset:{}},
+    playerState:'idle', highlightSegment(){}, formatTime:()=> '00:05', wantToPlay:false,
+    ensureSegment:index=>{ensured.push(index);return Promise.resolve({objectUrl:'blob:0'});},
+    setAudioSegment:(...args)=>selected.push(args), console:{warn(){}},
+  });
+
+  await context.run(0,false,false);
+  assert.deepEqual(ensured,[0]);
+  assert.equal(context.playlistReady,true);
+  assert.deepEqual(selected,[]);
+});
+
+test('a cached playlist also warms the resume segment when playback is not selected', async () => {
+  const ensured = [];
+  const playlist = [{url:'/audio/0',duration:5,objectUrl:null}];
+  const context = loadFunction('loadPlaylist', 'recoverStream', {
+    hasAudio:true, playlistLoadToken:0, stopFallbackSpeech(){}, playlistReady:false,
+    voiceSessions:new Map([['voice',{playlist,segmentStarts:[0],totalDuration:5}]]),
+    voiceSessionKey:()=> 'voice', playlist:[], segmentStarts:[], totalDuration:0,
+    durationLabel:{textContent:''}, formatTime:()=> '00:05', findSegmentIndex:()=>0,
+    ensureSegment:index=>{ensured.push(index);return Promise.resolve(playlist[index]);},
+    setAudioSegment:()=>assert.fail('warm-up must not start playback'), console:{warn(){}},
+  });
+
+  await context.run(0,false,false);
+  assert.deepEqual(ensured,[0]);
+  assert.equal(context.playlistReady,true);
+});
+
+test('Play reuses the current segment warm-up request instead of starting a second stream', async () => {
+  let resolveAudio, ensured = 0, streamed = 0, selected;
+  const pendingAudio = new Promise(resolve=>{resolveAudio=resolve;});
+  const context = loadFunction('playServerCurrent', 'browserQueue', {
+    segmentRequestToken:0, playerState:'idle', getCurrentPosition:()=>0, wantToPlay:false,
+    document:{querySelector:()=>null}, setPlayerState(){}, playlistReady:true,
+    playlist:[{url:'/audio/0',objectUrl:null}], currentSegmentIndex:0, segmentStarts:[0], pendingSegmentOffset:0,
+    segmentRequests:new Map([['/audio/0',pendingAudio]]), mapParagraphsToSegments(){},
+    findSegmentForTextOffset:()=>0, visibleTextOffset:()=>0,
+    ensureSegment:()=>{ensured++;return pendingAudio;},
+    playFirstSegmentFromStream:()=>{streamed++;}, setAudioSegment:(...args)=>{selected=args;},
+    audio:{src:'',error:null}, console:{warn(){}},
+  });
+
+  context.run();
+  await Promise.resolve();
+  assert.equal(ensured,1);
+  assert.equal(streamed,0);
+  resolveAudio({objectUrl:'blob:0'});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(selected,[0,0,true]);
+  assert.equal(streamed,0);
+});
+
+test('Play falls back to the live stream when the prepared segment request fails', async () => {
+  let streamed;
+  const context = loadFunction('playServerCurrent', 'browserQueue', {
+    segmentRequestToken:0, playerState:'idle', getCurrentPosition:()=>0, wantToPlay:false,
+    document:{querySelector:()=>null}, setPlayerState(){}, playlistReady:true,
+    playlist:[{url:'/audio/0',objectUrl:null}], currentSegmentIndex:0, segmentStarts:[0], pendingSegmentOffset:0,
+    segmentRequests:new Map([['/audio/0',new Promise(()=>{})]]),
+    mapParagraphsToSegments(){}, findSegmentForTextOffset:()=>0, visibleTextOffset:()=>0,
+    ensureSegment:()=>Promise.reject(new Error('segment unavailable')),
+    playFirstSegmentFromStream:(...args)=>{streamed=args;}, setAudioSegment(){},
+    audio:{src:'',error:null}, console:{warn(){}},
+  });
+
+  context.run();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(streamed,[0,0,1]);
+});
+
 test('media error and rejected play recover the stream only once', async () => {
   let resolveManifest, requests = 0, played = 0;
   const context = loadFunction('recoverStream', 'playFirstSegmentFromStream', {

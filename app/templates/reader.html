@@ -843,6 +843,14 @@
           playlistReady = true;
           durationLabel.textContent = formatTime(totalDuration);
           if (selectSegment) seekTo(resumeAt, autoplay);
+          else {
+            const initialIndex = findSegmentIndex(resumeAt);
+            currentSegmentIndex = initialIndex;
+            pendingSegmentOffset = Math.max(0, resumeAt - (segmentStarts[initialIndex] || 0));
+            ensureSegment(initialIndex).catch((error) => {
+              if (error.name !== "AbortError") console.warn("TTS initial segment warm-up failed", error);
+            });
+          }
           return Promise.resolve();
         }
         playlistLoading = fetch(buildManifestUrl())
@@ -877,8 +885,14 @@
               if (playerState === "playing") highlightSegment(streamingSegmentIndex);
             }
             pendingSegmentOffset = Math.max(0, resumeAt - (segmentStarts[initialIndex] || 0));
-            if (!selectSegment) return Promise.resolve();
-            return ensureSegment(initialIndex).then(() => {
+            const initialAudio = ensureSegment(initialIndex);
+            if (!selectSegment) {
+              initialAudio.catch((error) => {
+                if (error.name !== "AbortError") console.warn("TTS initial segment warm-up failed", error);
+              });
+              return Promise.resolve();
+            }
+            return initialAudio.then(() => {
               if (selectSegment && autoplay && wantToPlay) setAudioSegment(initialIndex, resumeAt - (segmentStarts[initialIndex] || 0), true);
             });
           })
@@ -954,7 +968,8 @@
           currentSegmentIndex = findSegmentForTextOffset(visibleTextOffset());
         }
         if (playlistReady && playlist.length) pendingSegmentOffset = retrying ? Math.max(0, retryPosition - (segmentStarts[currentSegmentIndex] || 0)) : 0;
-        if (!playlistReady || !playlist[currentSegmentIndex]?.objectUrl) {
+        const currentSegment = playlist[currentSegmentIndex];
+        if (!playlistReady || (!currentSegment?.objectUrl && !segmentRequests.has(currentSegment?.url))) {
           playFirstSegmentFromStream(playlistReady ? currentSegmentIndex : null, visibleTextOffset(), requestToken);
           (playlistLoading || loadPlaylist(0, false, false)).catch(error => {
             if (requestToken === segmentRequestToken && wantToPlay) reportTtsError(error);
@@ -966,7 +981,11 @@
         (playlistReady ? Promise.resolve() : loadPlaylist(0, false, false))
           .then(() => ensureSegment(targetIndex))
           .then(() => { if (requestToken === segmentRequestToken && wantToPlay) setAudioSegment(targetIndex, targetOffset, true); else if (requestToken === segmentRequestToken && !wantToPlay) setPlayerState("paused"); })
-          .catch((error) => { if (requestToken === segmentRequestToken && wantToPlay) reportTtsError(error); });
+          .catch((error) => {
+            if (requestToken !== segmentRequestToken || !wantToPlay || error.name === "AbortError") return;
+            console.warn("Prepared TTS audio unavailable; retrying live stream", error);
+            playFirstSegmentFromStream(targetIndex, targetOffset, requestToken);
+          });
       };
 
       let browserChunks = [], browserChunkIndex = 0;
