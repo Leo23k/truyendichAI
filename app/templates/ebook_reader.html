@@ -72,6 +72,7 @@
     <section data-sheet="toc" class="reader-sheet absolute inset-x-0 bottom-0 hidden h-[80vh] rounded-t-2xl bg-white p-4 text-stone-900 shadow-2xl"><div class="mx-auto flex h-full max-w-lg flex-col"><div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Mục lục</h2><button type="button" data-close-sheet class="icon-button text-stone-500" aria-label="Đóng"><i data-lucide="x" class="h-5 w-5"></i></button></div><div class="mb-3 flex justify-end"><select data-toc-sort class="h-9 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700" aria-label="Sắp xếp chương"><option value="asc">Cũ nhất</option><option value="desc">Mới nhất</option></select></div><div data-toc-list class="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-md border border-stone-100">{% for item in chapter_list %}<a href="/ebooks/{{ book.url_slug }}/read/{{ item.chapter_number }}?mode={{ mode }}" data-toc-item data-number="{{ item.chapter_number }}" {% if item.chapter_number == chapter.chapter_number %}data-current="true"{% endif %} class="flex min-h-12 items-center border-b border-stone-100 px-4 py-3 last:border-b-0 hover:bg-stone-50"><span class="mr-2 shrink-0 text-sm text-stone-400">#{{ item.chapter_number }}</span><span class="min-w-0 truncate text-sm {% if item.chapter_number == chapter.chapter_number %}font-semibold text-teal-700{% endif %}">{{ item.title }}</span></a>{% endfor %}</div></div></section>
   </div>
 </div>
+<script src="/static/tts_timeline.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => { (() => {
   const readerHeader = document.querySelector('[data-ebook-reader-header]');
@@ -227,7 +228,10 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
   const elapsedBefore = index => segments.slice(0, index).reduce((sum, segment) => sum + segment.duration, 0);
   const updateTimeline = () => {
     const duration = totalDuration();
-    const segmentTime = selectedMode === 'device' ? Math.min(segments[segmentIndex]?.duration || 0, deviceElapsed + (deviceStartedAt ? (performance.now()-deviceStartedAt)/1000 : 0)) : (audio.currentTime || 0);
+    const estimatedDuration = segments[segmentIndex]?.duration || 0;
+    const segmentTime = selectedMode === 'device'
+      ? deviceElapsed + (deviceStartedAt ? (performance.now()-deviceStartedAt)/1000 : 0)
+      : window.NovelTTSTimeline.mediaTimeToTimelineTime(audio.currentTime, audio.duration, estimatedDuration);
     const current = Math.min(duration, elapsedBefore(segmentIndex) + segmentTime);
     currentLabel.textContent = formatTime(current); durationLabel.textContent = formatTime(duration);
     seek.value = duration ? String(Math.round(current / duration * 1000)) : '0';
@@ -262,7 +266,12 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
       audio.pause();
       const metadataReady = new Promise(resolve => { audio.addEventListener('loadedmetadata', resolve, {once:true}); audio.addEventListener('error', resolve, {once:true}); });
       audio.src = segment.url; audio.load();
-      if (resumeAt > 0) { await metadataReady; if (token !== loadingToken) return; audio.currentTime = Math.min(resumeAt, Math.max(0, (audio.duration || resumeAt) - .2)); }
+      if (resumeAt > 0) {
+        await metadataReady;
+        if (token !== loadingToken) return;
+        const mediaOffset = window.NovelTTSTimeline.timelineTimeToMediaTime(resumeAt, segment.duration, audio.duration);
+        audio.currentTime = Math.min(mediaOffset, Math.max(0, (audio.duration || mediaOffset) - .2));
+      }
       if (autoplay) {
         const playResult = audio.play();
         if (playResult) await playResult;
@@ -292,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
     playerStatus.dataset.deviceSpeaking='true'; playerStatus.dataset.devicePaused='false';
     const started = manager.speak(segment.text, {lang:'vi-VN',voiceURI:selectedDeviceVoice,rate,pitch,volume,
       onstart:()=>setPlayerState('playing'),
-      onboundary:event=>{markSegment(segmentIndex);const duration=totalDuration();const current=elapsedBefore(segmentIndex)+segment.duration*Math.min(1,Number(event.charIndex||0)/Math.max(1,segment.text.length));currentLabel.textContent=formatTime(current);seek.value=duration?String(Math.round(current/duration*1000)):'0';},
+      onboundary:()=>markSegment(segmentIndex),
       onend:()=>{if(!wantToPlay)return;if(segmentIndex>=segments.length-1){wantToPlay=false;playerStatus.dataset.deviceSpeaking='false';seek.value='1000';currentLabel.textContent=formatTime(totalDuration());setPlayerState('ended');return;}speakDeviceSegment(segmentIndex+1);},
       onerror:error=>{wantToPlay=false;playerStatus.dataset.deviceSpeaking='false';setPlayerState('error');deviceStatus.textContent=error.message||'Lỗi TTS thiết bị.';}
     });
@@ -335,7 +344,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
   deviceVoiceSelect.addEventListener('change',()=>{selectedDeviceVoice=deviceVoiceSelect.value;storage.set('deviceVoice',selectedDeviceVoice);if(playerStatus.dataset.deviceSpeaking==='true'){manager.stop();playerStatus.dataset.deviceSpeaking='false';speakDeviceSegment(segmentIndex);}});
   pitchControl.addEventListener('input',()=>{pitch=Number(pitchControl.value);storage.set('pitch',String(pitch));if(manager.mode==='device'&&playerStatus.dataset.deviceSpeaking==='true'){manager.stop();playerStatus.dataset.deviceSpeaking='false';speakDeviceSegment(segmentIndex);}});
   audio.addEventListener('timeupdate', updateTimeline);
-  audio.addEventListener('loadedmetadata', () => { if (Number.isFinite(audio.duration) && audio.duration > 0 && segments[segmentIndex]) segments[segmentIndex].duration = audio.duration; updateTimeline(); });
+  audio.addEventListener('loadedmetadata', updateTimeline);
   audio.addEventListener('playing', () => { wantToPlay = true; setPlayerState('playing'); markSegment(segmentIndex); });
   audio.addEventListener('error', () => { if (segments.length) setPlayerState('error'); });
   audio.addEventListener('pause', () => { if (!wantToPlay) setPlayerState('paused'); });
@@ -349,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
       if (target <= segments[index].duration || index === segments.length - 1) {
         const offset = Math.min(target, segments[index].duration); const autoplay = manager.mode==='device' ? playerStatus.dataset.deviceSpeaking==='true' : !audio.paused;
         if (manager.mode==='device') { wantToPlay=false;manager.stop();playerStatus.dataset.devicePaused='false';if(autoplay)speakDeviceSegment(index);else{segmentIndex=index;updateTimeline();} }
-        else if (index === segmentIndex && audio.src) audio.currentTime = offset;
+        else if (index === segmentIndex && audio.src) audio.currentTime = window.NovelTTSTimeline.timelineTimeToMediaTime(offset, segments[index].duration, audio.duration);
         else fetchSegment(index, autoplay, offset);
         break;
       }

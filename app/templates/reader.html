@@ -306,6 +306,7 @@
     </section>
   </div>
 
+  <script src="/static/tts_timeline.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", () => { (() => {
       const player = document.querySelector("[data-reader-player]");
@@ -669,35 +670,25 @@
         if (!hasAudio) return 0;
         if (!playlistReady) return audio.currentTime || 0;
         const index = streamingFirstSegment ? streamingSegmentIndex : currentSegmentIndex;
-        return (segmentStarts[index] || 0) + (audio.currentTime || 0);
+        const timelineOffset = window.NovelTTSTimeline.mediaTimeToTimelineTime(
+          audio.currentTime, audio.duration, playlist[index]?.duration
+        );
+        return (segmentStarts[index] || 0) + timelineOffset;
       };
 
       const updateProgress = () => {
         if (selectedTtsMode === "device" && browserChunks.length) {
           const durations = browserChunks.map(chunk => Math.max(1, chunk.text.length / (15 * getRate())));
-          const total = durations.reduce((sum, duration) => sum + duration, 0);
           const elapsed = deviceElapsed + (deviceStartedAt ? (performance.now() - deviceStartedAt) / 1000 : 0);
-          const current = durations.slice(0, browserChunkIndex).reduce((sum, duration) => sum + duration, 0) + Math.min(elapsed, durations[browserChunkIndex] || 0);
-          currentLabel.textContent = formatTime(current); durationLabel.textContent = formatTime(total);
-          progress.value = String(Math.round(current / total * 1000));
+          const position = window.NovelTTSTimeline.calculateProgress(durations, browserChunkIndex, elapsed);
+          currentLabel.textContent = formatTime(position.current); durationLabel.textContent = formatTime(position.total);
+          progress.value = String(position.value);
           return;
         }
         const current = getCurrentPosition();
         currentLabel.textContent = formatTime(current);
         durationLabel.textContent = formatTime(totalDuration);
-        if (totalDuration) progress.value = String(Math.round((current / totalDuration) * 1000));
-      };
-
-      const refreshPlaylistDuration = () => {
-        let cursor = 0;
-        segmentStarts = playlist.map((segment) => {
-          const start = cursor;
-          cursor += Number(segment.duration || 0);
-          return start;
-        });
-        totalDuration = cursor;
-        durationLabel.textContent = formatTime(totalDuration);
-        if (playlistReady) voiceSessions.set(voiceSessionKey(), { playlist, segmentStarts, totalDuration });
+        if (totalDuration) progress.value = String(Math.round(Math.max(0, Math.min(totalDuration, current)) / totalDuration * 1000));
       };
 
       const findSegmentIndex = (time) => {
@@ -763,12 +754,11 @@
         audio.playbackRate = 1;
         audio.onloadedmetadata = () => {
           if (loadToken !== audioLoadToken) return;
-          const segmentDuration = audio.duration || playlist[index].duration || 0;
-          if (Number.isFinite(audio.duration) && audio.duration > 0) {
-            playlist[index].duration = audio.duration;
-            refreshPlaylistDuration();
+          const segmentDuration = playlist[index].duration || 0;
+          if (offset > 0 && segmentDuration) {
+            const mediaOffset = window.NovelTTSTimeline.timelineTimeToMediaTime(offset, segmentDuration, audio.duration);
+            audio.currentTime = Math.min(mediaOffset, Math.max(0, (audio.duration || mediaOffset) - 0.25));
           }
-          if (offset > 0 && segmentDuration) audio.currentTime = Math.min(offset, Math.max(0, segmentDuration - 0.25));
           updateProgress();
           updateSegmentButtons();
           preloadAhead();
@@ -937,7 +927,7 @@
         if(followText?.checked&&Date.now()>=followPausedUntil&&(rect.top<innerHeight*.18||rect.bottom>innerHeight*.82))chunk.node.scrollIntoView({behavior:"smooth",block:"center"});
         storage.setItem(`reader.device.position.${readerChapterKey}`,String(index));
         const started=ttsManager.speak(chunk.text,{lang:"vi-VN",voiceURI:selectedDeviceVoice,rate:getRate(),pitch:devicePitch,volume:audio?.volume??.9,
-          onstart:()=>{setPlayerState("playing");progress.value=String(Math.round(browserChunkIndex/Math.max(1,browserChunks.length)*1000));},onboundary:event=>{if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");const fraction=Math.min(1,Number(event.charIndex||0)/Math.max(1,chunk.text.length));progress.value=String(Math.round((browserChunkIndex+fraction)/Math.max(1,browserChunks.length)*1000));},
+          onstart:()=>{setPlayerState("playing");updateProgress();},onboundary:()=>{if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");},
           onend:()=>{if(wantToPlay)speakBrowserChunk(browserChunkIndex+1);},
           onerror:error=>{wantToPlay=false;setPlayerState("error");if(deviceStatus)deviceStatus.textContent=error.message||"Lỗi TTS thiết bị.";}
         });
@@ -1363,10 +1353,6 @@
                   : findSegmentForTextOffset(streamingTextOffset);
                 streamingFirstSegment = false;
                 streamingSegmentIndexKnown = true;
-                if (playlist[streamedIndex] && Number.isFinite(audio.duration) && audio.duration > 0) {
-                  playlist[streamedIndex].duration = audio.duration;
-                  refreshPlaylistDuration();
-                }
                 // A failed manifest used to look like an empty one here and
                 // incorrectly advance to the next chapter after the stream.
                 if (!playlistReady || !playlist.length) {
