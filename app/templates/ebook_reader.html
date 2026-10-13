@@ -179,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
   let selectedVoice = storage.get('voice') || defaultVoice;
   let selectedDeviceVoice = storage.get('deviceVoice') || '';
   let pitch = Number(storage.get('pitch') || 1);
-  let selectedMode = storage.get('ttsMode') || (navigator.onLine === false ? 'device' : 'server');
+  let selectedMode = window.NovelTTS?.getInitialTtsMode(storage.get('ttsMode')) || storage.get('ttsMode') || (navigator.onLine === false ? 'device' : 'server');
   if (!voices.has(selectedVoice)) selectedVoice = defaultVoice;
   let rate = Math.max(.75, Math.min(2, Number(storage.get('rate') || 1)));
   let volume = Math.max(0, Math.min(1, Number(storage.get('volume') || .9)));
@@ -201,6 +201,7 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
       else if (state === 'playing' && player.dataset.state !== 'playing') deviceStartedAt=performance.now();
     }
     player.dataset.state=state;
+    if (navigator.mediaSession) navigator.mediaSession.playbackState = state === 'playing' || (state === 'loading' && wantToPlay) ? 'playing' : state === 'paused' ? 'paused' : 'none';
     const iconState = state === 'loading' ? 'loading' : state === 'playing' ? 'pause' : 'play';
     player.querySelectorAll('[data-play-icon]').forEach(icon => icon.classList.toggle('hidden', icon.dataset.playIcon !== iconState));
     playerStatus.textContent = state === 'loading' ? 'ĐANG TẢI AUDIO' : state === 'playing' ? 'ĐANG PHÁT ÂM THANH' : state === 'error' ? 'LỖI TTS' : state === 'ended' ? 'ĐÃ ĐỌC XONG' : 'SẴN SÀNG';
@@ -339,6 +340,11 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
     if (!deviceProvider?.isSupported()) { deviceStatus.textContent='TTS không khả dụng trên trình duyệt này.'; setPlayerState('error'); return; }
     segmentIndex = visibleSegment(); playerStatus.dataset.deviceSpeaking='true'; speakDeviceSegment(segmentIndex);
   };
+  if (navigator.mediaSession) {
+    if (typeof window.MediaMetadata === 'function') navigator.mediaSession.metadata = new window.MediaMetadata({title:document.title,artist:'Leo Truyện'});
+    navigator.mediaSession.setActionHandler?.('play',()=>{if(manager.mode==='device'?playerStatus.dataset.devicePaused==='true'||playerStatus.dataset.deviceSpeaking!=='true':audio.paused&&player.dataset.state!=='loading')playCurrent();});
+    navigator.mediaSession.setActionHandler?.('pause',()=>{if(manager.mode==='device'?playerStatus.dataset.deviceSpeaking==='true':!audio.paused)playCurrent();});
+  }
   const updateChromeVoiceOption = (voices, onSelect) => {
     const container = document.querySelector('[data-online-voice-options]');
     if (!container) return;

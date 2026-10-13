@@ -516,7 +516,7 @@
       const deviceProvider = window.NovelTTS?.createDeviceProvider();
       let selectedDeviceVoice = storage.getItem("reader.deviceVoice") || "";
       let devicePitch = Number(storage.getItem("reader.pitch") || 1);
-      let selectedTtsMode = storage.getItem("reader.ttsMode") || (navigator.onLine === false ? "device" : "server");
+      let selectedTtsMode = window.NovelTTS?.getInitialTtsMode(storage.getItem("reader.ttsMode")) || storage.getItem("reader.ttsMode") || (navigator.onLine === false ? "device" : "server");
 
       let sleepMode = storage.getItem("reader.sleepMode") || "off";
       let sleepUntil = Number(storage.getItem("reader.sleepUntil") || 0);
@@ -609,6 +609,7 @@
         } else if (state === "playing" && playerState !== "playing" && selectedTtsMode === "device") deviceStartedAt = performance.now();
         playerState = state;
         player.dataset.state = state;
+        if (navigator.mediaSession) navigator.mediaSession.playbackState = state === "playing" || (state === "loading" && wantToPlay) ? "playing" : state === "paused" ? "paused" : "none";
         if (state === "playing" || state === "loading") player.classList.remove("is-hidden");
         setPlayIcon(state === "loading" ? "loading" : state === "playing" ? "pause" : "play");
         playButton.setAttribute("aria-label", state === "playing" ? "Tạm dừng đọc" : "Bắt đầu đọc");
@@ -1618,6 +1619,11 @@
         }
       }
       playButton.addEventListener("click", handlePlayButtonClick);
+      if (navigator.mediaSession) {
+        if (typeof window.MediaMetadata === "function") navigator.mediaSession.metadata = new window.MediaMetadata({ title: document.title, artist: "Leo Truyện" });
+        navigator.mediaSession.setActionHandler?.("play", () => { if (playerState !== "playing" && playerState !== "loading") handlePlayButtonClick(); });
+        navigator.mediaSession.setActionHandler?.("pause", () => { if (playerState === "playing" || playerState === "loading") handlePlayButtonClick(); });
+      }
 
       updateTranslateButton();
       translateButton?.addEventListener("click", startTranslationFlow);

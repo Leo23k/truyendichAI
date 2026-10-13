@@ -286,6 +286,18 @@ test('browser TTS chooses Nam Minh on Edge and Google Vietnamese 2 on Chrome', (
   assert.equal(context.choose(voices.slice(0, 1), 'Mozilla/5.0 Edg/130.0').voiceURI, 'vi-an');
 });
 
+test('mobile online defaults to background-capable audio while desktop preference is preserved', () => {
+  const source = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
+  const start = source.indexOf('const getInitialTtsMode =');
+  const end = source.indexOf('const getPreferredDeviceVoice =', start);
+  assert.ok(start >= 0 && end > start);
+  const context = vm.createContext({navigator:{userAgent:'',onLine:true}});
+  vm.runInContext(`${source.slice(start, end)}; globalThis.choose = getInitialTtsMode;`, context);
+  assert.equal(context.choose('device', 'Mozilla/5.0 Android Mobile', true), 'server');
+  assert.equal(context.choose('device', 'Mozilla/5.0 Windows Chrome', true), 'device');
+  assert.equal(context.choose('server', 'Mozilla/5.0 Android Mobile', false), 'device');
+});
+
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {
   let spoken = 0, resumed = 0;
   const node = {getBoundingClientRect:()=>({bottom:1000})};
