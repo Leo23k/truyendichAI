@@ -161,3 +161,82 @@ async def test_edge_tts_stream_does_not_retry_after_audio_started(monkeypatch) -
 
     assert frames == [b"first-frame"]
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_html_stream_falls_back_before_emitting_audio(monkeypatch) -> None:
+    class Response:
+        headers = {"content-type": "text/html"}
+        def raise_for_status(self):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        async def aiter_bytes(self):
+            yield b"<html>Login</html>"
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        def stream(self, *args, **kwargs):
+            return Response()
+
+    class Communicate:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def stream(self):
+            yield {"type": "audio", "data": b"real-audio"}
+
+    monkeypatch.setattr(edge_tts_service.settings, "tts_api_url", "https://tts.example")
+    monkeypatch.setattr(edge_tts_service.httpx, "AsyncClient", Client)
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=Communicate))
+    frames = [frame async for frame in edge_tts_service.stream_edge_tts("Test")]
+    assert frames == [b"real-audio"]
+
+
+@pytest.mark.asyncio
+async def test_unavailable_remote_synthesis_uses_builtin(monkeypatch, tmp_path) -> None:
+    async def unavailable(*args, **kwargs):
+        raise edge_tts_service.EdgeTTSUnavailableError("remote is offline")
+
+    class Communicate:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def save(self, path):
+            from pathlib import Path
+            Path(path).write_bytes(b"real-audio")
+
+    monkeypatch.setattr(edge_tts_service.settings, "tts_api_url", "https://tts.example")
+    monkeypatch.setattr(edge_tts_service.settings, "audio_dir", str(tmp_path))
+    monkeypatch.setattr(edge_tts_service, "synthesize_remote_tts", unavailable)
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=Communicate))
+    audio = await edge_tts_service.synthesize_edge_tts("Test fallback")
+    assert audio.path.read_bytes() == b"real-audio"
+
+
+def test_tts_direct_response_returns_audio_without_second_request(monkeypatch, tmp_path) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app import main
+
+    path = tmp_path / "test.mp3"
+    path.write_bytes(b"test-audio")
+
+    async def synthesize(*args, **kwargs):
+        return edge_tts_service.EdgeAudio(path=path, url="/api/tts/audio/test.mp3")
+
+    monkeypatch.setattr(main, "synthesize_edge_tts", synthesize)
+    app = FastAPI()
+    app.post("/api/tts", response_model=None)(main.api_tts)
+    with TestClient(app) as client:
+        direct = client.post("/api/tts?direct_audio=true", json={"text": "Test"})
+        assert direct.status_code == 200
+        assert direct.headers["content-type"] == "audio/mpeg"
+        assert direct.content == b"test-audio"
+        legacy = client.post("/api/tts", json={"text": "Test"})
+        assert legacy.json() == {"audio_url": "/api/tts/audio/test.mp3"}

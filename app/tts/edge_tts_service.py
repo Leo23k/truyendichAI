@@ -143,6 +143,9 @@ async def synthesize_remote_tts(text: str, *, voice: str, rate: float, path: Pat
             audio_url = response.json()["audio_url"]
             audio_response = await client.get(urljoin(settings.tts_api_url, audio_url))
             audio_response.raise_for_status()
+            content_type = getattr(audio_response, "headers", {}).get("content-type", "")
+            if not audio_response.content or (content_type and not content_type.startswith(("audio/", "application/octet-stream"))):
+                raise ValueError("TTS service returned an invalid audio response.")
         path.write_bytes(audio_response.content)
     except (httpx.HTTPError, KeyError, ValueError) as exc:
         raise EdgeTTSUnavailableError("Khong the tao audio bang TTS service.") from exc
@@ -160,17 +163,21 @@ async def stream_edge_tts(
         raise EdgeTTSUnavailableError("Khong co van ban de tao audio.")
     selected_voice = normalize_voice(voice)
     selected_rate = normalize_rate(rate)
+    use_remote = bool(settings.tts_api_url)
     for attempt in range(2):
         received_audio = False
         try:
-            if settings.tts_api_url:
-                async with httpx.AsyncClient(timeout=EDGE_TTS_TIMEOUT_SECONDS, trust_env=False) as client:
+            if use_remote:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=10), trust_env=False) as client:
                     async with client.stream(
                         "POST",
                         tts_stream_url(),
                         json={"text": text, "voice": selected_voice, "rate": selected_rate},
                     ) as response:
                         response.raise_for_status()
+                        content_type = response.headers.get("content-type", "")
+                        if not content_type.startswith(("audio/", "application/octet-stream")):
+                            raise EdgeTTSUnavailableError("TTS service did not return audio.")
                         async for frame in response.aiter_bytes():
                             if frame:
                                 received_audio = True
@@ -190,13 +197,16 @@ async def stream_edge_tts(
             # Retry only before emitting audio. Restarting after the first frame
             # would duplicate speech in the already-open response stream.
             if received_audio or attempt == 1:
-                provider = "TTS service" if settings.tts_api_url else "Microsoft Edge TTS"
+                provider = "TTS service" if use_remote else "Microsoft Edge TTS"
                 raise EdgeTTSUnavailableError(f"Khong the stream audio bang {provider}.") from exc
             logger.warning(
                 "Edge TTS stream failed before first audio frame voice=%s attempt=1/2; retrying",
                 selected_voice,
                 exc_info=True,
             )
+            # A stale remote URL must not make both Vietnamese voices unusable.
+            # Fall back only before emitting any audio, so speech is never repeated.
+            use_remote = False
             await asyncio.sleep(0.4)
 
 
@@ -468,10 +478,14 @@ async def _synthesize_edge_tts_uncached(
 ) -> EdgeAudio:
 
     if settings.tts_api_url:
-        await synthesize_remote_tts(text, voice=selected_voice, rate=selected_rate, path=path)
-        if path.exists() and path.stat().st_size > 0:
-            return EdgeAudio(path=path, url=f"/api/tts/audio/{path.name}")
-        raise EdgeTTSUnavailableError("TTS service did not return audio.")
+        try:
+            await asyncio.wait_for(synthesize_remote_tts(text, voice=selected_voice, rate=selected_rate, path=path), timeout=20)
+            if path.exists() and path.stat().st_size > 0:
+                return EdgeAudio(path=path, url=f"/api/tts/audio/{path.name}")
+            raise EdgeTTSUnavailableError("TTS service did not return audio.")
+        except (EdgeTTSUnavailableError, asyncio.TimeoutError):
+            logger.warning("Remote TTS unavailable; using built-in Edge TTS voice=%s", selected_voice, exc_info=True)
+            path.unlink(missing_ok=True)
 
     last_error: Exception | None = None
     for attempt in range(2):

@@ -562,6 +562,7 @@
       let playerState = "idle";
       let wantToPlay = false;
       let playRequestedAt = 0;
+      let deviceElapsed = 0, deviceStartedAt = 0;
       const followText = document.querySelector("[data-follow-text]");
       const highlightText = document.querySelector("[data-highlight-text]");
       let followPausedUntil = 0;
@@ -590,6 +591,10 @@
         if (Date.now() >= suppressFollowPauseUntil) followPausedUntil = Date.now() + 8000;
       }, { passive: true });
       const setPlayerState = (state) => {
+        if (playerState === "playing" && state !== "playing" && selectedTtsMode === "device" && deviceStartedAt) {
+          deviceElapsed += (performance.now() - deviceStartedAt) / 1000;
+          deviceStartedAt = 0;
+        } else if (state === "playing" && playerState !== "playing" && selectedTtsMode === "device") deviceStartedAt = performance.now();
         playerState = state;
         player.dataset.state = state;
         if (state === "playing" || state === "loading") player.classList.remove("is-hidden");
@@ -664,6 +669,15 @@
       };
 
       const updateProgress = () => {
+        if (selectedTtsMode === "device" && browserChunks.length) {
+          const durations = browserChunks.map(chunk => Math.max(1, chunk.text.length / (15 * getRate())));
+          const total = durations.reduce((sum, duration) => sum + duration, 0);
+          const elapsed = deviceElapsed + (deviceStartedAt ? (performance.now() - deviceStartedAt) / 1000 : 0);
+          const current = durations.slice(0, browserChunkIndex).reduce((sum, duration) => sum + duration, 0) + Math.min(elapsed, durations[browserChunkIndex] || 0);
+          currentLabel.textContent = formatTime(current); durationLabel.textContent = formatTime(total);
+          progress.value = String(Math.round(current / total * 1000));
+          return;
+        }
         const current = getCurrentPosition();
         currentLabel.textContent = formatTime(current);
         durationLabel.textContent = formatTime(totalDuration);
@@ -712,7 +726,7 @@
         if (segmentRequests.has(index)) return segmentRequests.get(index);
         segment.status = "loading";
         const request = fetch(segment.url)
-          .then((response) => { if (!response.ok) throw new Error(`TTS segment ${response.status}`); return response.blob(); })
+          .then((response) => { if (!response.ok || !response.headers.get("content-type")?.startsWith("audio/")) throw new Error(`TTS segment ${response.status}: không nhận được audio`); return response.blob(); })
           .then((blob) => {
             segment.objectUrl = URL.createObjectURL(blob);
             segment.status = "ready";
@@ -735,6 +749,8 @@
         segmentRequestToken += 1;
         const loadToken = ++audioLoadToken;
         currentSegmentIndex = index;
+        streamingFirstSegment = false;
+        streamingSegmentIndexKnown = false;
         pendingSegmentOffset = 0;
         if (resetRetry) audioRetryUsed = false;
         audio.pause();
@@ -910,19 +926,33 @@
       const speakBrowserChunk = (index) => {
         if(index>=browserChunks.length){wantToPlay=false;setPlayerState("ended");return;}
         browserChunkIndex=index;const chunk=browserChunks[index];
+        deviceElapsed=0;deviceStartedAt=performance.now();
         document.querySelectorAll(".reader-tts-active").forEach(node=>node.classList.remove("reader-tts-active"));
         if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");
         const rect=chunk.node.getBoundingClientRect();
         if(followText?.checked&&Date.now()>=followPausedUntil&&(rect.top<innerHeight*.18||rect.bottom>innerHeight*.82))chunk.node.scrollIntoView({behavior:"smooth",block:"center"});
         storage.setItem(`reader.device.position.${readerChapterKey}`,String(index));
         const started=ttsManager.speak(chunk.text,{lang:"vi-VN",voiceURI:selectedDeviceVoice,rate:getRate(),pitch:devicePitch,volume:audio?.volume??.9,
-          onstart:()=>setPlayerState("playing"),onboundary:()=>{if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");},
+          onstart:()=>{setPlayerState("playing");progress.value=String(Math.round(browserChunkIndex/Math.max(1,browserChunks.length)*1000));},onboundary:event=>{if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");const fraction=Math.min(1,Number(event.charIndex||0)/Math.max(1,chunk.text.length));progress.value=String(Math.round((browserChunkIndex+fraction)/Math.max(1,browserChunks.length)*1000));},
           onend:()=>{if(wantToPlay)speakBrowserChunk(browserChunkIndex+1);},
           onerror:error=>{wantToPlay=false;setPlayerState("error");if(deviceStatus)deviceStatus.textContent=error.message||"Lỗi TTS thiết bị.";}
         });
         if(!started){wantToPlay=false;setPlayerState("error");}
       };
       const ttsManager = window.NovelTTS?.createManager({device:deviceProvider,server:{speak:playServerCurrent,pause:()=>audio?.pause(),resume:()=>audio?.play(),stop:()=>{audio?.pause();if(audio){audio.removeAttribute("src");audio.load();}}},initialMode:selectedTtsMode});
+      const deviceProgressTimer = setInterval(() => { if (selectedTtsMode === "device" && playerState === "playing") updateProgress(); }, 250);
+      window.addEventListener("pagehide", () => clearInterval(deviceProgressTimer), { once: true });
+      progress.disabled = !hasAudio && !deviceProvider?.isSupported();
+      progress.addEventListener("input", () => {
+        if (ttsManager.mode !== "device") return;
+        browserQueue();
+        if (!browserChunks.length) return;
+        const index = Math.min(browserChunks.length - 1, Math.floor(Number(progress.value) / 1000 * browserChunks.length));
+        const playing = playerState === "playing";
+        ttsManager.stop(); wantToPlay = playing; deviceElapsed = 0; deviceStartedAt = 0;
+        if (playing) speakBrowserChunk(index);
+        else { browserChunkIndex = index; setPlayerState("idle"); updateProgress(); }
+      });
       const playCurrent = () => {
         if(ttsManager?.mode!=="device")return ttsManager?.speak();
         if(playerState==="playing"||playerState==="loading"){wantToPlay=false;ttsManager.pause();setPlayerState("paused");return;}
@@ -1412,7 +1442,7 @@
         });
 
         progress.addEventListener("input", () => {
-          if(ttsManager.mode==="device"){browserQueue();const index=Math.round(Number(progress.value)/1000*(browserChunks.length-1));const playing=playerState==="playing";ttsManager.stop();wantToPlay=playing;if(playing)speakBrowserChunk(index);else browserChunkIndex=index;return;}
+          if(ttsManager.mode==="device")return;
           if (!totalDuration) return;
           seekTo(Number(progress.value) / 1000 * totalDuration, !audio.paused);
           saveState();

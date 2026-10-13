@@ -2220,14 +2220,18 @@ def delete_translation_memory(entry_id: int):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return RedirectResponse("/translation-memory", status_code=303)
 
-@app.post("/api/tts")
-async def api_tts(payload: TTSRequest) -> dict[str, str]:
+@app.post("/api/tts", response_model=None)
+async def api_tts(payload: TTSRequest, direct_audio: bool = False) -> dict[str, str] | FileResponse:
     try:
         audio = await synthesize_edge_tts(
             payload.text,
             voice=payload.voice,
             rate=payload.rate,
         )
+        if direct_audio:
+            # Return bytes from the same invocation that generated the file.
+            # A subsequent GET may land on another serverless instance.
+            return FileResponse(audio.path, media_type="audio/mpeg", headers={"Cache-Control": "private, no-store"})
         return {"audio_url": audio.url}
     except EdgeTTSUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
