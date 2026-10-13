@@ -298,6 +298,21 @@ test('mobile online defaults to background-capable audio while desktop preferenc
   assert.equal(context.choose('server', 'Mozilla/5.0 Android Mobile', false), 'device');
 });
 
+test('unsupported Media Session APIs do not interrupt Reader player setup', () => {
+  const source = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
+  const start = source.indexOf('const setMediaSessionState =');
+  const end = source.indexOf('const getInitialTtsMode =', start);
+  assert.ok(start >= 0 && end > start);
+  const warnings = [];
+  const session = {setActionHandler(){throw new DOMException('Unsupported', 'NotSupportedError');}};
+  Object.defineProperty(session, 'playbackState', {set(){throw new DOMException('Unsupported', 'InvalidStateError');}});
+  const context = vm.createContext({navigator:{mediaSession:session},window:{MediaMetadata:class {constructor(value){Object.assign(this,value);}}},console:{warn:(...args)=>warnings.push(args)}});
+  vm.runInContext(`${source.slice(start, end)}; globalThis.configure = configureMediaSession; globalThis.setState = setMediaSessionState;`, context);
+  assert.doesNotThrow(() => context.configure('Chapter', {play(){}, pause(){}}));
+  assert.doesNotThrow(() => context.setState('playing'));
+  assert.equal(warnings.length, 3);
+});
+
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {
   let spoken = 0, resumed = 0;
   const node = {getBoundingClientRect:()=>({bottom:1000})};

@@ -609,7 +609,7 @@
         } else if (state === "playing" && playerState !== "playing" && selectedTtsMode === "device") deviceStartedAt = performance.now();
         playerState = state;
         player.dataset.state = state;
-        if (navigator.mediaSession) navigator.mediaSession.playbackState = state === "playing" || (state === "loading" && wantToPlay) ? "playing" : state === "paused" ? "paused" : "none";
+        window.NovelTTS?.setMediaSessionState(state === "playing" || (state === "loading" && wantToPlay) ? "playing" : state === "paused" ? "paused" : "none");
         if (state === "playing" || state === "loading") player.classList.remove("is-hidden");
         setPlayIcon(state === "loading" ? "loading" : state === "playing" ? "pause" : "play");
         playButton.setAttribute("aria-label", state === "playing" ? "Tạm dừng đọc" : "Bắt đầu đọc");
@@ -1619,11 +1619,10 @@
         }
       }
       playButton.addEventListener("click", handlePlayButtonClick);
-      if (navigator.mediaSession) {
-        if (typeof window.MediaMetadata === "function") navigator.mediaSession.metadata = new window.MediaMetadata({ title: document.title, artist: "Leo Truyện" });
-        navigator.mediaSession.setActionHandler?.("play", () => { if (playerState !== "playing" && playerState !== "loading") handlePlayButtonClick(); });
-        navigator.mediaSession.setActionHandler?.("pause", () => { if (playerState === "playing" || playerState === "loading") handlePlayButtonClick(); });
-      }
+      window.NovelTTS?.configureMediaSession(document.title, {
+        play: () => { if (playerState !== "playing" && playerState !== "loading") handlePlayButtonClick(); },
+        pause: () => { if (playerState === "playing" || playerState === "loading") handlePlayButtonClick(); },
+      });
 
       updateTranslateButton();
       translateButton?.addEventListener("click", startTranslationFlow);

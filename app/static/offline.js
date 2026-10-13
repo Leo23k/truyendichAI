@@ -297,6 +297,20 @@
     });
   }
 
+  const setMediaSessionState = state => {
+    try { if (navigator.mediaSession) navigator.mediaSession.playbackState = state; }
+    catch (error) { console.warn("Media Session playback state unavailable", error); }
+  };
+  const configureMediaSession = (title, handlers) => {
+    const session = navigator.mediaSession;
+    if (!session) return;
+    try { if (typeof window.MediaMetadata === "function") session.metadata = new window.MediaMetadata({title, artist:"Leo Truyện"}); }
+    catch (error) { console.warn("Media Session metadata unavailable", error); }
+    for (const [action, handler] of Object.entries(handlers)) {
+      try { session.setActionHandler?.(action, handler); }
+      catch (error) { console.warn(`Media Session ${action} action unavailable`, error); }
+    }
+  };
   const getInitialTtsMode = (storedMode, userAgent = navigator.userAgent, online = navigator.onLine) => {
     const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent) || navigator.userAgentData?.mobile;
     return mobile ? (online ? "server" : "device") : storedMode || (online ? "server" : "device");
@@ -319,5 +333,5 @@
   const createManager = ({ device, server, initialMode = "server" } = {}) => { let mode = initialMode === "device" ? "device" : "server"; const active = () => mode === "device" ? device : server; return { get mode() { return mode; }, setMode(value) { if (value !== "device" && value !== "server") throw new Error("TTS mode không hợp lệ"); if (mode !== value) { device?.stop?.(); server?.stop?.(); mode = value; } }, isSupported() { return Boolean(active()?.isSupported?.() ?? active()); }, getVoices() { return device?.getVoices?.() || Promise.resolve([]); }, speak(...args) { return active()?.speak?.(...args); }, pause() { return active()?.pause?.(); }, resume() { return active()?.resume?.(); }, stop() { device?.stop?.(); server?.stop?.(); } }; };
   document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error)); });
   window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader };
-  window.NovelTTS = { createDeviceProvider, createManager, getInitialTtsMode, getPreferredDeviceVoice };
+  window.NovelTTS = { createDeviceProvider, createManager, configureMediaSession, getInitialTtsMode, getPreferredDeviceVoice, setMediaSessionState };
 })();
