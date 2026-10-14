@@ -360,12 +360,18 @@ def list_ebooks(owner_id: str) -> list[dict]:
             books = remote.all_rows("ebook_books", {**filters, "select": "id,title,author,source_format,source_language,status,chapter_count,created_at,updated_at,cover_path"})
         except SyncError:
             books = remote.all_rows("ebook_books", {**filters, "select": "id,title,author,source_format,source_language,status,chapter_count,created_at,updated_at"})
-        if not books:
-            return []
-        ids = ",".join(str(book["id"]) for book in books)
-        chapters = remote.all_rows("ebook_chapters", {
-            "select": "ebook_id,translation_status", "ebook_id": f"in.({ids})",
+        pending_uploads = remote.all_rows("ebook_ingestion_queue", {
+            "select": "id,file_name,source_format,status,created_at,updated_at",
+            "owner_id": f"eq.{owner_id}",
+            "status": "in.(awaiting_upload,queued,processing,failed)",
+            "order": "created_at.desc",
         })
+        chapters = []
+        if books:
+            ids = ",".join(str(book["id"]) for book in books)
+            chapters = remote.all_rows("ebook_chapters", {
+                "select": "ebook_id,translation_status", "ebook_id": f"in.({ids})",
+            })
     except SyncError as exc:
         raise EbookServiceError("Không thể tải thư viện ebook. Kiểm tra kết nối Supabase và migration ebook_private_library.", 503) from exc
     stats = {str(book["id"]): {"translated": 0, "processing": 0, "pending": 0, "failed": 0} for book in books}
@@ -385,6 +391,18 @@ def list_ebooks(owner_id: str) -> list[dict]:
             "pending_chapters": progress["pending"],
             "failed_chapters": progress["failed"],
             "translation_percent": round(progress["translated"] * 100 / max(1, int(book.get("chapter_count") or 0))),
+        })
+    for upload in pending_uploads:
+        filename = str(upload.get("file_name") or "Ebook đang tải")
+        title = PurePosixPath(filename).stem or "Ebook đang tải"
+        books.append({
+            "id": str(upload["id"]), "title": title, "author": None,
+            "source_format": upload.get("source_format"), "source_language": None,
+            "status": upload.get("status"), "chapter_count": 0,
+            "created_at": upload.get("created_at"), "updated_at": upload.get("updated_at"),
+            "cover_url": None, "pending_upload": True,
+            "translated_chapters": 0, "processing_chapters": 0,
+            "pending_chapters": 0, "failed_chapters": 0, "translation_percent": 0,
         })
     return books
 

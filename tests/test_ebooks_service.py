@@ -246,12 +246,26 @@ def test_ebook_list_shows_real_translation_progress(monkeypatch):
             {"ebook_id": "ebook-1", "translation_status": "translated"},
             {"ebook_id": "ebook-1", "translation_status": "processing"},
             {"ebook_id": "ebook-1", "translation_status": "pending"},
-        ]
+        ] if table == "ebook_chapters" else []
     )
     monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
 
     book = ebook_service.list_ebooks("owner")[0]
     assert (book["translated_chapters"], book["processing_chapters"], book["pending_chapters"], book["translation_percent"]) == (1, 1, 1, 33)
+
+
+def test_ebook_list_shows_upload_waiting_for_pc_worker(monkeypatch):
+    remote = FakeRemote()
+    remote.all_rows = lambda table, _params: [{
+        "id": "upload-1", "file_name": "My Book.epub", "source_format": "epub",
+        "status": "queued", "created_at": "2026-01-02", "updated_at": "2026-01-02",
+    }] if table == "ebook_ingestion_queue" else []
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+
+    book = ebook_service.list_ebooks("owner")[0]
+    assert book["pending_upload"] is True
+    assert book["title"] == "My Book"
+    assert book["status"] == "queued"
 
 
 def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
