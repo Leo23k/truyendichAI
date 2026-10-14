@@ -16,6 +16,41 @@ test('both complete Reader scripts have valid JavaScript syntax', () => {
     for (const [,script] of scripts) new vm.Script(script.replace(/\{%[\s\S]*?%\}/g,'').replace(/\{\{[\s\S]*?\}\}/g,'null'));
   }
 });
+
+test('desktop Reader arrow keys navigate chapters without hijacking form controls', () => {
+  const start = source.indexOf('const handleReaderKeyboardNavigation =');
+  const end = source.indexOf('const readerHeader =', start);
+  assert.ok(start >= 0 && end > start);
+  const navigated = [];
+  class FakeElement {
+    matches(selector) { return this.kind === 'input' && selector.startsWith('input'); }
+    closest() { return null; }
+  }
+  const context = vm.createContext({
+    Element: FakeElement,
+    player: { dataset: { previousUrl: '/previous', nextUrl: '/next' } },
+    window: { matchMedia: () => ({ matches: true }), location: { assign: url => navigated.push(url) } },
+    document: { addEventListener() {} },
+  });
+  vm.runInContext(`${source.slice(start, end)}; globalThis.run = handleReaderKeyboardNavigation;`, context);
+  const event = key => ({ key, target: {}, defaultPrevented: false, preventDefault() { this.prevented = true; } });
+
+  const previous = event('ArrowLeft');
+  context.run(previous);
+  const next = event('ArrowRight');
+  context.run(next);
+  const input = new FakeElement();
+  input.kind = 'input';
+  const fromInput = event('ArrowRight');
+  fromInput.target = input;
+  context.run(fromInput);
+
+  assert.deepEqual(navigated, ['/previous', '/next']);
+  assert.equal(previous.prevented, true);
+  assert.equal(next.prevented, true);
+  assert.equal(fromInput.prevented, undefined);
+});
+
 function loadFunction(name, nextName, bindings, templateSource = source) {
   const start = templateSource.indexOf(`const ${name} =`);
   const end = templateSource.indexOf(`const ${nextName} =`, start);

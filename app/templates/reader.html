@@ -215,6 +215,7 @@
     data-next-queue-chapter-id="{{ following.id if following else '' }}"
     data-audio-manifest-url="{{ audio_manifest_url or '/chapters/' ~ chapter.id ~ '/audio/manifest' }}"
     data-next-url="{{ following_url or (('/chapters/' ~ following.id) if following else '') }}"
+    data-previous-url="{{ previous_url or (('/chapters/' ~ previous.id) if previous else '') }}"
     data-has-audio="{% if showing_translation and chapter.translated_content %}true{% else %}false{% endif %}"
     data-mobile-expanded="false"
     class="reader-player-shell reader-bottom-bar fixed bottom-4 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-4xl -translate-x-1/2 border px-3 py-3 text-stone-900 backdrop-blur sm:px-5"
@@ -314,6 +315,17 @@
     document.addEventListener("DOMContentLoaded", () => { (() => {
       const player = document.querySelector("[data-reader-player]");
       if (!player) return;
+      const handleReaderKeyboardNavigation = (event) => {
+        if (!window.matchMedia("(min-width: 640px)").matches || event.defaultPrevented) return;
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        const target = event.target;
+        if (target instanceof Element && (target.matches("input, textarea, select, button, [contenteditable='true']") || target.closest("[contenteditable='true']"))) return;
+        const url = event.key === "ArrowLeft" ? player.dataset.previousUrl : event.key === "ArrowRight" ? player.dataset.nextUrl : "";
+        if (!url) return;
+        event.preventDefault();
+        window.location.assign(url);
+      };
+      document.addEventListener("keydown", handleReaderKeyboardNavigation);
       const readerHeader = document.querySelector("[data-reader-header]");
       const chapterNav = document.querySelector("[data-reader-chapter-nav]");
       const mobilePlayerToggle = player.querySelector("[data-mobile-player-toggle]");
