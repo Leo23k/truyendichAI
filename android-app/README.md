@@ -1,6 +1,8 @@
 # Leo Truyện Android Reader
 
-Android Reader tối giản dùng chung API với website và có Native Android TTS chạy trong foreground service để tiếp tục đọc khi app ở nền hoặc màn hình khóa.
+APK mở nguyên website Leo Truyện khi có mạng nên Library, thông tin truyện, Reader, Ebook và các thao tác người dùng luôn dùng đúng UI web. Khi mất mạng, Service Worker + IndexedDB của website hiển thị đúng các nội dung đã lưu offline; lớp offline cục bộ của APK vẫn là fallback cho lần mở đầu.
+
+Trên trang truyện/Ebook, dùng nút `Lưu trên thiết bị` hoặc `Tải tất cả chương` để đọc khi không có mạng. Native Android TTS được đăng ký trong Capacitor để Reader offline có thể đọc nền bằng foreground service.
 
 ## Build
 

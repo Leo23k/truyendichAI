@@ -10,6 +10,23 @@ const request = async (path, responseType = 'json') => {
   return response.data;
 };
 
+async function openWebAppWhenOnline() {
+  if (location.origin === site || location.pathname !== '/') return false;
+  try {
+    const response = await CapacitorHttp.get({
+      url: `${site}/health`,
+      responseType: 'json',
+      connectTimeout: 5000,
+      readTimeout: 5000,
+    });
+    if (response.status !== 200 || response.data?.status !== 'ok') return false;
+    location.replace(`${site}/`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function showHome() {
   await window.NovelOffline.renderOfflineHome();
   const link = document.createElement('a');
@@ -80,6 +97,7 @@ async function showChapter(path) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  if (await openWebAppWhenOnline()) return;
   const path = location.pathname;
   if (path === '/catalog') return showCatalog();
   if (path.startsWith('/catalog/')) return showBook(decodeURIComponent(path.slice('/catalog/'.length)));

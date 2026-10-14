@@ -16,6 +16,11 @@
   <script defer src="/static/reader_resume.js"></script>
   <script defer src="/static/offline.js?v=7"></script>
   <script>
+    if (window.Capacitor?.isNativePlatform?.() && window.Capacitor.registerPlugin && !window.NativeTts) {
+      window.NativeTts = window.Capacitor.registerPlugin("NativeTts");
+    }
+  </script>
+  <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js").catch(() => {}));
     }
