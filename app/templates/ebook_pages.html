@@ -15,8 +15,8 @@
       <a id="ebook-upload-leave" href="/ebooks" class="site-nav-button hidden min-h-10 w-full justify-center">Về Ebook của tôi</a>
       <p id="ebook-upload-error" class="hidden rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400" role="alert"></p>
       <div class="grid gap-3 sm:grid-cols-2">
-        <button id="ebook-upload-only" type="submit" data-translate="false" class="site-nav-button min-h-12 w-full justify-center">Chỉ upload · không dịch</button>
-        <button id="ebook-upload-translate" type="submit" data-translate="true" class="site-nav-button accent min-h-12 w-full justify-center">Upload & dịch tiếng Trung</button>
+        <button id="ebook-upload-only" type="submit" data-translate="false" class="site-nav-button accent min-h-12 w-full justify-center">Chỉ upload · lưu trên thiết bị</button>
+        <button id="ebook-upload-translate" type="submit" data-translate="true" class="site-nav-button min-h-12 w-full justify-center">Upload & dịch tiếng Trung</button>
       </div>
     </form>
   </section>
@@ -45,6 +45,12 @@
       error.classList.add('hidden'); progress.classList.remove('hidden'); submits.forEach(button => { button.disabled = true; });
       percent.textContent = '0%'; bar.style.width = '0%'; status.textContent = 'Đang tải…';
       try {
+        if (event.submitter?.dataset.translate !== 'true') {
+          status.textContent = 'Đang lưu trên thiết bị…';
+          const localBook = await window.NovelOffline.saveLocalEbook(file, { ownerId: document.body.dataset.userId || '' });
+          percent.textContent = '100%'; bar.style.width = '100%'; status.textContent = 'Đã lưu trên thiết bị';
+          window.location.assign(localBook.bookUrl); return;
+        }
         const session = await apiJson(form.action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_name: file.name, file_size: file.size, translate_if_chinese: translateIfChinese }) });
         status.textContent = 'Đang tải…';
         await new Promise((resolve, reject) => {

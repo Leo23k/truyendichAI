@@ -66,6 +66,9 @@
     shell(`<main class="off-shell">${topLink("/", "Thư viện offline")}<h1 class="off-title">Thư viện của bạn</h1><p class="off-muted">Các truyện và Ebook đã lưu trên thiết bị này.</p><section class="off-grid">${cards.join("") || empty("Chưa có truyện nào được lưu offline. Khi có mạng, mở truyện và chọn tải về thiết bị.")}</section></main>`);
   }
   async function renderOfflineEbookLibrary() {
+    const hash = decodeURIComponent(location.hash.replace(/^#/, ""));
+    if (hash.startsWith("ebook/")) return renderOfflineEbookDetail(hash.slice(6));
+    if (hash.startsWith("read/")) { const parts = hash.slice(5).split("/"); return renderOfflineEbookReader(parts[0], Number(parts[1])); }
     const account = ownerId(), books = (await all("ebooks")).filter(book => account && book.ownerId === account);
     const cards = books.map(book => card(book, { ebook: true })).join("");
     shell(`<main class="off-shell">${topLink("/", "Thư viện offline")}<h1 class="off-title">Ebook đã lưu</h1><p class="off-muted">${books.length} Ebook trên thiết bị này</p><section class="off-grid">${cards || empty("Chưa có Ebook offline trên thiết bị này.")}</section></main>`);
@@ -272,23 +275,78 @@
     const index = local.findIndex(row => row.item.id === chapter.id || row.item.chapterId === chapter.chapterId);
     return renderReader({ book: book || { id: chapter.bookId, title: "Truyện offline", bookUrl: chapter.bookUrl }, chapter, entries: local.map(row => row.item), index, owner: ownerId(), ebook: false });
   }
-  async function renderOfflineEbookDetail() {
-    const account = ownerId(), slug = decodeURIComponent(location.pathname.split("/")[2] || "");
+  async function renderOfflineEbookDetail(slugOverride = "") {
+    const account = ownerId(), slug = slugOverride || decodeURIComponent(location.pathname.split("/")[2] || "");
     const book = (await all("ebooks")).find(item => item.slug === slug && account && item.ownerId === account);
     if (!book) return renderOfflineEbookLibrary();
     const chapters = (await ebookChapters(book.id)).sort((a, b) => a.chapterNumber - b.chapterNumber);
     const rows = chapters.map(item => `<a class="off-chapter" href="${escape(item.url)}" data-chapter-search="${escape(`${item.chapterNumber} ${item.title}`.toLocaleLowerCase("vi"))}">${item.chapterNumber}. ${escape(item.title)}</a>`).join("");
-    shell(`<main class="off-shell">${topLink("/ebooks", "Ebook offline")}<section class="off-hero">${cover(book.coverUrl, book.title)}<div class="off-hero-copy"><span class="off-kicker">EBOOK ĐÃ LƯU</span><h1 class="off-title">${escape(book.title)}</h1><p class="off-muted">${escape(book.author || "")} · ${chapters.length}/${book.totalChapters || chapters.length} chương offline</p><div class="off-actions">${chapters[0] ? `<a class="off-btn off-primary" href="${escape(chapters[0].url)}">▶ Đọc tiếp</a>` : ""}<span class="off-btn">${escape((book.format || "Ebook").toUpperCase())}</span></div></div></section><div class="off-detail-tools"><input class="off-input" type="search" placeholder="Tìm chương đã lưu…" aria-label="Tìm chương"><select class="off-select" aria-label="Sắp xếp chương"><option value="asc">Cũ nhất trước</option><option value="desc">Mới nhất trước</option></select></div><div class="off-muted">${chapters.length} chương có thể đọc offline</div><section class="off-chapters" style="margin-top:10px">${rows || empty("Chưa lưu chương nào.")}</section></main>`);
+    const pdfUrl = book.fileBlob instanceof Blob ? URL.createObjectURL(book.fileBlob) : "";
+    shell(`<main class="off-shell">${topLink("/ebooks/offline", "Ebook offline")}<section class="off-hero">${cover(book.coverUrl, book.title)}<div class="off-hero-copy"><span class="off-kicker">EBOOK ĐÃ LƯU</span><h1 class="off-title">${escape(book.title)}</h1><p class="off-muted">${escape(book.author || "")} · ${book.format === "pdf" ? "PDF trên thiết bị" : `${chapters.length}/${book.totalChapters || chapters.length} chương offline`}</p><div class="off-actions">${chapters[0] ? `<a class="off-btn off-primary" href="${escape(chapters[0].url)}">▶ Đọc tiếp</a>` : ""}${pdfUrl ? `<a class="off-btn off-primary" href="${escape(pdfUrl)}" target="_blank" rel="noopener">Mở PDF</a>` : ""}<span class="off-btn">${escape((book.format || "Ebook").toUpperCase())}</span></div></div></section>${book.format === "pdf" ? "" : `<div class="off-detail-tools"><input class="off-input" type="search" placeholder="Tìm chương đã lưu…" aria-label="Tìm chương"><select class="off-select" aria-label="Sắp xếp chương"><option value="asc">Cũ nhất trước</option><option value="desc">Mới nhất trước</option></select></div><div class="off-muted">${chapters.length} chương có thể đọc offline</div><section class="off-chapters" style="margin-top:10px">${rows || empty("Chưa lưu chương nào.")}</section>`}</main>`);
+    if (book.format === "pdf") return;
     const list = document.querySelector(".off-chapters"), search = document.querySelector('.off-detail-tools input'), sort = document.querySelector(".off-detail-tools select");
     search.addEventListener("input", () => { const q = search.value.trim().toLocaleLowerCase("vi"); list.querySelectorAll("[data-chapter-search]").forEach(row => row.hidden = !row.dataset.chapterSearch.includes(q)); });
     sort.addEventListener("change", () => [...list.querySelectorAll(".off-chapter")].reverse().forEach(row => list.append(row)));
   }
-  async function renderOfflineEbookReader() {
-    const account = ownerId(), match = location.pathname.match(/^\/ebooks\/([^/]+)\/read\/(\d+)/), slug = match?.[1] ? decodeURIComponent(match[1]) : "", number = Number(match?.[2]);
+  async function renderOfflineEbookReader(slugOverride = "", numberOverride = 0) {
+    const account = ownerId(), match = location.pathname.match(/^\/ebooks\/([^/]+)\/read\/(\d+)/), slug = slugOverride || (match?.[1] ? decodeURIComponent(match[1]) : ""), number = numberOverride || Number(match?.[2]);
     const book = (await all("ebooks")).find(item => item.slug === slug && account && item.ownerId === account), chapter = book && await get("ebookChapters", `${book.id}:${number}`);
     if (!book || !chapter) return renderOfflineEbookLibrary();
     const entries = (await ebookChapters(book.id)).sort((a, b) => a.chapterNumber - b.chapterNumber), index = entries.findIndex(item => item.chapterNumber === number);
     return renderReader({ book, chapter, entries, index, owner: account, ebook: true });
+  }
+
+  const localText = value => String(value || "").replace(/\u00a0/g, " ").replace(/\r/g, "").split(/\n+/).map(line => line.trim()).filter(Boolean).join("\n");
+  const localDecode = bytes => { for (const encoding of ["utf-8", "utf-16le", "gb18030"]) try { return new TextDecoder(encoding, { fatal: true }).decode(bytes).replace(/^\uFEFF/, ""); } catch {} throw new Error("Không thể đọc encoding của file."); };
+  const localFileTitle = name => String(name || "Ebook").replace(/\.[^.]+$/, "") || "Ebook";
+  const localSlug = (title, id) => `${localFileTitle(title).toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "ebook"}-${id.slice(0, 8)}`;
+  const localChaptersFromText = (source, title) => {
+    const textValue = localText(source), matches = [...textValue.matchAll(/^\s*((?:(?:chương|chapter)\s+\d+[^\n]*|第\s*[\d一二三四五六七八九十百千零〇两]+\s*[章节回卷集部][^\n]*))\s*$/gim)];
+    if (matches.length < 2) return [{ title: title || "Nội dung", content: textValue }];
+    return matches.map((match, index) => ({ title: match[1].trim(), content: textValue.slice(match.index + match[0].length, matches[index + 1]?.index || textValue.length).trim() })).filter(chapter => chapter.content);
+  };
+  const localHtmlChapters = (source, title) => {
+    const document = new DOMParser().parseFromString(source, "text/html"); document.querySelectorAll("script,style,iframe,object,embed,form,svg").forEach(node => node.remove());
+    const body = document.body || document.documentElement, headings = [...body.querySelectorAll("h1,h2,h3")];
+    if (headings.length < 2) return [{ title: document.title || title, content: localText(body.innerText || body.textContent) }];
+    return headings.map((heading, index) => ({ title: localText(heading.textContent).slice(0, 500) || `Chương ${index + 1}`, content: localText((() => { const range = document.createRange(); range.setStartAfter(heading); if (headings[index + 1]) range.setEndBefore(headings[index + 1]); else range.setEnd(body, body.childNodes.length); return range.cloneContents().textContent; })()) })).filter(chapter => chapter.content);
+  };
+  const localZip = async file => {
+    const bytes = new Uint8Array(await file.arrayBuffer()), view = new DataView(bytes.buffer), signature = 0x06054b50;
+    let end = -1; for (let index = Math.max(0, bytes.length - 65557); index <= bytes.length - 22; index += 1) if (view.getUint32(index, true) === signature) end = index;
+    if (end < 0) throw new Error("EPUB không đúng định dạng ZIP.");
+    const count = view.getUint16(end + 10, true), directoryOffset = view.getUint32(end + 16, true), entries = new Map(), decoder = new TextDecoder();
+    const normalize = path => path.split("/").reduce((parts, part) => { if (!part || part === ".") return parts; if (part === "..") parts.pop(); else parts.push(part); return parts; }, []).join("/");
+    let cursor = directoryOffset;
+    for (let index = 0; index < count; index += 1) { if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error("EPUB có mục lục ZIP không hợp lệ."); const nameLength = view.getUint16(cursor + 28, true), extraLength = view.getUint16(cursor + 30, true), commentLength = view.getUint16(cursor + 32, true), name = decoder.decode(bytes.slice(cursor + 46, cursor + 46 + nameLength)); entries.set(normalize(name), { method: view.getUint16(cursor + 10, true), compressed: view.getUint32(cursor + 20, true), size: view.getUint32(cursor + 24, true), offset: view.getUint32(cursor + 42, true) }); cursor += 46 + nameLength + extraLength + commentLength; }
+    const read = async name => { const entry = entries.get(normalize(name)); if (!entry) throw new Error(`Không tìm thấy ${name} trong EPUB.`); const local = entry.offset, nameLength = view.getUint16(local + 26, true), extraLength = view.getUint16(local + 28, true), compressed = bytes.slice(local + 30 + nameLength + extraLength, local + 30 + nameLength + extraLength + entry.compressed); if (entry.method === 0) return compressed; if (entry.method !== 8 || !window.DecompressionStream) throw new Error("Trình duyệt không hỗ trợ giải nén EPUB offline."); return new Uint8Array(await new Response(new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer()); };
+    return { read, normalize };
+  };
+  const localDataUrl = (bytes, type) => { let binary = ""; for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000)); return `data:${type || "application/octet-stream"};base64,${btoa(binary)}`; };
+  const parseLocalEbook = async file => {
+    const extension = file.name.toLowerCase().split(".").pop(), title = localFileTitle(file.name);
+    if (extension === "pdf") return { title, format: "pdf", chapters: [], fileBlob: file };
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const source = extension === "epub" ? "" : localDecode(bytes);
+    if (extension === "txt") return { title, format: "txt", chapters: localChaptersFromText(source, title) };
+    if (extension === "html" || extension === "htm") { const chapters = localHtmlChapters(source, title); return { title: new DOMParser().parseFromString(source, "text/html").title || title, format: "html", chapters }; }
+    if (extension !== "epub") throw new Error("Định dạng file chưa được hỗ trợ.");
+    const zip = await localZip(file), xml = value => new DOMParser().parseFromString(localDecode(value), "application/xml"), localElements = (root, name) => [...root.getElementsByTagNameNS("*", name)], container = xml(await zip.read("META-INF/container.xml")), rootfile = localElements(container, "rootfile")[0]?.getAttribute("full-path");
+    if (!rootfile) throw new Error("EPUB thiếu package document.");
+    const packageDocument = xml(await zip.read(rootfile)), base = rootfile.includes("/") ? rootfile.slice(0, rootfile.lastIndexOf("/") + 1) : "", manifestNode = localElements(packageDocument, "manifest")[0], spineNode = localElements(packageDocument, "spine")[0], items = manifestNode ? localElements(manifestNode, "item") : [], manifest = new Map(items.map(item => [item.getAttribute("id"), item])), spine = spineNode ? localElements(spineNode, "itemref") : [], chapters = [];
+    for (const itemref of spine) { const item = manifest.get(itemref.getAttribute("idref")); if (!item) continue; const path = zip.normalize(`${base}${item.getAttribute("href")?.split("#")[0] || ""}`), document = new DOMParser().parseFromString(localDecode(await zip.read(path)), "text/html"); document.querySelectorAll("script,style,iframe,object,embed,form,svg").forEach(node => node.remove()); const body = document.body || document.documentElement, content = localText(body.innerText || body.textContent); if (content) chapters.push({ title: localText(body.querySelector("h1,h2,h3")?.textContent || document.title || `Chương ${chapters.length + 1}`).slice(0, 500), content }); }
+    const metadata = localElements(packageDocument, "metadata")[0], coverId = localElements(metadata || packageDocument, "meta").find(item => item.getAttribute("name") === "cover")?.getAttribute("content"), coverItem = items.find(item => item.getAttribute("properties")?.split(/\s+/).includes("cover-image") || item.getAttribute("id") === coverId); let coverUrl = "";
+    if (coverItem) { try { const coverPath = zip.normalize(`${base}${coverItem.getAttribute("href") || ""}`), coverBytes = await zip.read(coverPath); if (coverBytes.length <= 5 * 1024 * 1024) coverUrl = localDataUrl(coverBytes, coverItem.getAttribute("media-type")); } catch {} }
+    if (!chapters.length) throw new Error("Không tìm thấy nội dung chương trong EPUB.");
+    return { title: localElements(metadata || packageDocument, "title")[0]?.textContent?.trim() || title, author: localElements(metadata || packageDocument, "creator")[0]?.textContent?.trim() || "", format: "epub", chapters, coverUrl };
+  };
+  async function saveLocalEbook(file, { ownerId: account = "" } = {}) {
+    if (!indexedDB) throw new Error("Trình duyệt không hỗ trợ lưu Ebook trên thiết bị.");
+    const parsed = await parseLocalEbook(file), id = crypto.randomUUID(), slug = localSlug(parsed.title, id), bookUrl = `/ebooks/offline#ebook/${encodeURIComponent(slug)}`;
+    localStorage.setItem("novel-reader-offline-owner", account);
+    const record = { id, ownerId: account, slug, title: parsed.title, author: parsed.author || "", format: parsed.format, coverUrl: parsed.coverUrl || "", fileName: file.name, fileBlob: parsed.fileBlob, bookUrl, totalChapters: parsed.chapters.length, savedChapters: parsed.chapters.length, status: "ready", updatedAt: Date.now() };
+    try { await put("ebooks", record); for (const chapter of parsed.chapters) await saveEbookChapter({ id: `${id}:${chapter.number || parsed.chapters.indexOf(chapter) + 1}`, bookId: id, ownerId: account, chapterNumber: chapter.number || parsed.chapters.indexOf(chapter) + 1, title: chapter.title, content: chapter.content, url: `/ebooks/offline#read/${encodeURIComponent(slug)}/${chapter.number || parsed.chapters.indexOf(chapter) + 1}`, translated: true, savedAt: Date.now() }); } catch (error) { await Promise.all((await ebookChapters(id)).map(chapter => remove("ebookChapters", chapter.id))); await remove("ebooks", id); throw error; }
+    return record;
   }
 
   async function fetchChapter(chapter) {
@@ -432,6 +490,6 @@
   };
   const createManager = ({ device, server, initialMode = "server" } = {}) => { let mode = initialMode === "device" ? "device" : "server"; const active = () => mode === "device" ? device : server; return { get mode() { return mode; }, setMode(value) { if (value !== "device" && value !== "server") throw new Error("TTS mode không hợp lệ"); if (mode !== value) { device?.stop?.(); server?.stop?.(); mode = value; } }, isSupported() { return Boolean(active()?.isSupported?.() ?? active()); }, getVoices() { return device?.getVoices?.() || Promise.resolve([]); }, speak(...args) { return active()?.speak?.(...args); }, pause() { return active()?.pause?.(); }, resume() { return active()?.resume?.(); }, stop() { device?.stop?.(); server?.stop?.(); } }; };
   document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error)); });
-  window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, store: { get, put, all, byUrl } };
+  window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, saveLocalEbook, store: { get, put, all, byUrl } };
   window.NovelTTS = { createDeviceProvider, createManager, configureMediaSession, getInitialTtsMode, getPreferredDeviceVoice, setMediaSessionState, splitDeviceText };
 })();

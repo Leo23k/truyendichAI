@@ -1,4 +1,4 @@
-const CACHE = "novel-reader-static-v7";
+const CACHE = "novel-reader-static-v8";
 const MEDIA_CACHE = "novel-reader-media-v1";
 const STATIC = ["/static/offline.js", "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
@@ -46,11 +46,15 @@ self.addEventListener("fetch", event => {
   }
   if (url.origin !== self.location.origin) return;
   if (request.mode === "navigate") {
+    const offlinePage = html => new Response(
+      html.replace('<script src="/static/offline.js"></script>', '<script src="/static/reader_resume.js"></script><script src="/static/offline.js"></script>'),
+      { headers: { "Content-Type": "text/html; charset=utf-8" } }
+    );
+    if (url.pathname === "/ebooks/offline") {
+      event.respondWith(Promise.resolve(offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookLibrary())</script>')));
+      return;
+    }
     event.respondWith(fetch(request).catch(() => {
-      const offlinePage = html => new Response(
-        html.replace('<script src="/static/offline.js"></script>', '<script src="/static/reader_resume.js"></script><script src="/static/offline.js"></script>'),
-        { headers: { "Content-Type": "text/html; charset=utf-8" } }
-      );
       if (url.pathname === "/" || url.pathname === "/ebooks") {
         return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thư viện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineHome())</script>');
       }
