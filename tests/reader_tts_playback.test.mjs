@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const { createRequestQueue } = require('../app/static/tts_timeline.js');
 const source = readFileSync(new URL('../app/templates/reader.html', import.meta.url), 'utf8');
 const ebookSource = readFileSync(new URL('../app/templates/ebook_reader.html', import.meta.url), 'utf8');
+const offlineSource = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
 const serviceWorkerSource = readFileSync(new URL('../service-worker.js', import.meta.url), 'utf8');
 test('both complete Reader scripts have valid JavaScript syntax', () => {
   for (const template of [source,ebookSource]) {
@@ -22,6 +23,15 @@ test('Ebook reader defaults to sans-serif and initializes after dynamic navigati
   assert.match(ebookSource, /system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Arial, sans-serif/);
   assert.match(ebookSource, /document\.readyState === 'loading'/);
   assert.match(ebookSource, /document\.addEventListener\('htmx:afterSwap', initEbookReader\)/);
+});
+
+test('offline reader uses the online reader layout and keeps offline controls', () => {
+  for (const marker of ['reader-header', 'reader-page-nav', 'reader-content off-reader-content', 'reader-player-shell off-reader-player', 'data-font-select', 'data-reader-theme-toggle']) {
+    assert.match(offlineSource, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
+  }
+  assert.match(offlineSource, /data-toc-sheet/);
+  assert.match(offlineSource, /data-voice/);
+  assert.match(offlineSource, /data-sleep/);
 });
 
 test('desktop Reader arrow keys navigate chapters without hijacking form controls', () => {
