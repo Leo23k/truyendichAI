@@ -408,7 +408,6 @@ def test_pc_worker_downloads_original_and_processes_queued_upload(monkeypatch):
 @pytest.mark.parametrize(("language", "expected_queued"), [("zh", 1), ("vi", 0)])
 def test_ingestion_only_enqueues_detected_chinese_and_uses_parser_memory(monkeypatch, language, expected_queued):
     remote = FakeRemote()
-    remote.rows = lambda *_args: []
     monkeypatch.setattr(ebook_service, "parse_ebook", lambda *_args: ebook_service.ParsedEbook(
         title="Book", language=language, format="epub",
         chapters=(EbookChapter(1, "Chapter", "<p>Chapter content</p>"),),
@@ -421,6 +420,7 @@ def test_ingestion_only_enqueues_detected_chinese_and_uses_parser_memory(monkeyp
         "id": "book-id", "owner_id": "owner-id", "file_name": "book.epub", "source_format": "epub",
         "original_file_path": "ebooks/hash/book-id/original.epub", "expected_size": 5, "translate_if_chinese": True,
     }
+    remote.rows = lambda table, _params: [job] if table == "ebook_ingestion_queue" else []
 
     count = ebook_service.process_ebook_ingestion_job(remote, job, b"bytes")
 

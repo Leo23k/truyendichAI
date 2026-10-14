@@ -321,6 +321,11 @@ def process_ebook_ingestion_job(remote: SupabaseSync, job: dict, content: bytes)
                 "content_path": shard_path, "content_index": index,
                 "translation_status": "pending" if source_language == "zh" else "not_needed",
             } for index, item in enumerate(group))
+        active_job = remote.rows("ebook_ingestion_queue", {
+            "select": "id", "id": f"eq.{job['id']}", "status": "eq.processing", "limit": "1",
+        })
+        if not active_job:
+            raise EbookServiceError("Job Ebook đã bị xoá.", 409)
         book_payload = {
             "id": ebook_id, "owner_id": job["owner_id"], "file_name": job["file_name"],
             "file_sha256": digest, "original_file_path": job["original_file_path"],
