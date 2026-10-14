@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Leo Truyện</string>
+    <string name="title_activity_main">Leo Truyện</string>
+    <string name="package_name">app.leotruyen.reader</string>
+    <string name="custom_url_scheme">app.leotruyen.reader</string>
+</resources>

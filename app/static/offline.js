@@ -167,6 +167,77 @@
     }
     let segmentIndex = 0, timer = 0, sleepTimer = 0, asleepAtEnd = sleepSelect.value === "end", paused = false, offlineVoices = [];
     const markSegment = i => { segmentIndex = Math.max(0, Math.min(segments.length - 1, i)); const item = segments[segmentIndex]; if (!item) return; paragraphs.forEach(node => node.classList.remove("off-active")); item.node.classList.add("off-active"); seek.value = String(item.paragraphIndex); item.node.scrollIntoView({ block: "center", behavior: "smooth" }); };
+    if (window.NativeTts) {
+      const native = window.NativeTts, nativePosition = `reader.native.position.${location.pathname}`;
+      let active = false, lastIndex = -1;
+      const savedIndex = Number(localStorage.getItem(nativePosition));
+      if (Number.isInteger(savedIndex) && savedIndex >= 0 && savedIndex < segments.length) segmentIndex = savedIndex;
+      const sync = async () => {
+        try {
+          const state = await native.getState();
+          active = state.chapterId === location.pathname && ["loading", "playing", "paused"].includes(state.status);
+          if (state.chapterId !== location.pathname) return;
+          if (state.index < segments.length && state.index !== lastIndex) {
+            lastIndex = state.index;
+            markSegment(state.index);
+            localStorage.setItem(nativePosition, String(state.index));
+          }
+          status.classList.toggle("playing", state.status === "playing");
+          play.textContent = state.status === "playing" ? "Ⅱ" : "▶";
+          play.setAttribute("aria-label", state.status === "playing" ? "Tạm dừng" : "Phát");
+          if (state.status === "error") status.textContent = state.error || "Android TTS gặp lỗi.";
+          else if (state.status === "playing") status.textContent = `Đang đọc ${state.index + 1}/${state.total}`;
+          else if (state.status === "paused") status.textContent = "Đã tạm dừng";
+          else if (state.status === "loading") status.textContent = "Đang chuẩn bị giọng đọc…";
+          else if (state.total && state.index >= state.total) { status.textContent = "Đã đọc xong"; localStorage.removeItem(nativePosition); }
+        } catch (error) { status.textContent = error.message || "Không kết nối được Android TTS."; }
+      };
+      try {
+        const response = await native.listVoices();
+        offlineVoices = response.voices.filter(voice => voice.offline && voice.lang.toLowerCase().startsWith("vi"));
+        voiceSelect.replaceChildren();
+        if (offlineVoices.length) {
+          offlineVoices.forEach(voice => voiceSelect.add(new Option(`${voice.name} · Offline`, voice.id)));
+          voiceSelect.value = offlineVoices.some(voice => voice.id === preferences.voice) ? preferences.voice : offlineVoices[0].id;
+          persistPreferences();
+        } else {
+          voiceSelect.add(new Option("Chưa có giọng vi-VN offline", ""));
+          status.textContent = "Hãy cài giọng vi-VN offline trên thiết bị.";
+          const install = document.createElement("button"); install.type = "button"; install.className = "off-btn"; install.textContent = "Tải giọng đọc";
+          install.onclick = () => native.installVoiceData();
+          voiceSheet.querySelector(".off-sheet-panel").append(install);
+        }
+      } catch (error) { status.textContent = error.message || "Không tìm được giọng Android TTS."; }
+      play.onclick = async () => {
+        try {
+          if (active) {
+            const state = await native.getState();
+            if (state.status === "playing") await native.pause(); else await native.resume();
+          } else {
+            if (!offlineVoices.length || !segments.length) { status.textContent = "Cần giọng vi-VN offline và nội dung chương."; return; }
+            await native.speak({ chapterId: location.pathname, title: chapter.title || chapterLabel, chunks: segments.map(item => item.text), startIndex: segmentIndex, voice: voiceSelect.value, rate: Number(rateSelect.value), sleepUntil });
+          }
+          await sync();
+        } catch (error) { status.textContent = error.message || "Không phát được Android TTS."; }
+      };
+      stopControl.onclick = async () => { await native.stop(); active = false; status.classList.remove("playing"); status.textContent = "Đã dừng"; play.textContent = "▶"; };
+      previousSegment.onclick = async () => { if (active) await native.previous(); else markSegment(Math.max(0, segmentIndex - 1)); await sync(); };
+      nextSegment.onclick = async () => { if (active) await native.next(); else markSegment(Math.min(segments.length - 1, segmentIndex + 1)); await sync(); };
+      seek.oninput = async () => {
+        const i = segments.findIndex(item => item.paragraphIndex >= Number(seek.value));
+        if (i < 0) return;
+        if (active) await native.seek({ index: i }); else markSegment(i);
+        await sync();
+      };
+      rateSelect.onchange = async () => { persistPreferences(); if (active) await native.setRate({ rate: Number(rateSelect.value) }); };
+      voiceSelect.onchange = async () => { persistPreferences(); if (active) await native.setVoice({ voice: voiceSelect.value }); };
+      sleepSelect.onchange = async () => { sleepUntil = Number(sleepSelect.value) ? Date.now() + Number(sleepSelect.value) * 60000 : 0; persistPreferences(); if (active) await native.setSleep({ until: sleepUntil }); };
+      const polling = setInterval(sync, 500);
+      addEventListener("pagehide", () => clearInterval(polling), { once: true });
+      addEventListener("visibilitychange", () => { if (!document.hidden) sync(); });
+      await sync();
+      return;
+    }
     const finish = () => { provider?.stop(); clearTimeout(timer); timer = 0; paused = false; play.textContent = "▶"; play.setAttribute("aria-label", "Phát"); status.textContent = "Đã đọc xong"; status.classList.remove("playing"); };
     if (Number(sleepSelect.value) > 0 && sleepUntil) {
       const remaining = sleepUntil - Date.now();
@@ -332,6 +403,6 @@
   };
   const createManager = ({ device, server, initialMode = "server" } = {}) => { let mode = initialMode === "device" ? "device" : "server"; const active = () => mode === "device" ? device : server; return { get mode() { return mode; }, setMode(value) { if (value !== "device" && value !== "server") throw new Error("TTS mode không hợp lệ"); if (mode !== value) { device?.stop?.(); server?.stop?.(); mode = value; } }, isSupported() { return Boolean(active()?.isSupported?.() ?? active()); }, getVoices() { return device?.getVoices?.() || Promise.resolve([]); }, speak(...args) { return active()?.speak?.(...args); }, pause() { return active()?.pause?.(); }, resume() { return active()?.resume?.(); }, stop() { device?.stop?.(); server?.stop?.(); } }; };
   document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error)); });
-  window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader };
+  window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, store: { get, put, all, byUrl } };
   window.NovelTTS = { createDeviceProvider, createManager, configureMediaSession, getInitialTtsMode, getPreferredDeviceVoice, setMediaSessionState };
 })();

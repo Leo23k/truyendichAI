@@ -1,0 +1,9 @@
+{
+  "appId": "app.leotruyen.reader",
+  "appName": "Leo Truyện",
+  "webDir": "www",
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https"
+  }
+}
