@@ -318,6 +318,40 @@ test('browser TTS chooses Nam Minh on Edge and Google Vietnamese 2 on Chrome', (
   assert.equal(context.choose(voices.slice(0, 1), 'Mozilla/5.0 Edg/130.0').voiceURI, 'vi-an');
 });
 
+test('device TTS keeps chunks short and preserves sentence boundaries', () => {
+  const source = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
+  const start = source.indexOf('const splitDeviceText =');
+  const end = source.indexOf('const createDeviceProvider =', start);
+  assert.ok(start >= 0 && end > start);
+  const context = vm.createContext({});
+  vm.runInContext(`${source.slice(start, end)}; globalThis.split = splitDeviceText;`, context);
+  const chunks = context.split('Câu một '.repeat(34) + '. Câu hai kết thúc! ' + 'từ '.repeat(220));
+  assert.ok(chunks.length > 1);
+  assert.ok(chunks.every(chunk => chunk.length <= 280));
+  assert.match(chunks[0], /\.$/);
+  assert.match(chunks.find(chunk => chunk.includes('Câu hai')), /Câu hai kết thúc!/);
+});
+
+test('device TTS does not cancel between sequential chunks', () => {
+  const source = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
+  const start = source.indexOf('const createDeviceProvider =');
+  const end = source.indexOf('const createManager =', start);
+  const calls = [];
+  const synth = {
+    getVoices: () => [{ name: 'Mock Vietnamese', lang: 'vi-VN', voiceURI: 'mock', localService: true }],
+    cancel: () => calls.push('cancel'), pause() {}, resume() {}, speak: utterance => calls.push(`speak:${utterance.text}`),
+  };
+  const Utterance = class { constructor(text) { this.text = text; } };
+  const context = vm.createContext({ window: { speechSynthesis: synth, SpeechSynthesisUtterance: Utterance }, speechSynthesis: synth, SpeechSynthesisUtterance: Utterance });
+  vm.runInContext(`${source.slice(start, end)}; globalThis.make = createDeviceProvider;`, context);
+  const provider = context.make();
+  provider.speak('first', { voiceURI: 'mock' });
+  provider.speak('second', { voiceURI: 'mock', replaceCurrent: false });
+  assert.deepEqual(calls, ['cancel', 'speak:first', 'speak:second']);
+  provider.stop();
+  assert.equal(calls.at(-1), 'cancel');
+});
+
 test('mobile online defaults to background-capable audio while desktop preference is preserved', () => {
   const source = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
   const start = source.indexOf('const getInitialTtsMode =');

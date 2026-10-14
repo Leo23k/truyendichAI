@@ -1001,14 +1001,7 @@
         browserChunks = [];
         readerContent?.querySelectorAll("p,li,blockquote").forEach((node) => {
           const source = node.innerText.trim().replace(/\s+/g," ");
-          const sentences = source.match(/[^.!?。！？]+[.!?。！？]?/gu) || [source]; let chunk = "";
-          sentences.forEach((sentence) => {
-            const part = sentence.trim(); if (!part) return;
-            if (chunk && chunk.length + part.length > 600) { browserChunks.push({text:chunk,node}); chunk=""; }
-            if (part.length > 600) { let offset=0; while(offset<part.length){let end=Math.min(offset+600,part.length);if(end<part.length){const boundary=part.lastIndexOf(" ",end);if(boundary>offset+300)end=boundary;}browserChunks.push({text:part.slice(offset,end),node});offset=end;} }
-            else chunk += `${chunk?" ":""}${part}`;
-          });
-          if(chunk)browserChunks.push({text:chunk,node});
+          (window.NovelTTS?.splitDeviceText?.(source) || (source ? [source] : [])).forEach(text => browserChunks.push({text,node}));
         });
       };
       const speakBrowserChunk = (index) => {
@@ -1021,7 +1014,7 @@
         const rect=chunk.node.getBoundingClientRect();
         if(followText?.checked&&Date.now()>=followPausedUntil&&(rect.top<innerHeight*.18||rect.bottom>innerHeight*.82))chunk.node.scrollIntoView({behavior:"smooth",block:"center"});
         storage.setItem(`reader.device.position.${readerChapterKey}`,String(index));
-        const started=ttsManager.speak(chunk.text,{lang:"vi-VN",voiceURI:selectedDeviceVoice,rate:getRate(),pitch:devicePitch,volume:audio?.volume??.9,
+        const started=ttsManager.speak(chunk.text,{lang:"vi-VN",voiceURI:selectedDeviceVoice,rate:getRate(),pitch:devicePitch,volume:audio?.volume??.9,replaceCurrent:false,
           onstart:()=>{setPlayerState("playing");updateProgress();},onboundary:()=>{if(highlightText?.checked)chunk.node.classList.add("reader-tts-active");},
           onend:()=>{if(wantToPlay)speakBrowserChunk(browserChunkIndex+1);},
           onerror:error=>{wantToPlay=false;setPlayerState("error");if(deviceStatus)deviceStatus.textContent=error.message||"Lỗi TTS thiết bị.";}

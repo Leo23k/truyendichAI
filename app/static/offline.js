@@ -161,9 +161,7 @@
     const persistPreferences = () => localStorage.setItem(preferencesKey, JSON.stringify({ rate: Number(rateSelect.value), sleepMode: sleepSelect.value, sleepUntil, voice: voiceSelect.value }));
     const segments = [];
     for (const [paragraphIndex, node] of paragraphs.entries()) {
-      const sentences = node.textContent.match(/[^.!?。！？]+[.!?。！？]?/gu) || [node.textContent]; let current = "";
-      for (const sentence of sentences) { if (current.length + sentence.length > 850 && current) { segments.push({ text: current.trim(), paragraphIndex, node }); current = ""; } current += sentence; }
-      if (current.trim()) segments.push({ text: current.trim(), paragraphIndex, node });
+      for (const text of (window.NovelTTS?.splitDeviceText?.(node.textContent) || [])) segments.push({ text, paragraphIndex, node });
     }
     let segmentIndex = 0, timer = 0, sleepTimer = 0, asleepAtEnd = sleepSelect.value === "end", paused = false, offlineVoices = [];
     const markSegment = i => { segmentIndex = Math.max(0, Math.min(segments.length - 1, i)); const item = segments[segmentIndex]; if (!item) return; paragraphs.forEach(node => node.classList.remove("off-active")); item.node.classList.add("off-active"); seek.value = String(item.paragraphIndex); item.node.scrollIntoView({ block: "center", behavior: "smooth" }); };
@@ -249,7 +247,7 @@
       if (!offlineVoices.length) { status.textContent = "Cài giọng Tiếng Việt dùng offline trên thiết bị để bật TTS."; return; }
       if (segmentIndex >= segments.length) { finish(); return; }
       const segment = segments[segmentIndex]; markSegment(segmentIndex); play.textContent = "Ⅱ"; play.setAttribute("aria-label", "Tạm dừng"); status.textContent = `Đang đọc ${segmentIndex + 1}/${segments.length}`; status.classList.add("playing"); player.classList.remove("is-hidden"); paused = false;
-      provider.speak(segment.text, { lang: "vi-VN", voiceURI: voiceSelect.value || undefined, rate: Number(rateSelect.value) || 1, pitch: 1, volume: 1,
+      provider.speak(segment.text, { lang: "vi-VN", voiceURI: voiceSelect.value || undefined, rate: Number(rateSelect.value) || 1, pitch: 1, volume: 1, replaceCurrent: false,
         onend: () => { segmentIndex += 1; if (segmentIndex < segments.length) timer = setTimeout(say, 90); else if (!asleepAtEnd && next) { status.textContent = "Đang chuyển chương…"; sessionStorage.setItem(autoplayKey, chapterUrl(next)); location.assign(chapterUrl(next)); } else finish(); },
         onerror: error => { status.textContent = error.message || "Không thể phát giọng đọc"; play.textContent = "▶"; status.classList.remove("playing"); },
       });
@@ -395,14 +393,45 @@
       || vietnamese.find(voice => /google/i.test(`${voice.name} ${voice.voiceURI}`)) || vietnamese[0];
     return vietnamese[0];
   };
+  const splitDeviceText = (value, limit = 280) => {
+    const source = String(value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    if (!source) return [];
+    const sentences = source.match(/[^.!?。！？]+[.!?。！？]?/gu) || [source];
+    const chunks = [];
+    let current = "";
+    for (const sentence of sentences) {
+      let rest = sentence.trim();
+      if (current && rest.length > limit) {
+        chunks.push(current);
+        current = "";
+      }
+      while (rest.length > limit) {
+        let end = rest.lastIndexOf(" ", limit);
+        if (end < Math.floor(limit * 0.55)) end = limit;
+        const part = rest.slice(0, end).trim();
+        if (part) chunks.push(part);
+        rest = rest.slice(end).trim();
+      }
+      if (!rest) continue;
+      const candidate = current ? `${current} ${rest}` : rest;
+      if (current && candidate.length > limit) {
+        chunks.push(current);
+        current = rest;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) chunks.push(current);
+    return chunks;
+  };
   const createDeviceProvider = () => {
     const synth = window.speechSynthesis; let active = null, generation = 0, speaking = false;
     const supported = () => Boolean(synth && window.SpeechSynthesisUtterance);
     const getVoices = async () => { if (!supported()) return []; let voices = synth.getVoices(); if (voices.length) return voices; await new Promise(resolve => { const timer = setTimeout(resolve, 700); synth.addEventListener?.("voiceschanged", () => { clearTimeout(timer); resolve(); }, { once: true }); }); return synth.getVoices(); };
-    return { isSupported: supported, isSpeaking: () => speaking, getVoices, speak(value, options = {}) { if (!supported()) { options.onerror?.(new Error("TTS không khả dụng trên trình duyệt này.")); return false; } if (!String(value || "").trim()) return false; const voices = synth.getVoices(), voice = voices.find(item => item.voiceURI === options.voiceURI) || (!options.voiceURI && voices.find(item => item.lang?.toLowerCase().startsWith("vi"))); if (!voice || !voice.lang?.toLowerCase().startsWith("vi")) { options.onerror?.(new Error("Không tìm thấy giọng đọc tiếng Việt trên thiết bị.")); return false; } synth.cancel(); const token = ++generation, utterance = new SpeechSynthesisUtterance(String(value)); active = utterance; utterance.voice = voice; utterance.lang = voice.lang; utterance.rate = Math.max(.5, Math.min(2, Number(options.rate) || 1)); utterance.pitch = Math.max(.5, Math.min(2, Number(options.pitch) || 1)); utterance.volume = Math.max(0, Math.min(1, Number(options.volume ?? 1))); utterance.onstart = event => { if (token === generation) { speaking = true; options.onstart?.(event); } }; utterance.onboundary = event => { if (token === generation) options.onboundary?.(event); }; utterance.onend = event => { if (token === generation) { speaking = false; active = null; options.onend?.(event); } }; utterance.onerror = event => { if (token === generation) { speaking = false; active = null; if (event.error !== "canceled" && event.error !== "interrupted") options.onerror?.(new Error(event.error || "Lỗi TTS thiết bị.")); } }; synth.speak(utterance); return true; }, pause() { if (supported()) { synth.pause(); speaking = false; } }, resume() { if (supported()) { synth.resume(); speaking = true; } }, stop() { generation++; speaking = false; active = null; if (supported()) synth.cancel(); } };
+    return { isSupported: supported, isSpeaking: () => speaking, getVoices, speak(value, options = {}) { if (!supported()) { options.onerror?.(new Error("TTS không khả dụng trên trình duyệt này.")); return false; } if (!String(value || "").trim()) return false; const voices = synth.getVoices(), voice = voices.find(item => item.voiceURI === options.voiceURI) || (!options.voiceURI && voices.find(item => item.lang?.toLowerCase().startsWith("vi"))); if (!voice || !voice.lang?.toLowerCase().startsWith("vi")) { options.onerror?.(new Error("Không tìm thấy giọng đọc tiếng Việt trên thiết bị.")); return false; } if (options.replaceCurrent !== false) synth.cancel(); const token = ++generation, utterance = new SpeechSynthesisUtterance(String(value)); active = utterance; utterance.voice = voice; utterance.lang = voice.lang; utterance.rate = Math.max(.5, Math.min(2, Number(options.rate) || 1)); utterance.pitch = Math.max(.5, Math.min(2, Number(options.pitch) || 1)); utterance.volume = Math.max(0, Math.min(1, Number(options.volume ?? 1))); utterance.onstart = event => { if (token === generation) { speaking = true; options.onstart?.(event); } }; utterance.onboundary = event => { if (token === generation) options.onboundary?.(event); }; utterance.onend = event => { if (token === generation) { speaking = false; active = null; options.onend?.(event); } }; utterance.onerror = event => { if (token === generation) { speaking = false; active = null; if (event.error !== "canceled" && event.error !== "interrupted") options.onerror?.(new Error(event.error || "Lỗi TTS thiết bị.")); } }; synth.speak(utterance); return true; }, pause() { if (supported()) { synth.pause(); speaking = false; } }, resume() { if (supported()) { synth.resume(); speaking = true; } }, stop() { generation++; speaking = false; active = null; if (supported()) synth.cancel(); } };
   };
   const createManager = ({ device, server, initialMode = "server" } = {}) => { let mode = initialMode === "device" ? "device" : "server"; const active = () => mode === "device" ? device : server; return { get mode() { return mode; }, setMode(value) { if (value !== "device" && value !== "server") throw new Error("TTS mode không hợp lệ"); if (mode !== value) { device?.stop?.(); server?.stop?.(); mode = value; } }, isSupported() { return Boolean(active()?.isSupported?.() ?? active()); }, getVoices() { return device?.getVoices?.() || Promise.resolve([]); }, speak(...args) { return active()?.speak?.(...args); }, pause() { return active()?.pause?.(); }, resume() { return active()?.resume?.(); }, stop() { device?.stop?.(); server?.stop?.(); } }; };
   document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error)); });
   window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, store: { get, put, all, byUrl } };
-  window.NovelTTS = { createDeviceProvider, createManager, configureMediaSession, getInitialTtsMode, getPreferredDeviceVoice, setMediaSessionState };
+  window.NovelTTS = { createDeviceProvider, createManager, configureMediaSession, getInitialTtsMode, getPreferredDeviceVoice, setMediaSessionState, splitDeviceText };
 })();
