@@ -1,0 +1,49 @@
+name: dependabot-automerge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-edge-tts-merge
+  cancel-in-progress: false
+
+jobs:
+  enable:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate dependency-only scope
+        id: scope
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const allowed = new Set([
+              "requirements.txt",
+              "infra/tts/requirements.txt",
+            ]);
+            const eligible = /edge-tts/i.test(title)
+              && files.length > 0
+              && files.every((file) => allowed.has(file.filename));
+            core.setOutput("eligible", String(eligible));
+            if (!eligible) {
+              core.notice(`Skipping auto-merge: title=${title}, files=${files.map((file) => file.filename).join(", ")}`);
+            }
+      - name: Enable squash auto-merge
+        if: steps.scope.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --squash --delete-branch

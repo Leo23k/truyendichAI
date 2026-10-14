@@ -1,0 +1,104 @@
+name: production-verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - requirements.txt
+      - infra/tts/requirements.txt
+      - app/tts/**
+      - .github/workflows/edge-tts.yml
+      - .github/workflows/production-verify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SMOKE_CONFIGURED: ${{ secrets.LEOTRUYEN_SMOKE_COOKIE != '' }}
+      ROLLBACK_CONFIGURED: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
+    steps:
+      - name: Record current deployment
+        id: baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 2 -fsS -D /tmp/health.headers -o /tmp/health.body https://leotruyen.vercel.app/health
+          id=$(awk 'BEGIN {IGNORECASE=1} /^x-vercel-id:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]]+$/, ""); print; exit}' /tmp/health.headers)
+          echo "vercel_id=$id" >> "$GITHUB_OUTPUT"
+      - name: Wait for the Git-integrated Vercel deployment
+        env:
+          BASELINE_VERCEL_ID: ${{ steps.baseline.outputs.vercel_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 20
+          for attempt in $(seq 1 30); do
+            status=$(curl --retry 2 --retry-delay 1 -sS -D /tmp/health.headers -o /tmp/health.body -w '%{http_code}' https://leotruyen.vercel.app/health || true)
+            id=$(awk 'BEGIN {IGNORECASE=1} /^x-vercel-id:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]]+$/, ""); print; exit}' /tmp/health.headers)
+            if [ "$status" = "200" ] && grep -q '"status":"ok"' /tmp/health.body; then
+              if [ -z "$BASELINE_VERCEL_ID" ] || [ -z "$id" ] || [ "$id" != "$BASELINE_VERCEL_ID" ]; then
+                echo "Production health is ready (Vercel ID: ${id:-unknown})."
+                exit 0
+              fi
+            fi
+            echo "Waiting for deployment (${attempt}/30), status=$status, vercel_id=${id:-unknown}"
+            sleep 10
+          done
+          echo "Production deployment did not become healthy in time." >&2
+          exit 1
+      - name: Verify production TTS audio
+        if: env.SMOKE_CONFIGURED == 'true'
+        env:
+          SMOKE_COOKIE: ${{ secrets.LEOTRUYEN_SMOKE_COOKIE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 2 --retry-delay 2 --fail-with-body -sS \
+            -H "Cookie: $SMOKE_COOKIE" \
+            -H 'Content-Type: application/json' \
+            --data '{"text":"Xin chào","voice":"vi-VN-NamMinhNeural","rate":1.0}' \
+            'https://leotruyen.vercel.app/api/tts?direct_audio=true' \
+            -D /tmp/tts.headers -o /tmp/tts.mp3
+          grep -qi '^content-type: audio/' /tmp/tts.headers
+          test "$(stat -c '%s' /tmp/tts.mp3)" -gt 0
+          python - <<'PY'
+          from pathlib import Path
+
+          data = Path("/tmp/tts.mp3").read_bytes()
+          if not (data.startswith(b"ID3") or (len(data) >= 2 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0)):
+              raise SystemExit("production TTS returned non-MP3 bytes")
+          print(f"Production TTS returned {len(data)} bytes of MP3 audio.")
+          PY
+      - name: Roll back failed production deployment
+        if: failure() && env.ROLLBACK_CONFIGURED == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm exec --yes vercel@latest -- link --yes --project "$VERCEL_PROJECT_ID" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
+          npm exec --yes vercel@latest -- rollback --yes --token "$VERCEL_TOKEN"
+          echo '- Automatic rollback: executed through the official Vercel CLI.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Record verification summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Production verification'
+            echo '- Vercel deployment: health endpoint checked after deployment wait.'
+            if [ "$SMOKE_CONFIGURED" = "true" ]; then
+              echo '- TTS audio smoke: executed with `LEOTRUYEN_SMOKE_COOKIE`.'
+            else
+              echo '- TTS audio smoke: skipped; configure `LEOTRUYEN_SMOKE_COOKIE` for an authenticated production check.'
+            fi
+            if [ "$ROLLBACK_CONFIGURED" != "true" ]; then
+              echo '- Automatic rollback: not configured; add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    target-branch: main
+    schedule:
+      interval: daily
+      time: "03:00"
+      timezone: Asia/Ho_Chi_Minh
+    open-pull-requests-limit: 1
+    allow:
+      - dependency-name: edge-tts
+
+  - package-ecosystem: pip
+    directory: /infra/tts
+    target-branch: main
+    schedule:
+      interval: daily
+      time: "03:15"
+      timezone: Asia/Ho_Chi_Minh
+    open-pull-requests-limit: 1
+    allow:
+      - dependency-name: edge-tts
