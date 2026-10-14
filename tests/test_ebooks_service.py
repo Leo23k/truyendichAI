@@ -184,6 +184,50 @@ def test_crawled_novel_export_uses_translation_and_sanitizes_html(monkeypatch):
     assert "Vietnamese" in response.text and "<script>" not in response.text
 
 
+def test_export_preserves_plain_text_paragraphs_and_embeds_cover():
+    from app.ebook_export import build_ebook_export
+
+    content, media_type, _ = build_ebook_export(
+        "Novel", "Author", "novel", [(1, "Chapter 1", "Đoạn một\nĐoạn hai")], "epub", "vi",
+        cover=(b"cover-bytes", "image/png"),
+    )
+    with ZipFile(BytesIO(content)) as archive:
+        chapter = archive.read("OEBPS/chapter-00001.xhtml").decode()
+        opf = archive.read("OEBPS/content.opf").decode()
+        assert "<p>Đoạn một</p><p>Đoạn hai</p>" in chapter
+        assert archive.read("OEBPS/images/cover.png") == b"cover-bytes"
+        assert 'properties="cover-image"' in opf
+    assert media_type == "application/epub+zip"
+
+
+def test_crawled_export_downloads_cover_from_novel_metadata(monkeypatch):
+    user = CurrentUser("user-id", "reader@example.com", "Admin", None, "admin")
+    monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)
+    monkeypatch.setattr(main_app, "load_synced_novel", lambda _slug: {"title": "Novel", "cover": "https://cover.example/novel.png"})
+    monkeypatch.setattr(main_app, "load_chapters_index", lambda _slug: [{"chapter_number": 1, "title": "Chapter 1", "source_type": "vi"}])
+    monkeypatch.setattr(main_app, "_synced_chapter_content_path", lambda *_args: "chapters/novel/001.json")
+    monkeypatch.setattr(main_app, "load_cdn_json", lambda _path: {"original_content": "Đoạn một\nĐoạn hai"})
+
+    class CoverResponse:
+        content = b"cover-bytes"
+        headers = {"content-type": "image/png"}
+        is_success = True
+
+    class CoverClient:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return None
+        def get(self, _url): return CoverResponse()
+
+    monkeypatch.setattr(main_app.httpx, "Client", lambda **_kwargs: CoverClient())
+    client = TestClient(main_app.app)
+    client.cookies.set("sb-access-token", "token")
+
+    response = client.get("/truyen/novel/export?format=epub&language=vi")
+    with ZipFile(BytesIO(response.content)) as archive:
+        assert archive.read("OEBPS/images/cover.png") == b"cover-bytes"
+        assert "<p>Đoạn một</p><p>Đoạn hai</p>" in archive.read("OEBPS/chapter-00001.xhtml").decode()
+
+
 def test_crawled_export_is_forbidden_to_non_admin(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Reader", None, "user")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)

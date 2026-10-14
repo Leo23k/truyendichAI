@@ -1339,9 +1339,20 @@ def export_crawled_novel(slug: str, request: Request, format: str = "epub", lang
             chapters.append((number, str(payload.get("title") or entry.get("title") or f"Chương {number}"), content))
         if not chapters:
             raise HTTPException(status_code=404, detail="Truyện chưa có chương để export.")
+        cover = None
+        cover_url = str(novel.get("cover") or novel.get("cover_url") or "").strip()
+        if cover_url.startswith(("http://", "https://")):
+            try:
+                with httpx.Client(timeout=20, follow_redirects=True, trust_env=False) as client:
+                    cover_response = client.get(cover_url)
+                cover_type = cover_response.headers.get("content-type", "").split(";", 1)[0].lower()
+                if cover_response.is_success and len(cover_response.content) <= 15 * 1024 * 1024 and cover_type in {"image/jpeg", "image/png", "image/gif", "image/webp"}:
+                    cover = (cover_response.content, cover_type)
+            except httpx.HTTPError:
+                pass
         content, media_type, filename = build_ebook_export(
             str(novel.get("title") or slug), str(novel.get("author") or ""), slug,
-            chapters, format, language,
+            chapters, format, language, cover=cover,
         )
     except CdnDataError as exc:
         raise HTTPException(status_code=404, detail="Không tải được đầy đủ dữ liệu truyện.") from exc
