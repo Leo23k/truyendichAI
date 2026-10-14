@@ -336,7 +336,8 @@
     const book = (await all("ebooks")).find(item => item.slug === slug && account && item.ownerId === account), chapter = book && await get("ebookChapters", `${book.id}:${number}`);
     if (!book || !chapter) return renderOfflineEbookLibrary();
     const entries = (await ebookChapters(book.id)).sort((a, b) => a.chapterNumber - b.chapterNumber), index = entries.findIndex(item => item.chapterNumber === number);
-    return renderReader({ book, chapter, entries, index, owner: account, ebook: true });
+    // Ebook offline dùng chung reader và TTS browser với truyện offline.
+    return renderReader({ book, chapter, entries, index, owner: account, ebook: false });
   }
 
   const localText = value => String(value || "").replace(/\u00a0/g, " ").replace(/\r/g, "").split(/\n+/).map(line => line.trim()).filter(Boolean).join("\n");

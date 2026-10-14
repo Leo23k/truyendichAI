@@ -32,6 +32,7 @@ test('offline reader uses the online reader layout and keeps offline controls', 
   assert.match(offlineSource, /data-toc-sheet/);
   assert.match(offlineSource, /data-voice/);
   assert.match(offlineSource, /data-sleep/);
+  assert.match(offlineSource, /renderReader\(\{ book, chapter, entries, index, owner: account, ebook: false \}\)/);
 });
 
 test('desktop Reader arrow keys navigate chapters without hijacking form controls', () => {
