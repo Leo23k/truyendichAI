@@ -455,3 +455,17 @@ test('reader player state waits for real audio playing event', () => {
   assert.doesNotMatch(source, /audio\.addEventListener\("play",\s*\(\)\s*=>\s*\{[^}]*setPlayerState\("playing"\)/s);
   assert.match(source, /audio\.addEventListener\("playing",\s*\(\)\s*=>\s*\{\s*if \(selectedTtsMode !== "server" \|\| !wantToPlay\) return;\s*setPlayerState\("playing"\)/);
 });
+
+test('online highlight follows the segment reported by audio progress', () => {
+  const start = source.indexOf('const syncOnlineHighlight =');
+  const end = source.indexOf('const updateSegmentButtons =', start);
+  assert.ok(start >= 0 && end > start);
+  const highlighted = [];
+  const context = loadFunction('syncOnlineHighlight', 'updateSegmentButtons', {
+    selectedTtsMode: 'server', wantToPlay: true, playlist: [{}, {}], streamingFirstSegment: false,
+    streamingSegmentIndex: 0, currentPlayingChunkIndex: 0, getCurrentPosition: () => 12,
+    findSegmentIndex: () => 1, highlightSegment: index => highlighted.push(index),
+  });
+  context.run();
+  assert.deepEqual(highlighted, [1]);
+});
