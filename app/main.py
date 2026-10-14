@@ -176,7 +176,7 @@ def cloud_chapter_monitor(request: Request):
     token = supplied[7:] if supplied.startswith("Bearer ") else ""
     if len(expected) < 32 or not hmac.compare_digest(token, expected):
         raise HTTPException(401, "Invalid cron authorization")
-    return run_chapter_monitor(batch_size=4)
+    return run_chapter_monitor()
 
 
 @app.post("/api/cron/deliver-push", include_in_schema=False)

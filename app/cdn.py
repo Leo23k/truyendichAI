@@ -335,19 +335,26 @@ def load_novels() -> list[dict]:
 
 def load_admin_novels() -> list[dict]:
     """Load editable novel fields using the service role for the admin panel."""
+    select = "id,slug,title,author,description,genres,reading_status,source_type,cover_url,original_title,source_url,untranslated_chapter_rows:chapters(count)"
     try:
-        return _service_rows("novels", {
-            "select": "id,slug,title,author,description,genres,reading_status,source_type,cover_url,original_title,source_url",
+        rows = _service_rows("novels", {
+            "select": select,
             "deleted_at": "is.null",
+            "untranslated_chapter_rows.translated": "eq.false",
             "order": "title.asc",
         })
     except CdnDataError:
         # Keep the panel usable until the description migration has been applied.
-        return _service_rows("novels", {
-            "select": "id,slug,title,author,original_title,source_url",
+        rows = _service_rows("novels", {
+            "select": "id,slug,title,author,original_title,source_url,reading_status,untranslated_chapter_rows:chapters(count)",
             "deleted_at": "is.null",
+            "untranslated_chapter_rows.translated": "eq.false",
             "order": "title.asc",
         })
+    for novel in rows:
+        counts = novel.pop("untranslated_chapter_rows", [])
+        novel["untranslated_chapters"] = int(counts[0].get("count") or 0) if counts else 0
+    return rows
 
 
 def update_admin_novel(novel_id: int, *, slug: str, title: str, author: str, description: str, cover_url: str = "", genres: list[str] | None = None, reading_status: str = "ongoing") -> None:

@@ -1,4 +1,4 @@
-"""Bounded, serverless discovery-only polling of novel source indexes."""
+"""Serverless discovery-only polling of ongoing novel source indexes."""
 
 from __future__ import annotations
 
@@ -17,11 +17,11 @@ def _identity(url: str) -> str:
     return "url:" + url.strip().rstrip("/")
 
 
-def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
+def run_chapter_monitor(batch_size: int | None = None) -> dict[str, int]:
     remote = SupabaseSync()
     novels = remote.all_rows("novels", {
-        "select": "id,slug,title,source_url,source_type,deleted_at",
-        "deleted_at": "is.null", "source_url": "not.is.null",
+        "select": "id,slug,title,source_url,source_type,reading_status,deleted_at",
+        "deleted_at": "is.null", "source_url": "not.is.null", "reading_status": "eq.ongoing",
     })
     novels_by_id = {int(row["id"]): row for row in novels if row.get("id")}
     all_states = remote.all_rows("chapter_monitor_state", {
@@ -61,9 +61,9 @@ def run_chapter_monitor(batch_size: int = 4) -> dict[str, int]:
         all_states = remote.all_rows("chapter_monitor_state", {
             "select": "novel_id,last_checked_at", "order": "last_checked_at.asc.nullsfirst",
         })
-    states = [row for row in all_states if int(row["novel_id"]) in novels_by_id][
-        :max(1, min(12, batch_size))
-    ]
+    states = [row for row in all_states if int(row["novel_id"]) in novels_by_id]
+    if batch_size is not None:
+        states = states[:max(1, batch_size)]
     counts = {"checked": 0, "discovered": 0, "errors": 0, "push_sent": 0}
     for state in states:
         novel = novels_by_id.get(int(state["novel_id"]))
