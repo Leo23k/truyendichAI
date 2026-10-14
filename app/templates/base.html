@@ -77,20 +77,21 @@
       let visibleSince = 0;
       const globalProgress = {
         element: () => document.querySelector("[data-global-progress]"),
-        start() {
+        start(immediate = false) {
           if (activeRequests === 0) hasFailedRequest = false;
           activeRequests += 1;
           clearTimeout(hideTimer);
           const progress = this.element();
           if (!progress || progress.classList.contains("is-active")) return;
           clearTimeout(showTimer);
-          showTimer = setTimeout(() => {
+          const show = () => {
             if (activeRequests > 0) {
               progress.setAttribute("aria-busy", "true");
               progress.classList.add("is-active");
               visibleSince = Date.now();
             }
-          }, 90);
+          };
+          showTimer = immediate ? show() : setTimeout(show, 90);
         },
         finish(failed = false) {
           hasFailedRequest ||= failed;
@@ -154,7 +155,7 @@
         const link = event.target.closest("a[href]");
         if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target || link.hasAttribute("download")) return;
         const url = new URL(link.href, window.location.href);
-        if (url.origin === window.location.origin && url.pathname + url.search !== window.location.pathname + window.location.search) globalProgress.start();
+        if (url.origin === window.location.origin && url.pathname + url.search !== window.location.pathname + window.location.search) globalProgress.start(true);
       });
 
       const setProgress = (wrapper, value) => {

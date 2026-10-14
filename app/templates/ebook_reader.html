@@ -14,7 +14,7 @@
   .reader-player-track{display:grid;grid-template-columns:2.4rem minmax(0,1fr) 2.4rem;align-items:center;gap:.65rem;color:#687078;font-size:.65rem;font-weight:600}.reader-player-track input{height:.35rem;width:100%;cursor:pointer;accent-color:#11a89d}.reader-player-controls{display:flex;min-width:0;align-items:center;gap:.65rem;margin-top:.45rem}.reader-player-controls .reader-player-actions{display:flex;min-width:0;margin-left:auto;align-items:center;justify-content:flex-end;gap:.55rem;color:#697078;font-size:.72rem}.reader-player-status{display:inline-flex;flex:0 0 auto;width:max-content;border-radius:.35rem;background:#f5f7f7;padding:.25rem .45rem;font-size:.58rem;font-weight:800;letter-spacing:.05em;color:#697078}
   @media(max-width:639px){.reader-player-shell{bottom:.65rem!important;width:calc(100% - 1rem)!important;padding:.65rem .75rem!important}.reader-player-controls{display:grid;grid-template-columns:1fr auto 1fr auto;gap:.4rem;margin-top:.45rem}.reader-player-controls [data-segment-prev]{justify-self:end}.reader-player-controls [data-play-toggle]{grid-column:2;width:2.75rem;height:2.75rem}.reader-player-controls [data-segment-next]{grid-column:3;justify-self:start}.reader-player-controls .reader-player-actions{grid-column:4;margin:0;gap:.35rem;justify-self:end}.reader-player-status{display:none}.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:flex}.reader-player-controls [data-rate-control]{width:2.5rem}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}}
 </style>
-<div x-data="{ theme: localStorage.getItem('reader-theme') || 'dark', size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', settings: false }"
+<div data-ebook-reader-root x-data="{ theme: localStorage.getItem('reader-theme') || 'dark', size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Arial, sans-serif', settings: false }"
      x-init="$watch('theme', value => localStorage.setItem('reader-theme', value)); $watch('size', value => localStorage.setItem('reader-size', value)); $watch('lineHeight', value => localStorage.setItem('reader-line-height-v5', value)); $watch('font', value => localStorage.setItem('reader-font', value))"
      :class="theme === 'dark' ? 'bg-[#1d211f] text-[#deddd2]' : theme === 'sepia' ? 'bg-[#ebe1ca] text-[#493d30]' : 'bg-[#faf8f3] text-[#302d28]'" class="min-h-screen pb-28 transition-colors">
   <header data-ebook-reader-header class="sticky top-0 z-30 border-b backdrop-blur" :style="theme === 'paper' ? 'background-color:rgba(250,248,243,.92);border-color:rgba(220,214,203,.8)' : theme === 'sepia' ? 'background-color:rgba(235,225,202,.92);border-color:rgba(190,168,136,.7)' : 'background-color:rgba(29,33,31,.92);border-color:rgba(75,82,77,.8)'">
@@ -33,7 +33,7 @@
       <section x-cloak x-show="settings" @click.outside="settings = false" class="absolute right-3 top-full mt-2 w-64 rounded-lg border border-stone-200 bg-white p-3 text-stone-900 shadow-xl sm:right-[max(1rem,calc((100vw-64rem)/2))]">
         <div class="flex items-center justify-between gap-2"><button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.max(14, size - 1)">A-</button><span class="text-sm" x-text="size + 'px'"></span><button class="h-9 w-10 rounded-md border border-stone-200 font-semibold hover:bg-stone-50" @click="size = Math.min(32, size + 1)">A+</button></div>
         <label class="mt-4 block text-xs font-medium text-stone-600">Giãn dòng <span class="float-right" x-text="lineHeight.toFixed(2)"></span><input class="mt-2 w-full accent-teal-600" type="range" min="1.5" max="2.1" step="0.05" x-model.number="lineHeight"></label>
-        <label class="mt-4 block text-xs font-medium text-stone-600">Phông chữ<select class="mt-2 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm" x-model="font"><option value="Segoe UI, Noto Sans, Arial, sans-serif">Sans hiện đại</option><option value="Georgia, Noto Serif, serif">Georgia</option><option value="Cambria, Palatino Linotype, serif">Cambria</option></select></label>
+        <label class="mt-4 block text-xs font-medium text-stone-600">Phông chữ<select class="mt-2 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm" x-model="font"><option value="system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Arial, sans-serif">Sans hiện đại (mặc định)</option><option value="Georgia, Noto Serif, serif">Georgia</option><option value="Cambria, Palatino Linotype, serif">Cambria</option></select></label>
         <label class="mt-3 flex items-center gap-2 text-xs text-stone-700"><input type="checkbox" data-follow-text checked> Theo dõi đoạn đang đọc</label>
         <label class="mt-2 flex items-center gap-2 text-xs text-stone-700"><input type="checkbox" data-highlight-text checked> Tô sáng đoạn đang đọc</label>
       </section>
@@ -74,7 +74,11 @@
 </div>
 <script src="/static/tts_timeline.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', () => { (() => {
+(() => {
+  const initEbookReader = () => {
+  const root = document.querySelector('[data-ebook-reader-root]');
+  if (!root || root.dataset.initialized === 'true') return;
+  root.dataset.initialized = 'true';
   const readerHeader = document.querySelector('[data-ebook-reader-header]');
   let lastScrollY = window.scrollY;
   const showReaderBars = () => { readerHeader?.classList.remove('is-hidden'); player?.classList.remove('is-hidden'); };
@@ -457,6 +461,10 @@ document.addEventListener('DOMContentLoaded', () => { (() => {
   progressTimer=setInterval(()=>{if(selectedMode==='device'&&player.dataset.state==='playing')updateTimeline();},250);
   window.addEventListener('pagehide',()=>{clearInterval(progressTimer);clearInterval(sleepTimer);manager.stop();segments.forEach(segment=>{if(segment.url?.startsWith('blob:'))URL.revokeObjectURL(segment.url);});},{once:true});
   function startSleepTimer() { updateSleep(); clearInterval(sleepTimer); sleepTimer = setInterval(updateSleep, 1000); }
-})(); });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initEbookReader, {once:true});
+  else initEbookReader();
+  document.addEventListener('htmx:afterSwap', initEbookReader);
+})();
 </script>
 {% endblock %}
