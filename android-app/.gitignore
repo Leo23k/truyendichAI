@@ -4,4 +4,5 @@ android/.gradle/
 android/.gradle-user/
 android/build/
 android/app/build/
+*.apk
 android/local.properties
