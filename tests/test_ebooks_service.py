@@ -167,6 +167,35 @@ def test_delete_ebook_is_owner_scoped_and_purges_all_b2_versions(monkeypatch):
     assert delete_request[2]["params"]["owner_id"] == "eq.owner"
 
 
+def test_delete_ebook_removes_pending_pc_worker_job(monkeypatch):
+    upload_id = "b2efc9a7-843e-4a1e-88d1-bbb1a40d87f3"
+    remote = FakeRemote()
+    remote.rows = lambda table, params: (
+        [{"id": upload_id, "original_file_path": "ebooks/ownerhash/file.epub", "status": "processing"}]
+        if table == "ebook_ingestion_queue" else []
+    )
+    monkeypatch.setattr(ebook_service, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(ebook_service.hashlib, "sha256", lambda _value: type("Hash", (), {"hexdigest": lambda self: "ownerhash"})())
+    deleted = []
+
+    class FakeS3:
+        def list_object_versions(self, **kwargs):
+            assert kwargs["Prefix"] == f"ebooks/ownerhash/{upload_id}/"
+            return {"Versions": [], "DeleteMarkers": [], "IsTruncated": False}
+
+        def delete_objects(self, **kwargs):
+            deleted.extend(kwargs["Delete"]["Objects"])
+            return {"Deleted": kwargs["Delete"]["Objects"]}
+
+    monkeypatch.setattr("app.storage.client", lambda: FakeS3())
+    monkeypatch.setenv("B2_BUCKET", "private")
+    ebook_service.delete_ebook("owner", upload_id)
+
+    delete_request = next(call for call in remote.calls if call[0] == "DELETE")
+    assert delete_request[1] == "/rest/v1/ebook_ingestion_queue"
+    assert delete_request[2]["params"]["owner_id"] == "eq.owner"
+
+
 def test_crawled_novel_export_uses_translation_and_sanitizes_html(monkeypatch):
     user = CurrentUser("user-id", "reader@example.com", "Admin", None, "admin")
     monkeypatch.setattr(main_app, "user_from_token", lambda _token: user)

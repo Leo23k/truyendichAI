@@ -624,7 +624,24 @@ def delete_ebook(owner_id: str, ebook_id: str) -> None:
             "select": "id", "id": f"eq.{canonical_id}", "owner_id": f"eq.{owner_id}", "limit": "1",
         })
         if not books:
-            raise EbookServiceError("Không tìm thấy ebook.", 404)
+            uploads = remote.rows("ebook_ingestion_queue", {
+                "select": "id,original_file_path,status", "id": f"eq.{canonical_id}",
+                "owner_id": f"eq.{owner_id}",
+                "status": "in.(awaiting_upload,queued,processing,failed)", "limit": "1",
+            })
+            if not uploads:
+                raise EbookServiceError("Không tìm thấy ebook.", 404)
+            owner_key = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:32]
+            _delete_b2_prefix(f"ebooks/{owner_key}/{canonical_id}/")
+            response = remote.request(
+                "DELETE", "/rest/v1/ebook_ingestion_queue",
+                params={"id": f"eq.{canonical_id}", "owner_id": f"eq.{owner_id}"},
+                headers={"Prefer": "return=representation"},
+            )
+            deleted_rows = response.json()
+            if not isinstance(deleted_rows, list) or not deleted_rows:
+                raise EbookServiceError("Không xoá được job Ebook trên Supabase.", 503)
+            return
         owner_key = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:32]
         prefix = f"ebooks/{owner_key}/{canonical_id}/"
         _delete_b2_prefix(prefix)
