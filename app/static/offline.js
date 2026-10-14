@@ -105,24 +105,44 @@
     const tocItems = entries.map((item, i) => `<a class="off-sheet-item ${i === index ? "current" : ""}" href="${escape(chapterUrl(item))}">${escape(ebook ? `${item.chapterNumber}. ${item.title}` : `${i + 1}. ${item.title}`)}</a>`).join("");
     const fontOptions = ["system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Arial, sans-serif", "Georgia, Noto Serif, serif", "Cambria, Palatino Linotype, serif", "Trebuchet MS, Verdana, sans-serif"];
     const icon = name => ({
-      "arrow-left": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>',
-      palette: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h3a6 6 0 0 0 0-12Z"/><path d="M7.5 10.5h.01M10 7.5h.01M15 7.5h.01M17 11h.01"/></svg>',
-      list: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+      "arrow-left": '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>',
+      palette: '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h3a6 6 0 0 0 0-12Z"/><path d="M7.5 10.5h.01M10 7.5h.01M15 7.5h.01M17 11h.01"/></svg>',
+      list: '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+      "skip-back": '<svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 20-9-8 9-8v16ZM5 19V5"/></svg>',
+      "skip-forward": '<svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 4 9 8-9 8V4Zm14 1v14"/></svg>',
+      play: '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor" aria-hidden="true"><path d="m8 5 11 7-11 7V5Z"/></svg>',
+      pause: '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
+      loading: '<svg viewBox="0 0 24 24" class="h-5 w-5 animate-spin" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a9 9 0 1 1-9 9"/></svg>',
+      "audio-lines": '<svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 10v4M6 7v10M10 4v16M14 7v10M18 10v4M22 8v8"/></svg>',
+      gauge: '<svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M19.07 4.93a10 10 0 1 1-14.14 0M12 12l4.5-4.5"/></svg>',
+      headphones: '<svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14v-3a9 9 0 0 1 18 0v3"/><path d="M5 14h3v7H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Zm11 0h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-3z"/></svg>',
     }[name] || "");
     shell(`<div class="offline-reader-root" data-reader-theme="dark"><header data-reader-header class="reader-header off-reader-toolbar"><div class="reader-header-inner"><a class="icon-button off-btn" href="${escape(book.bookUrl)}" aria-label="Quay lại truyện">${icon("arrow-left")}</a><div><h1>${escape(chapter.title || chapterLabel)}</h1><p>${escape(book.title)} · ${escape(chapterLabel)}</p></div><div class="reader-header-actions"><button class="icon-button" data-reader-theme-toggle aria-label="Đổi nền đọc">${icon("palette")}</button><button class="icon-button" data-open-toc aria-label="Mục lục">${icon("list")}</button><button class="icon-button reader-settings-button" data-font-settings aria-label="Kiểu chữ">A</button><div class="reader-font-panel" data-font-panel hidden><div class="off-reader-tools"><button class="off-btn" data-font-down aria-label="Giảm cỡ chữ">A−</button><button class="off-btn" data-font-up aria-label="Tăng cỡ chữ">A+</button></div><label>Phông chữ<select data-font-select>${fontOptions.map((font, i) => `<option value="${escape(font)}">${["Sans hiện đại", "Georgia", "Cambria", "Trebuchet"][i]}</option>`).join("")}</select></label></div></div></div></header><span class="reader-progress-chip off-progress-chip" data-progress>${percent}%</span><span class="off-progress-chip" data-progress-mobile hidden>${percent}%</span><nav class="reader-breadcrumb"><span>← Ebook</span><span>›</span><span>${escape(book.title)}</span><span>›</span><span>${escape(chapter.title || chapterLabel)}</span></nav><div class="reader-page-nav"><a class="reader-nav-card" href="${prev ? escape(chapterUrl(prev)) : '#'}" ${prev ? "" : "aria-disabled=\"true\""}>← <span><small>CHƯƠNG TRƯỚC</small><strong>${escape(prev?.title || "")}</strong></span></a><span>${ebook ? "EBOOK OFFLINE" : "TRUYỆN OFFLINE"}</span><a class="reader-nav-card" href="${next ? escape(chapterUrl(next)) : '#'}" ${next ? "" : "aria-disabled=\"true\""}><span><small>CHƯƠNG SAU</small><strong>${escape(next?.title || "")}</strong></span> →</a></div><article class="reader-content off-reader-content" data-reader-text><h2>${escape(chapter.title || chapterLabel)}</h2><div class="reader-prose">${body}</div></article><nav class="reader-reading-footer"><a class="reader-nav-card" href="${prev ? escape(chapterUrl(prev)) : '#'}" ${prev ? "" : "aria-disabled=\"true\""}>← <span><small>CHƯƠNG TRƯỚC</small><strong>${escape(prev?.title || "")}</strong></span></a><span></span><a class="reader-nav-card" href="${next ? escape(chapterUrl(next)) : '#'}" ${next ? "" : "aria-disabled=\"true\""}><span><small>CHƯƠNG SAU</small><strong>${escape(next?.title || "")}</strong></span> →</a></nav><section class="reader-player-shell off-reader-player" aria-label="Trình phát đọc bằng giọng nói" data-mobile-expanded="false"><div class="reader-player-track"><span data-current-time>0:00</span><input class="off-player-seek" type="range" min="0" max="${Math.max(0, document.querySelectorAll?.(".off-reader-content p").length - 1 || 0)}" value="0" aria-label="Vị trí đọc"><span data-duration>0:00</span></div><div class="reader-player-controls off-player-controls"><span class="reader-player-status off-player-state" data-tts-status role="status" aria-live="polite">SẴN SÀNG</span><button class="off-icon-btn" data-prev-segment aria-label="Đoạn trước">←</button><button class="off-icon-btn off-play" data-play data-play-toggle aria-label="Phát">▶</button><button class="off-icon-btn" data-next-segment aria-label="Đoạn tiếp">→</button>${chapterLink(prev, "‹")}${chapterLink(next, "›")}</div><div class="off-player-extras" hidden><select data-voice aria-label="Giọng đọc"><option>Đang tìm giọng đọc…</option></select><label class="off-muted">Tốc độ <select data-rate aria-label="Tốc độ đọc"><option value="0.75">0.75×</option><option value="0.9">0.9×</option><option value="1" selected>1×</option><option value="1.1">1.1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label><select data-sleep aria-label="Hẹn giờ tắt"><option value="0">Hẹn giờ</option><option value="15">15 phút</option><option value="30">30 phút</option><option value="45">45 phút</option><option value="60">60 phút</option><option value="end">Hết chương</option></select><button class="off-icon-btn" data-stop aria-label="Dừng">■</button></div></section><div class="off-sheet" data-toc-sheet hidden><section class="off-sheet-panel"><div class="off-sheet-head"><strong>Mục lục · ${escape(book.title)}</strong><button class="off-btn" data-close-toc>Đóng</button></div><div class="off-sheet-list">${tocItems}</div></section></div></div>`, `${chapter.title || chapterLabel} · ${book.title}`);
 
     const player = document.querySelector(".off-reader-player"), controls = player.querySelector(".off-player-controls"), extras = player.querySelector(".off-player-extras");
     const previousSegment = controls.querySelector("[data-prev-segment]"), playControl = controls.querySelector("[data-play]"), stopControl = controls.querySelector("[data-stop]"), nextSegment = controls.querySelector("[data-next-segment]");
     [...controls.querySelectorAll("a")].forEach(link => link.remove());
-    const voiceSelect = extras.querySelector("[data-voice]"), rateLabel = extras.querySelector("label"), sleepSelect = extras.querySelector("[data-sleep]");
-    const playerActions = document.createElement("div"); playerActions.className = "off-player-actions";
-    const voiceTrigger = document.createElement("button"); voiceTrigger.type = "button"; voiceTrigger.className = "off-btn"; voiceTrigger.dataset.voiceTrigger = ""; voiceTrigger.setAttribute("aria-haspopup", "dialog"); voiceTrigger.setAttribute("aria-label", "Chọn giọng đọc offline"); voiceTrigger.textContent = "Giọng đọc";
-    playerActions.append(voiceTrigger, rateLabel, sleepSelect, stopControl);
+    const voiceSelect = extras.querySelector("[data-voice]"), rateLabel = extras.querySelector("label"), rateSelect = extras.querySelector("[data-rate]"), sleepSelect = extras.querySelector("[data-sleep]");
+    const playerActions = document.createElement("div"); playerActions.className = "reader-player-actions off-player-actions";
+    const voiceTrigger = document.createElement("button"); voiceTrigger.type = "button"; voiceTrigger.className = "inline-flex h-8 w-8 items-center justify-center rounded hover:bg-stone-100"; voiceTrigger.dataset.voiceTrigger = ""; voiceTrigger.setAttribute("aria-haspopup", "dialog"); voiceTrigger.setAttribute("aria-label", "Chọn giọng đọc offline"); voiceTrigger.title = "Chọn giọng đọc"; voiceTrigger.innerHTML = `${icon("audio-lines")}<span class="sr-only">Giọng đọc</span>`;
+    const rateStatus = document.createElement("span"); rateStatus.dataset.rateStatus = "";
+    const rateControl = document.createElement("input"); rateControl.type = "range"; rateControl.className = "reader-range w-14"; rateControl.dataset.rateControl = ""; rateControl.min = "0.75"; rateControl.max = "2"; rateControl.step = "0.05"; rateControl.value = "1";
+    rateLabel.className = "off-rate-control"; rateLabel.replaceChildren(document.createRange().createContextualFragment(icon("gauge")), rateControl); rateSelect.hidden = true;
+    sleepSelect.hidden = true;
+    const sleepTrigger = document.createElement("button"); sleepTrigger.type = "button"; sleepTrigger.className = "rounded px-1 hover:bg-stone-100"; sleepTrigger.dataset.sleepButton = ""; sleepTrigger.textContent = "Hẹn giờ";
+    const sleepCountdown = document.createElement("span"); sleepCountdown.className = "rounded bg-teal-50 px-1.5 py-0.5 text-teal-700"; sleepCountdown.dataset.sleepCountdown = ""; sleepCountdown.hidden = true;
+    stopControl.hidden = true;
+    playerActions.append(voiceTrigger, rateStatus, sleepTrigger, sleepCountdown, rateLabel, stopControl);
     controls.replaceChildren(previousSegment, playControl, nextSegment, playerActions); extras.remove();
+    player.dataset.readerPlayer = "";
+    previousSegment.className = "inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300"; previousSegment.innerHTML = icon("skip-back");
+    playControl.className = "inline-flex items-center justify-center rounded-full text-white hover:bg-teal-800 disabled:bg-stone-300"; playControl.innerHTML = `<i data-play-icon="play">${icon("play")}</i><i data-play-icon="pause">${icon("pause")}</i><i data-play-icon="loading">${icon("loading")}</i>`;
+    playControl.querySelector('[data-play-icon="pause"]').hidden = true; playControl.querySelector('[data-play-icon="loading"]').hidden = true;
+    nextSegment.className = "inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-600 hover:bg-stone-100 disabled:text-stone-300"; nextSegment.innerHTML = icon("skip-forward");
     player.dataset.mobileExpanded = "false";
     const mobilePlayerToggle = document.createElement("button");
-    mobilePlayerToggle.type = "button"; mobilePlayerToggle.className = "off-mobile-player-toggle"; mobilePlayerToggle.setAttribute("aria-label", "Mở trình phát đọc giọng nói"); mobilePlayerToggle.setAttribute("aria-expanded", "false");
-    mobilePlayerToggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14v-3a9 9 0 0 1 18 0v3"/><path d="M5 14h3v7H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Zm11 0h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-3z"/></svg>';
+    mobilePlayerToggle.type = "button"; mobilePlayerToggle.className = "reader-mobile-player-toggle off-mobile-player-toggle"; mobilePlayerToggle.dataset.mobilePlayerToggle = ""; mobilePlayerToggle.setAttribute("aria-label", "Mở trình phát đọc giọng nói"); mobilePlayerToggle.setAttribute("aria-expanded", "false");
+    mobilePlayerToggle.innerHTML = icon("headphones");
     player.prepend(mobilePlayerToggle);
     mobilePlayerToggle.addEventListener("click", () => {
       const expanded = player.dataset.mobileExpanded !== "true";
@@ -137,6 +157,14 @@
     voiceSheet.querySelector("[data-close-voice]").onclick = closeVoiceSheet;
     voiceSheet.onclick = event => { if (event.target === voiceSheet) closeVoiceSheet(); };
     document.addEventListener("keydown", event => { if (event.key === "Escape" && !voiceSheet.hidden) closeVoiceSheet(); });
+    const sleepSheet = document.createElement("div"); sleepSheet.className = "off-sheet"; sleepSheet.hidden = true; sleepSheet.dataset.sleepSheet = "";
+    sleepSheet.innerHTML = '<section class="off-sheet-panel" role="dialog" aria-modal="true" aria-label="Hẹn giờ"><div class="off-sheet-head"><strong>Hẹn giờ</strong><button class="off-btn" type="button" data-close-sleep>Đóng</button></div><div class="off-sheet-list"><button type="button" class="off-sheet-item" data-sleep-option="15">15 phút</button><button type="button" class="off-sheet-item" data-sleep-option="30">30 phút</button><button type="button" class="off-sheet-item" data-sleep-option="45">45 phút</button><button type="button" class="off-sheet-item" data-sleep-option="60">60 phút</button><button type="button" class="off-sheet-item" data-sleep-option="end">Hết chương hiện tại</button><button type="button" class="off-sheet-item" data-sleep-option="0">Tắt hẹn giờ</button></div></section>';
+    document.body.append(sleepSheet);
+    const closeSleepSheet = () => { sleepSheet.hidden = true; sleepTrigger.focus(); };
+    sleepTrigger.onclick = () => { sleepSheet.hidden = false; sleepSheet.querySelector("[data-close-sleep]").focus(); };
+    sleepSheet.querySelector("[data-close-sleep]").onclick = closeSleepSheet;
+    sleepSheet.onclick = event => { if (event.target === sleepSheet) closeSleepSheet(); };
+    sleepSheet.querySelectorAll("[data-sleep-option]").forEach(option => option.onclick = () => { sleepSelect.value = option.dataset.sleepOption; sleepSelect.dispatchEvent(new Event("change", { bubbles: true })); closeSleepSheet(); });
 
     const paragraphs = [...document.querySelectorAll(".off-reader-content p")];
     const seek = document.querySelector(".off-player-seek"); seek.max = String(Math.max(0, paragraphs.length - 1));
@@ -164,10 +192,11 @@
     const sheet = document.querySelector("[data-toc-sheet]"); document.querySelector("[data-open-toc]").onclick = () => sheet.hidden = false; document.querySelector("[data-close-toc]").onclick = () => sheet.hidden = true; sheet.onclick = event => { if (event.target === sheet) sheet.hidden = true; };
     let previousY = scrollY; addEventListener("scroll", () => { const toolbar = document.querySelector(".off-reader-toolbar"); if (scrollY < 80 || scrollY < previousY - 6) { toolbar.classList.remove("is-hidden"); player.classList.remove("is-hidden"); } else if (scrollY > previousY + 6) { toolbar.classList.add("is-hidden"); if (!status.classList.contains("playing")) { player.classList.add("is-hidden"); player.dataset.mobileExpanded = "false"; mobilePlayerToggle.setAttribute("aria-expanded", "false"); mobilePlayerToggle.setAttribute("aria-label", "Mở trình phát đọc giọng nói"); } } previousY = scrollY; }, { passive: true });
     document.addEventListener("click", event => { if (event.target.closest(".off-reader-player, .off-sheet")) return; document.querySelector(".off-reader-toolbar")?.classList.remove("is-hidden"); player.classList.remove("is-hidden"); });
-    const provider = window.NovelTTS?.createDeviceProvider(), status = document.querySelector("[data-tts-status]"), play = document.querySelector("[data-play]"), rateSelect = document.querySelector("[data-rate]");
+    const provider = window.NovelTTS?.createDeviceProvider(), status = document.querySelector("[data-tts-status]"), play = document.querySelector("[data-play]");
     const preferencesKey = `reader.${owner || "anonymous"}.offline.tts.preferences`;
     let preferences = {}; try { preferences = JSON.parse(localStorage.getItem(preferencesKey) || "{}"); } catch { /* Ignore malformed preferences. */ }
-    rateSelect.value = String(Math.max(.75, Math.min(2, Number(preferences.rate) || 1)));
+    rateSelect.value = String(Math.max(.75, Math.min(2, Number(preferences.rate) || 1))); rateControl.value = rateSelect.value; rateStatus.textContent = `${Number(rateSelect.value).toFixed(2).replace(/0$/, "")}x`;
+    rateControl.oninput = () => { rateSelect.value = rateControl.value; rateStatus.textContent = `${Number(rateControl.value).toFixed(2).replace(/0$/, "")}x`; rateSelect.dispatchEvent(new Event("change", { bubbles: true })); };
     const validSleepModes = new Set(["0", "15", "30", "45", "60", "end"]);
     sleepSelect.value = validSleepModes.has(String(preferences.sleepMode)) ? String(preferences.sleepMode) : "0";
     let sleepUntil = Number(preferences.sleepUntil) || 0;
@@ -179,6 +208,7 @@
     for (const [paragraphIndex, node] of paragraphs.entries()) {
       for (const text of (window.NovelTTS?.splitDeviceText?.(node.textContent) || [])) segments.push({ text, paragraphIndex, node });
     }
+    const setPlayIcon = mode => { ["play", "pause", "loading"].forEach(name => { const node = play.querySelector(`[data-play-icon="${name}"]`); if (node) { node.hidden = name !== mode; node.classList.toggle("hidden", name !== mode); } }); play.setAttribute("aria-label", mode === "pause" ? "Tạm dừng" : mode === "loading" ? "Đang tải" : "Phát hoặc tạm dừng"); };
     let segmentIndex = 0, timer = 0, sleepTimer = 0, asleepAtEnd = sleepSelect.value === "end", paused = false, offlineVoices = [];
     const markSegment = i => { segmentIndex = Math.max(0, Math.min(segments.length - 1, i)); const item = segments[segmentIndex]; if (!item) return; paragraphs.forEach(node => node.classList.remove("off-active")); item.node.classList.add("off-active"); seek.value = String(item.paragraphIndex); item.node.scrollIntoView({ block: "center", behavior: "smooth" }); };
     if (window.NativeTts) {
@@ -197,7 +227,7 @@
             localStorage.setItem(nativePosition, String(state.index));
           }
           status.classList.toggle("playing", state.status === "playing");
-          play.textContent = state.status === "playing" ? "Ⅱ" : "▶";
+          setPlayIcon(state.status === "playing" ? "pause" : "play");
           play.setAttribute("aria-label", state.status === "playing" ? "Tạm dừng" : "Phát");
           if (state.status === "error") status.textContent = state.error || "Android TTS gặp lỗi.";
           else if (state.status === "playing") status.textContent = `Đang đọc ${state.index + 1}/${state.total}`;
@@ -234,7 +264,7 @@
           await sync();
         } catch (error) { status.textContent = error.message || "Không phát được Android TTS."; }
       };
-      stopControl.onclick = async () => { await native.stop(); active = false; status.classList.remove("playing"); status.textContent = "Đã dừng"; play.textContent = "▶"; };
+      stopControl.onclick = async () => { await native.stop(); active = false; status.classList.remove("playing"); status.textContent = "Đã dừng"; setPlayIcon("play"); };
       previousSegment.onclick = async () => { if (active) await native.previous(); else markSegment(Math.max(0, segmentIndex - 1)); await sync(); };
       nextSegment.onclick = async () => { if (active) await native.next(); else markSegment(Math.min(segments.length - 1, segmentIndex + 1)); await sync(); };
       seek.oninput = async () => {
@@ -252,7 +282,7 @@
       await sync();
       return;
     }
-    const finish = () => { provider?.stop(); clearTimeout(timer); timer = 0; paused = false; play.textContent = "▶"; play.setAttribute("aria-label", "Phát"); status.textContent = "Đã đọc xong"; status.classList.remove("playing"); };
+    const finish = () => { provider?.stop(); clearTimeout(timer); timer = 0; paused = false; setPlayIcon("play"); status.textContent = "Đã đọc xong"; status.classList.remove("playing"); };
     if (Number(sleepSelect.value) > 0 && sleepUntil) {
       const remaining = sleepUntil - Date.now();
       if (remaining > 0) sleepTimer = setTimeout(() => { sleepSelect.value = "0"; sleepUntil = 0; asleepAtEnd = false; persistPreferences(); finish(); }, remaining);
@@ -262,14 +292,14 @@
       if (!provider?.isSupported() || !segments.length) { status.textContent = "Trình duyệt chưa hỗ trợ TTS offline."; return; }
       if (!offlineVoices.length) { status.textContent = "Cài giọng Tiếng Việt dùng offline trên thiết bị để bật TTS."; return; }
       if (segmentIndex >= segments.length) { finish(); return; }
-      const segment = segments[segmentIndex]; markSegment(segmentIndex); play.textContent = "Ⅱ"; play.setAttribute("aria-label", "Tạm dừng"); status.textContent = `Đang đọc ${segmentIndex + 1}/${segments.length}`; status.classList.add("playing"); player.classList.remove("is-hidden"); paused = false;
+      const segment = segments[segmentIndex]; markSegment(segmentIndex); setPlayIcon("pause"); status.textContent = `Đang đọc ${segmentIndex + 1}/${segments.length}`; status.classList.add("playing"); player.classList.remove("is-hidden"); paused = false;
       provider.speak(segment.text, { lang: "vi-VN", voiceURI: voiceSelect.value || undefined, rate: Number(rateSelect.value) || 1, pitch: 1, volume: 1, replaceCurrent: false,
         onend: () => { segmentIndex += 1; if (segmentIndex < segments.length) timer = setTimeout(say, 90); else if (!asleepAtEnd && next) { status.textContent = "Đang chuyển chương…"; sessionStorage.setItem(autoplayKey, chapterUrl(next)); location.assign(chapterUrl(next)); } else finish(); },
-        onerror: error => { status.textContent = error.message || "Không thể phát giọng đọc"; play.textContent = "▶"; status.classList.remove("playing"); },
+        onerror: error => { status.textContent = error.message || "Không thể phát giọng đọc"; setPlayIcon("play"); status.classList.remove("playing"); },
       });
     };
     const seekTo = value => { const paragraphIndex = Number(value); const i = segments.findIndex(item => item.paragraphIndex >= paragraphIndex); if (i >= 0) { provider?.stop(); clearTimeout(timer); segmentIndex = i; markSegment(i); status.textContent = `Đoạn ${i + 1}/${segments.length}`; } };
-    play.onclick = () => { if (paused) { paused = false; provider?.resume(); play.textContent = "Ⅱ"; status.textContent = "Đang đọc"; status.classList.add("playing"); } else if (provider?.isSpeaking()) { provider.pause(); paused = true; play.textContent = "▶"; status.textContent = "Đã tạm dừng"; status.classList.remove("playing"); } else say(); };
+    play.onclick = () => { if (paused) { paused = false; provider?.resume(); setPlayIcon("pause"); status.textContent = "Đang đọc"; status.classList.add("playing"); } else if (provider?.isSpeaking()) { provider.pause(); paused = true; setPlayIcon("play"); status.textContent = "Đã tạm dừng"; status.classList.remove("playing"); } else say(); };
     document.querySelector("[data-stop]").onclick = finish;
     document.querySelector("[data-next-segment]").onclick = () => { provider?.stop(); clearTimeout(timer); segmentIndex = Math.min(segments.length - 1, segmentIndex + 1); say(); };
     document.querySelector("[data-prev-segment]").onclick = () => { provider?.stop(); clearTimeout(timer); segmentIndex = Math.max(0, segmentIndex - 1); say(); };
