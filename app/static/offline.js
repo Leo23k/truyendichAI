@@ -44,7 +44,7 @@
   `;
   function shell(content, title = "Leo Truyện · Offline") {
     document.title = title;
-    document.head.insertAdjacentHTML("beforeend", `<style id="offline-ui-styles">${styles}</style>`);
+    document.head.insertAdjacentHTML("beforeend", `<style id="offline-ui-styles">${styles}.reader-tts-active{background:rgba(20,184,166,.13);font-weight:600;border-radius:.3rem;transition:background 150ms ease,font-weight 150ms ease}</style>`);
     document.body.innerHTML = content;
   }
   function cover(url, title, cls = "") {
@@ -210,7 +210,7 @@
     }
     const setPlayIcon = mode => { ["play", "pause", "loading"].forEach(name => { const node = play.querySelector(`[data-play-icon="${name}"]`); if (node) { node.hidden = name !== mode; node.classList.toggle("hidden", name !== mode); } }); play.setAttribute("aria-label", mode === "pause" ? "Tạm dừng" : mode === "loading" ? "Đang tải" : "Phát hoặc tạm dừng"); };
     let segmentIndex = 0, timer = 0, sleepTimer = 0, asleepAtEnd = sleepSelect.value === "end", paused = false, offlineVoices = [];
-    const markSegment = i => { segmentIndex = Math.max(0, Math.min(segments.length - 1, i)); const item = segments[segmentIndex]; if (!item) return; paragraphs.forEach(node => node.classList.remove("off-active")); item.node.classList.add("off-active"); seek.value = String(item.paragraphIndex); item.node.scrollIntoView({ block: "center", behavior: "smooth" }); };
+    const markSegment = i => { segmentIndex = Math.max(0, Math.min(segments.length - 1, i)); const item = segments[segmentIndex]; if (!item) return; paragraphs.forEach(node => node.classList.remove("off-active", "reader-tts-active")); item.node.classList.add("off-active", "reader-tts-active"); seek.value = String(item.paragraphIndex); item.node.scrollIntoView({ block: "center", behavior: "smooth" }); };
     if (window.NativeTts) {
       const native = window.NativeTts, nativePosition = `reader.native.position.${location.pathname}`;
       let active = false, lastIndex = -1;

@@ -26,7 +26,7 @@ test('Ebook reader defaults to sans-serif and initializes after dynamic navigati
 });
 
 test('offline reader uses the online reader layout and keeps offline controls', () => {
-  for (const marker of ['reader-header', 'reader-page-nav', 'reader-content off-reader-content', 'reader-player-shell off-reader-player', 'reader-player-actions', 'data-play-icon="pause"', 'dataset.rateControl', 'dataset.sleepButton', 'reader-mobile-player-toggle', 'data-font-select', 'data-reader-theme-toggle']) {
+  for (const marker of ['reader-header', 'reader-page-nav', 'reader-content off-reader-content', 'reader-player-shell off-reader-player', 'reader-player-actions', 'reader-tts-active', 'data-play-icon="pause"', 'dataset.rateControl', 'dataset.sleepButton', 'reader-mobile-player-toggle', 'data-font-select', 'data-reader-theme-toggle']) {
     assert.match(offlineSource, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
   }
   assert.match(offlineSource, /data-toc-sheet/);
