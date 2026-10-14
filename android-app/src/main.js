@@ -10,23 +10,6 @@ const request = async (path, responseType = 'json') => {
   return response.data;
 };
 
-async function openWebAppWhenOnline() {
-  if (location.origin === site || location.pathname !== '/') return false;
-  try {
-    const response = await CapacitorHttp.get({
-      url: `${site}/health`,
-      responseType: 'json',
-      connectTimeout: 5000,
-      readTimeout: 5000,
-    });
-    if (response.status !== 200 || response.data?.status !== 'ok') return false;
-    location.replace(`${site}/`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function showHome() {
   await window.NovelOffline.renderOfflineHome();
   const link = document.createElement('a');
@@ -54,17 +37,46 @@ async function showCatalog() {
 async function showBook(slug) {
   await window.NovelOffline.renderOfflineHome();
   const root = document.querySelector('.off-shell');
-  root.innerHTML = '<div class="off-top"><a href="/catalog">← Danh sách truyện</a></div><h1 class="off-title" data-title></h1><p class="off-muted" data-status>Đang tải mục lục…</p><section class="off-chapters"></section>';
+  root.innerHTML = '<div class="off-top"><a href="/catalog">← Danh sách truyện</a></div><h1 class="off-title" data-title></h1><p class="off-muted" data-status>Đang tải mục lục…</p><div class="off-actions"><button class="off-btn off-primary" type="button" data-download-all disabled>↓ Lưu tất cả để đọc offline</button></div><section class="off-chapters"></section>';
   try {
     const books = JSON.parse(sessionStorage.getItem('android.catalog') || '[]');
     const book = books.find(item => item.slug === slug) || { slug, title: slug, id: slug };
+    const bookId = String(book.id);
     const chapters = await request(`/truyen/${encodeURIComponent(slug)}/offline-chapters`);
     const store = window.NovelOffline.store;
-    await store.put('books', { id: String(book.id), title: book.title, author: book.author, coverUrl: book.cover || '', bookUrl: `/truyen/${slug}`, totalChapters: chapters.length, downloadedChapters: (await store.all('chapters')).filter(row => row.bookId === String(book.id)).length });
-    await store.put('chapterLists', { bookId: String(book.id), chapters: chapters.map((row, index) => ({ id: `${book.id}:${row.id}`, chapterId: String(row.id), title: row.title, url: row.url, bookId: String(book.id), bookUrl: `/truyen/${slug}`, order: index })) });
+    await store.put('books', { id: bookId, title: book.title, author: book.author, coverUrl: book.cover || '', bookUrl: `/truyen/${slug}`, totalChapters: chapters.length, downloadedChapters: (await store.all('chapters')).filter(row => row.bookId === bookId).length });
+    await store.put('chapterLists', { bookId, chapters: chapters.map((row, index) => ({ id: `${bookId}:${row.id}`, chapterId: String(row.id), title: row.title, url: row.url, bookId, bookUrl: `/truyen/${slug}`, order: index })) });
     root.querySelector('[data-title]').textContent = book.title;
     root.querySelector('[data-status]').textContent = `${chapters.length} chương · Chạm vào chương để tải và đọc`;
     root.querySelector('.off-chapters').innerHTML = chapters.map(row => `<a class="off-chapter" href="${escape(row.url)}">${row.chapter_number}. ${escape(row.title)}</a>`).join('');
+    const saveButton = root.querySelector('[data-download-all]');
+    saveButton.disabled = !chapters.length;
+    saveButton.onclick = async () => {
+      saveButton.disabled = true;
+      let cursor = 0, saved = 0;
+      const pending = [...chapters];
+      const update = () => { root.querySelector('[data-status]').textContent = `Đang lưu offline ${saved}/${pending.length} chương…`; };
+      update();
+      const worker = async () => {
+        while (cursor < pending.length) {
+          const row = pending[cursor++], entry = { id: `${bookId}:${row.id}`, chapterId: String(row.id), title: row.title, url: row.url, bookId, bookUrl: `/truyen/${slug}`, order: cursor - 1 };
+          if (await store.get('chapters', entry.id)) { saved += 1; update(); continue; }
+          try {
+            const page = new DOMParser().parseFromString(await request(row.url, 'text'), 'text/html');
+            const content = [...page.querySelectorAll('[data-reader-content] p')].map(item => item.textContent.trim()).filter(Boolean).join('\n') || page.querySelector('[data-reader-content]')?.textContent?.trim();
+            if (!content) throw new Error('Nội dung trống');
+            await store.put('chapters', { ...entry, content, savedAt: Date.now() });
+            saved += 1;
+            update();
+          } catch { /* Chương lỗi có thể tải lại lần sau. */ }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(3, pending.length) }, worker));
+      await store.put('books', { id: bookId, title: book.title, author: book.author, coverUrl: book.cover || '', bookUrl: `/truyen/${slug}`, totalChapters: chapters.length, downloadedChapters: saved });
+      saveButton.disabled = false;
+      saveButton.textContent = saved === pending.length ? '✓ Đã lưu toàn bộ offline' : 'Tải tiếp chương còn thiếu';
+      root.querySelector('[data-status]').textContent = `${saved}/${pending.length} chương đã lưu offline`;
+    };
   } catch (error) {
     root.querySelector('[data-status]').textContent = `Không tải được mục lục: ${error.message}`;
   }
@@ -97,7 +109,6 @@ async function showChapter(path) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  if (await openWebAppWhenOnline()) return;
   const path = location.pathname;
   if (path === '/catalog') return showCatalog();
   if (path.startsWith('/catalog/')) return showBook(decodeURIComponent(path.slice('/catalog/'.length)));

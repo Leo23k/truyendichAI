@@ -59,9 +59,13 @@
         await apiJson(`/api/ebooks/upload/${encodeURIComponent(session.upload_id)}/complete`, { method: 'POST' });
         status.textContent = 'Đang chờ…';
         leave.classList.remove('hidden');
-        while (true) {
+        let polls = 0;
+        while (polls < 200) {
           await wait(3000);
-          const result = await apiJson(`/api/ebooks/upload/${encodeURIComponent(session.upload_id)}/status`);
+          polls += 1;
+          let result;
+          try { result = await apiJson(`/api/ebooks/upload/${encodeURIComponent(session.upload_id)}/status`); }
+          catch { status.textContent = 'Đang chờ…'; continue; }
           if (result.status === 'failed') throw new Error(result.error || 'PC worker không thể phân tích file.');
           if (result.status === 'completed') {
             const query = new URLSearchParams({ uploaded: '1', queued: String(result.translation_queued || 0), translate: translateIfChinese ? '1' : '0' });
@@ -70,6 +74,7 @@
           }
           status.textContent = 'Đang chờ…';
         }
+        throw new Error('Upload xong nhưng PC worker chưa xử lý. Bạn có thể rời trang và mở lại Ebook sau.');
       } catch (uploadError) {
         submits.forEach(button => { button.disabled = false; }); error.textContent = uploadError.message || 'Upload thất bại. Hãy thử lại.'; error.classList.remove('hidden');
       }
