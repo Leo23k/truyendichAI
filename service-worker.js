@@ -1,4 +1,4 @@
-const CACHE = "novel-reader-static-v9";
+const CACHE = "novel-reader-static-v10";
 const MEDIA_CACHE = "novel-reader-media-v1";
 const STATIC = ["/static/offline.js", "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
