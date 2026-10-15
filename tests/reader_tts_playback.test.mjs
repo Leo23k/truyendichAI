@@ -448,7 +448,7 @@ test('Reader controls tolerate a stale cached TTS bridge and keep mobile toggle 
   assert.match(source, /@media\(max-width:639px\)\{\s*\.reader-mobile-player-toggle\{position:absolute/);
   assert.match(source, /window\.NovelTTS\?\.getInitialTtsMode\?\.\(/);
   assert.equal((source.match(/playButton\.addEventListener\("click", handlePlayButtonClick\)/g) || []).length, 1);
-  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v11"/);
+  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v12"/);
 });
 
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {
