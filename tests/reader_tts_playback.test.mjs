@@ -45,6 +45,10 @@ test('offline reader asset and service worker cache versions stay in sync', () =
   const cacheVersion = serviceWorkerSource.match(/novel-reader-static-v(\d+)/)?.[1];
   assert.ok(assetVersion && cacheVersion);
   assert.equal(assetVersion, cacheVersion);
+  assert.match(serviceWorkerSource, new RegExp(`const OFFLINE_SCRIPT = "/static/offline\\.js\\?v=${assetVersion}"`));
+  assert.match(serviceWorkerSource, /const STATIC = \[OFFLINE_SCRIPT,/);
+  assert.match(serviceWorkerSource, /cache\.match\(OFFLINE_SCRIPT\)/);
+  assert.match(serviceWorkerSource, /<script src="\$\{OFFLINE_SCRIPT\}"><\/script>/);
   new vm.Script(offlineSource);
 });
 
@@ -459,7 +463,7 @@ test('Reader controls tolerate a stale cached TTS bridge and keep mobile toggle 
   assert.match(source, /@media\(max-width:639px\)\{\s*\.reader-mobile-player-toggle\{position:absolute/);
   assert.match(source, /window\.NovelTTS\?\.getInitialTtsMode\?\.\(/);
   assert.equal((source.match(/playButton\.addEventListener\("click", handlePlayButtonClick\)/g) || []).length, 1);
-  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v13"/);
+  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v14"/);
 });
 
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {

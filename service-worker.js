@@ -1,6 +1,7 @@
-const CACHE = "novel-reader-static-v13";
+const CACHE = "novel-reader-static-v14";
 const MEDIA_CACHE = "novel-reader-media-v1";
-const STATIC = ["/static/offline.js", "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
+const OFFLINE_SCRIPT = "/static/offline.js?v=14";
+const STATIC = [OFFLINE_SCRIPT, "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(STATIC)).then(() => self.skipWaiting())));
 self.addEventListener("activate", event => event.waitUntil(
@@ -47,7 +48,7 @@ self.addEventListener("fetch", event => {
   if (url.origin !== self.location.origin) return;
   if (request.mode === "navigate") {
     const offlinePage = html => new Response(
-      html.replace('<script src="/static/offline.js"></script>', '<script src="/static/reader_resume.js"></script><script src="/static/offline.js"></script>'),
+      html.replace('<script src="/static/offline.js"></script>', `<script src="/static/reader_resume.js"></script><script src="${OFFLINE_SCRIPT}"></script>`),
       { headers: { "Content-Type": "text/html; charset=utf-8" } }
     );
     if (url.pathname === "/ebooks/offline") {
@@ -97,9 +98,9 @@ self.addEventListener("fetch", event => {
             await cache.put(request, response.clone());
             return response;
           }
-          return await cache.match(request) || await cache.match("/static/offline.js") || response;
+          return await cache.match(request) || await cache.match(OFFLINE_SCRIPT) || response;
         } catch {
-          return await cache.match(request) || await cache.match("/static/offline.js") || Response.error();
+          return await cache.match(request) || await cache.match(OFFLINE_SCRIPT) || Response.error();
         }
       }));
       return;
