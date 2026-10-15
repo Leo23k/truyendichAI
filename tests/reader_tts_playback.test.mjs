@@ -33,6 +33,7 @@ test('offline novel chapters use the cached original Reader instead of a separat
   assert.match(offlineSource, /Could not cache original Reader page for offline use/);
   assert.match(serviceWorkerSource, /const READER_PAGE_CACHE = "novel-reader-pages-v1"/);
   assert.match(serviceWorkerSource, /cache\.match\(request, \{ ignoreSearch: true \}\)/);
+  assert.match(serviceWorkerSource, /cache\.match\(READER_STYLES\)/);
   assert.doesNotMatch(serviceWorkerSource, /renderOfflineReader/);
   assert.match(source, /navigator\.onLine === false/);
 });
@@ -534,7 +535,21 @@ test('Reader controls tolerate a stale cached TTS bridge and keep mobile toggle 
   assert.match(readerStylesSource, /@media\(max-width:639px\)\s*\{\s*\.reader-mobile-player-toggle\{position:absolute/);
   assert.match(source, /window\.NovelTTS\?\.getInitialTtsMode\?\.\(/);
   assert.equal((source.match(/playButton\.addEventListener\("click", handlePlayButtonClick\)/g) || []).length, 1);
-  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v18"/);
+  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v19"/);
+});
+
+test('offline Reader stylesheet v1 falls back to the pre-cached reader.css v3', async () => {
+  const handlers = new Map(), stylesheet = new Response('.reader-player-shell{background:#fff!important}', { status: 200 });
+  const caches = { open: async () => ({
+    match: async request => new URL(typeof request === 'string' ? request : request.url, 'https://leotruyen.vercel.app').search === '?v=3' ? stylesheet.clone() : undefined,
+    put: async () => {},
+  }) };
+  const self = { location: { origin: 'https://leotruyen.vercel.app' }, addEventListener: (name, handler) => handlers.set(name, handler) };
+  const context = vm.createContext({ self, caches, URL, Response, console, clients: {}, fetch: async () => { throw new TypeError('offline'); } });
+  vm.runInContext(serviceWorkerSource, context);
+  let result;
+  handlers.get('fetch')({ request: { url: 'https://leotruyen.vercel.app/static/reader.css?v=1', method: 'GET', mode: 'cors', destination: 'style' }, respondWith: promise => { result = promise; } });
+  assert.equal(await (await result).text(), '.reader-player-shell{background:#fff!important}');
 });
 
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {

@@ -1,9 +1,9 @@
-const CACHE = "novel-reader-static-v18";
+const CACHE = "novel-reader-static-v19";
 const MEDIA_CACHE = "novel-reader-media-v1";
 const READER_PAGE_CACHE = "novel-reader-pages-v1";
 const READER_ASSET_CACHE = "novel-reader-assets-v1";
 const READER_SCRIPT_HOSTS = new Set(["cdn.tailwindcss.com", "cdn.jsdelivr.net", "unpkg.com"]);
-const OFFLINE_SCRIPT = "/static/offline.js?v=18";
+const OFFLINE_SCRIPT = "/static/offline.js?v=19";
 const READER_STYLES = "/static/reader.css?v=3";
 const STATIC = [OFFLINE_SCRIPT, READER_STYLES, "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
@@ -117,6 +117,19 @@ self.addEventListener("fetch", event => {
     return;
   }
   if (url.pathname.startsWith("/static/") || url.pathname === "/manifest.webmanifest") {
+    if (url.pathname === "/static/reader.css") {
+      event.respondWith(caches.open(CACHE).then(async cache => {
+        try {
+          const response = await fetch(request);
+          if (response.ok) {
+            await cache.put(request, response.clone());
+            return response;
+          }
+        } catch {}
+        return await cache.match(request) || await cache.match(READER_STYLES) || Response.error();
+      }));
+      return;
+    }
     if (url.pathname === "/static/offline.js") {
       event.respondWith(caches.open(CACHE).then(async cache => {
         try {
