@@ -46,6 +46,7 @@
     .reader-player-controls [data-segment-prev],.reader-player-controls [data-segment-next],.reader-player-controls [data-play-toggle]{flex:0 0 auto}
     .reader-player-controls .reader-player-actions{display:flex;min-width:0;margin-left:auto;align-items:center;justify-content:flex-end;gap:.65rem;color:#697078;font-size:.72rem}
     .reader-player-controls .reader-player-actions button{white-space:nowrap}
+    .reader-player-controls .reader-player-actions input[type="range"]{width:3.5rem;height:.35rem;accent-color:#11a89d}
     .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}
     .reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}
     .reader-sheet-backdrop.is-open .reader-sheet{transform:translateY(0)}
@@ -61,9 +62,11 @@
       .reader-player-shell{padding:.7rem .8rem!important}
       .reader-player-shell[data-mobile-expanded="false"]{width:3.25rem!important;height:3.25rem!important;min-height:3.25rem;padding:0!important;border-radius:9999px!important;overflow:hidden}
       .reader-player-shell[data-mobile-expanded="false"]>:not([data-mobile-player-toggle]){display:none!important}
+      .reader-player-shell[data-mobile-expanded="false"]>[data-mobile-player-toggle]{display:grid!important}
       .reader-mobile-player-toggle{position:absolute;inset:0;z-index:2;display:grid;place-items:center;width:100%;height:100%;border:0;background:transparent;color:#0f9d92}
       .reader-mobile-player-toggle svg{width:1.45rem;height:1.45rem}
       .reader-player-shell[data-mobile-expanded="true"] .reader-mobile-player-toggle{top:auto;right:.35rem;bottom:calc(100% + .25rem);left:auto;width:2rem;height:2rem;border:1px solid rgba(140,145,142,.22);border-radius:9999px;background:#fff}
+      .reader-player-controls .reader-player-actions [data-volume-control]{width:2.4rem}
       .reader-player-shell[data-state="error"] .reader-player-status{display:inline-flex!important;color:#b91c1c}
       .reader-player-shell[data-state="error"] .reader-player-status{grid-column:1/-1;grid-row:1;justify-self:stretch;width:auto;max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
       .reader-player-shell[data-state="error"] .reader-player-controls [data-segment-prev]{grid-column:1;grid-row:2;justify-self:end}
@@ -140,6 +143,7 @@
       "arrow-left": '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>',
       palette: '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h3a6 6 0 0 0 0-12Z"/><path d="M7.5 10.5h.01M10 7.5h.01M15 7.5h.01M17 11h.01"/></svg>',
       list: '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+      type: '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M12 6v12M8 18h8"/></svg>',
       "skip-back": '<svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 20-9-8 9-8v16ZM5 19V5"/></svg>',
       "skip-forward": '<svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 4 9 8-9 8V4Zm14 1v14"/></svg>',
       play: '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor" aria-hidden="true"><path d="m8 5 11 7-11 7V5Z"/></svg>',
@@ -153,6 +157,8 @@
 
 
     const player = document.querySelector("[data-reader-player]");
+    player.querySelector(".off-player-controls")?.classList.remove("off-player-controls");
+    player.querySelector(".off-player-actions")?.classList.remove("off-player-actions");
     const previousSegment = player.querySelector("[data-segment-prev]"), playControl = player.querySelector("[data-play-toggle]"), stopControl = player.querySelector("[data-stop]"), nextSegment = player.querySelector("[data-segment-next]");
     const voiceSelect = document.querySelector("[data-voice]"), rateSelect = player.querySelector("[data-rate]"), rateControl = player.querySelector("[data-rate-control]"), rateStatus = player.querySelector("[data-rate-status]"), volumeControl = player.querySelector("[data-volume-control]"), sleepSelect = player.querySelector("[data-sleep]"), sleepTrigger = player.querySelector("[data-sleep-button]");
     const mobilePlayerToggle = player.querySelector("[data-mobile-player-toggle]"), backdrop = document.querySelector("[data-sheet-backdrop]"), sheets = [...document.querySelectorAll("[data-sheet]")];
