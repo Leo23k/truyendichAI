@@ -10,6 +10,7 @@ const source = readFileSync(new URL('../app/templates/reader.html', import.meta.
 const ebookSource = readFileSync(new URL('../app/templates/ebook_reader.html', import.meta.url), 'utf8');
 const offlineSource = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
 const serviceWorkerSource = readFileSync(new URL('../service-worker.js', import.meta.url), 'utf8');
+const baseSource = readFileSync(new URL('../app/templates/base.html', import.meta.url), 'utf8');
 test('both complete Reader scripts have valid JavaScript syntax', () => {
   for (const template of [source,ebookSource]) {
     const scripts=[...template.matchAll(/<script>([\s\S]*?)<\/script>/g)];
@@ -35,6 +36,16 @@ test('offline reader uses the online reader layout and keeps offline controls', 
   assert.match(offlineSource, /data-voice/);
   assert.match(offlineSource, /data-sleep/);
   assert.match(offlineSource, /renderReader\(\{ book, chapter, entries, index, owner: account, ebook: false \}\)/);
+  assert.match(offlineSource, /grid-template-columns:1fr auto 1fr auto/);
+  assert.match(offlineSource, /data-reader-settings-button/);
+});
+
+test('offline reader asset and service worker cache versions stay in sync', () => {
+  const assetVersion = baseSource.match(/offline\.js\?v=(\d+)/)?.[1];
+  const cacheVersion = serviceWorkerSource.match(/novel-reader-static-v(\d+)/)?.[1];
+  assert.ok(assetVersion && cacheVersion);
+  assert.equal(assetVersion, cacheVersion);
+  new vm.Script(offlineSource);
 });
 
 test('desktop Reader arrow keys navigate chapters without hijacking form controls', () => {
@@ -448,7 +459,7 @@ test('Reader controls tolerate a stale cached TTS bridge and keep mobile toggle 
   assert.match(source, /@media\(max-width:639px\)\{\s*\.reader-mobile-player-toggle\{position:absolute/);
   assert.match(source, /window\.NovelTTS\?\.getInitialTtsMode\?\.\(/);
   assert.equal((source.match(/playButton\.addEventListener\("click", handlePlayButtonClick\)/g) || []).length, 1);
-  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v12"/);
+  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v13"/);
 });
 
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {
