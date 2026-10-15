@@ -1,7 +1,7 @@
-const CACHE = "novel-reader-static-v16";
+const CACHE = "novel-reader-static-v17";
 const MEDIA_CACHE = "novel-reader-media-v1";
-const OFFLINE_SCRIPT = "/static/offline.js?v=16";
-const READER_STYLES = "/static/reader.css?v=2";
+const OFFLINE_SCRIPT = "/static/offline.js?v=17";
+const READER_STYLES = "/static/reader.css?v=3";
 const STATIC = [OFFLINE_SCRIPT, READER_STYLES, "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(STATIC)).then(() => self.skipWaiting())));

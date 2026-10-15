@@ -38,14 +38,24 @@ test('offline reader uses the online reader layout and keeps offline controls', 
   assert.match(offlineSource, /data-sleep/);
   assert.match(offlineSource, /renderReader\(\{ book, chapter, entries, index, owner: account, ebook: true \}\)/);
   assert.match(readerStylesSource, /grid-template-columns:1fr auto 1fr auto/);
-  assert.match(offlineSource, /if \(ebook\) \{[\s\S]*reader-ebook-mode-bar/);
+  assert.match(offlineSource, /root\.dataset\.ebookReaderRoot = ""/);
+  assert.match(offlineSource, /header\.dataset\.ebookReaderHeader = ""/);
+  assert.match(offlineSource, /player\.dataset\.ebookPlayer = ""/);
+  assert.match(offlineSource, /reader-ebook-mode-bar/);
+  assert.match(offlineSource, /site-nav-button accent/);
+  assert.match(offlineSource, /reader-ebook-content-title/);
+  assert.match(offlineSource, /reader-ebook-chapter-nav/);
+  assert.match(offlineSource, /reader-ebook-player/);
+  assert.match(offlineSource, /player\.querySelector\("\[data-mobile-player-toggle\]"\)\?\.remove\(\)/);
+  assert.match(offlineSource, /if \(!ebook\) \{ player\.dataset\.mobileExpanded = "false"/);
   assert.match(offlineSource, /else \{\s*document\.querySelector\("\.reader-header-actions"\)\.insertAdjacentHTML[\s\S]*data-reader-settings-button/);
   assert.match(offlineSource, /reader-ebook-mode-bar/);
   assert.match(offlineSource, /data-follow-text/);
   assert.match(offlineSource, /data-highlight-text/);
   assert.match(offlineSource, /player\.dataset\.mobileExpanded = String\(ebook\)/);
   assert.match(offlineSource, /backdrop\.classList\.remove\("off-sheet"\)/);
-  assert.match(readerStylesSource, /\.offline-reader-root \.reader-player-shell\{position:fixed/);
+  assert.match(readerStylesSource, /\.offline-reader-root\[data-ebook-reader-root\] \.reader-ebook-player\{position:fixed/);
+  assert.match(readerStylesSource, /\.reader-ebook-player\.is-hidden\{opacity:0;transform:translate\(-50%,calc\(100% \+ 1\.25rem\)\)!important/);
   assert.match(readerStylesSource, /\.offline-reader-root \.reader-player-controls\{display:flex/);
   assert.match(readerStylesSource, /\.offline-reader-root \.reader-sheet-backdrop\{position:fixed/);
   assert.doesNotMatch(offlineSource, /\.offline-reader-root\{/);
@@ -61,7 +71,7 @@ test('offline reader asset and service worker cache versions stay in sync', () =
   assert.equal(assetVersion, cacheVersion);
   assert.match(serviceWorkerSource, new RegExp(`const OFFLINE_SCRIPT = "/static/offline\\.js\\?v=${assetVersion}"`));
   assert.match(serviceWorkerSource, /const STATIC = \[OFFLINE_SCRIPT,/);
-  assert.match(serviceWorkerSource, /const READER_STYLES = "\/static\/reader\.css\?v=2"/);
+  assert.match(serviceWorkerSource, /const READER_STYLES = "\/static\/reader\.css\?v=3"/);
   assert.match(serviceWorkerSource, /STATIC = \[OFFLINE_SCRIPT, READER_STYLES,/);
   assert.match(serviceWorkerSource, /<link rel="stylesheet" href="\$\{READER_STYLES\}">/);
   assert.match(serviceWorkerSource, /cache\.match\(OFFLINE_SCRIPT\)/);
@@ -481,7 +491,7 @@ test('Reader controls tolerate a stale cached TTS bridge and keep mobile toggle 
   assert.match(readerStylesSource, /@media\(max-width:639px\)\s*\{\s*\.reader-mobile-player-toggle\{position:absolute/);
   assert.match(source, /window\.NovelTTS\?\.getInitialTtsMode\?\.\(/);
   assert.equal((source.match(/playButton\.addEventListener\("click", handlePlayButtonClick\)/g) || []).length, 1);
-  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v16"/);
+  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v17"/);
 });
 
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {
