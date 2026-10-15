@@ -1,6 +1,9 @@
-const CACHE = "novel-reader-static-v17";
+const CACHE = "novel-reader-static-v18";
 const MEDIA_CACHE = "novel-reader-media-v1";
-const OFFLINE_SCRIPT = "/static/offline.js?v=17";
+const READER_PAGE_CACHE = "novel-reader-pages-v1";
+const READER_ASSET_CACHE = "novel-reader-assets-v1";
+const READER_SCRIPT_HOSTS = new Set(["cdn.tailwindcss.com", "cdn.jsdelivr.net", "unpkg.com"]);
+const OFFLINE_SCRIPT = "/static/offline.js?v=18";
 const READER_STYLES = "/static/reader.css?v=3";
 const STATIC = [OFFLINE_SCRIPT, READER_STYLES, "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
@@ -38,6 +41,16 @@ self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET") return;
+  if (request.destination === "script" && READER_SCRIPT_HOSTS.has(url.hostname)) {
+    event.respondWith(caches.open(READER_ASSET_CACHE).then(async cache => {
+      try {
+        const response = await fetch(request);
+        if (response.ok || response.type === "opaque") await cache.put(request, response.clone());
+        return response;
+      } catch { return await cache.match(request) || Response.error(); }
+    }));
+    return;
+  }
   if (request.destination === "image" && url.origin !== self.location.origin) {
     event.respondWith(caches.open(MEDIA_CACHE).then(async cache => {
       const cached = await cache.match(request);
@@ -56,7 +69,23 @@ self.addEventListener("fetch", event => {
       event.respondWith(Promise.resolve(offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookLibrary())</script>')));
       return;
     }
-    event.respondWith(fetch(request).catch(() => {
+    const isReaderPage = /^\/chapters\/[^/]+$/.test(url.pathname) || /^\/truyen\/[^/]+\/\d+$/.test(url.pathname);
+    event.respondWith(fetch(request).then(async response => {
+      if (isReaderPage && response.ok) {
+        try { await (await caches.open(READER_PAGE_CACHE)).put(request, response.clone()); }
+        catch (error) { console.warn("Could not cache Reader page", error); }
+      } else if (isReaderPage) {
+        const cached = await (await caches.open(READER_PAGE_CACHE)).match(request, { ignoreSearch: true });
+        if (cached) return cached;
+      }
+      return response;
+    }).catch(async () => {
+      if (isReaderPage) {
+        const cache = await caches.open(READER_PAGE_CACHE);
+        const cached = await cache.match(request, { ignoreSearch: true });
+        if (cached) return cached;
+        return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chương chưa sẵn sàng offline</title><p>Hãy mở chương này khi có mạng để lưu trang đọc offline.</p>');
+      }
       if (url.pathname === "/" || url.pathname === "/ebooks") {
         return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thư viện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineHome())</script>');
       }
@@ -68,9 +97,6 @@ self.addEventListener("fetch", event => {
       }
       if (/^\/ebooks\/[^/]+$/.test(url.pathname)) {
         return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookDetail())</script>');
-      }
-      if (/^\/chapters\/[^/]+$/.test(url.pathname) || /^\/truyen\/[^/]+\/\d+$/.test(url.pathname)) {
-        return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Đọc offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineReader())</script>');
       }
       if (/^\/truyen\/[^/]+$/.test(url.pathname)) {
         return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Truyện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineBook())</script>');

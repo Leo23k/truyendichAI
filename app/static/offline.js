@@ -355,13 +355,6 @@
     addEventListener("pagehide", () => { provider?.stop(); clearTimeout(sleepTimer); }, { once: true });
   }
 
-  async function renderOfflineReader() {
-    const chapter = await byUrl(location.pathname); if (!chapter) return fallbackPage();
-    const book = await get("books", chapter.bookId), entries = (await get("chapterLists", chapter.bookId))?.chapters || [];
-    const local = (await Promise.all(entries.map(async item => ({ item, chapter: await storedChapter(item) })))).filter(row => row.chapter);
-    const index = local.findIndex(row => row.item.id === chapter.id || row.item.chapterId === chapter.chapterId);
-    return renderReader({ book: book || { id: chapter.bookId, title: "Truyện offline", bookUrl: chapter.bookUrl }, chapter, entries: local.map(row => row.item), index, owner: ownerId(), ebook: false });
-  }
   async function renderOfflineEbookDetail(slugOverride = "") {
     const account = ownerId(), slug = slugOverride || decodeURIComponent(location.pathname.split("/")[2] || "");
     const book = (await all("ebooks")).find(item => item.slug === slug && account && item.ownerId === account);
@@ -441,8 +434,11 @@
     for (let attempt = 0; attempt < 2; attempt += 1) try {
       const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 25000);
       const response = await fetch(chapter.url, { cache: "no-store", signal: controller.signal }).finally(() => clearTimeout(timeout)); if (!response.ok) throw new Error(String(response.status));
+      const pageResponse = response.clone();
       const page = new DOMParser().parseFromString(await response.text(), "text/html"), content = text(page.querySelector("[data-reader-content]"));
       if (!content) throw new Error("empty chapter");
+      try { await (await caches.open("novel-reader-pages-v1")).put(new URL(chapter.url, location.origin), pageResponse); }
+      catch (error) { console.warn("Could not cache original Reader page for offline use", chapter.url, error); }
       await put("chapters", { ...chapter, title: text(page.querySelector("h2")) || chapter.title, content, savedAt: Date.now() }); return true;
     } catch (error) { if (!attempt) await new Promise(resolve => setTimeout(resolve, 500)); else console.warn("Offline chapter download failed", chapter.id, error); }
     return false;
@@ -578,6 +574,6 @@
   };
   const createManager = ({ device, server, initialMode = "server" } = {}) => { let mode = initialMode === "device" ? "device" : "server"; const active = () => mode === "device" ? device : server; return { get mode() { return mode; }, setMode(value) { if (value !== "device" && value !== "server") throw new Error("TTS mode không hợp lệ"); if (mode !== value) { device?.stop?.(); server?.stop?.(); mode = value; } }, isSupported() { return Boolean(active()?.isSupported?.() ?? active()); }, getVoices() { return device?.getVoices?.() || Promise.resolve([]); }, speak(...args) { return active()?.speak?.(...args); }, pause() { return active()?.pause?.(); }, resume() { return active()?.resume?.(); }, stop() { device?.stop?.(); server?.stop?.(); } }; };
   document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error)); });
-  window.NovelOffline = { renderOfflineReader, renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, saveLocalEbook, store: { get, put, all, byUrl } };
+  window.NovelOffline = { renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, saveLocalEbook, store: { get, put, all, byUrl } };
   window.NovelTTS = { createDeviceProvider, createManager, configureMediaSession, getInitialTtsMode, getPreferredDeviceVoice, setMediaSessionState, splitDeviceText };
 })();

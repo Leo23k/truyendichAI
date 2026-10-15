@@ -27,7 +27,17 @@ test('Ebook reader defaults to sans-serif and initializes after dynamic navigati
   assert.match(ebookSource, /document\.addEventListener\('htmx:afterSwap', initEbookReader\)/);
 });
 
-test('offline reader uses the online reader layout and keeps offline controls', () => {
+test('offline novel chapters use the cached original Reader instead of a separate renderer', () => {
+  assert.doesNotMatch(offlineSource, /renderOfflineReader/);
+  assert.match(offlineSource, /novel-reader-pages-v1/);
+  assert.match(offlineSource, /Could not cache original Reader page for offline use/);
+  assert.match(serviceWorkerSource, /const READER_PAGE_CACHE = "novel-reader-pages-v1"/);
+  assert.match(serviceWorkerSource, /cache\.match\(request, \{ ignoreSearch: true \}\)/);
+  assert.doesNotMatch(serviceWorkerSource, /renderOfflineReader/);
+  assert.match(source, /navigator\.onLine === false/);
+});
+
+test('offline ebook reader keeps its existing offline controls', () => {
   for (const marker of ['reader-header', 'reader-page-nav', 'reader-content', 'data-reader-player', 'reader-player-actions', 'reader-tts-active', 'data-play-icon="pause"', 'data-rate-control', 'data-sleep-button', 'reader-mobile-player-toggle', 'data-font-select', 'data-font-settings', 'data-toc-button', 'data-reader-theme-toggle', 'data-segment-prev', 'data-segment-next', 'data-volume-control', 'type:']) {
     assert.match(offlineSource, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
   }
@@ -78,6 +88,39 @@ test('offline reader asset and service worker cache versions stay in sync', () =
   assert.match(serviceWorkerSource, /<script src="\$\{OFFLINE_SCRIPT\}"><\/script>/);
   new vm.Script(offlineSource);
   new vm.Script(serviceWorkerSource);
+});
+
+test('Service Worker returns the exact cached online Reader HTML while offline', async () => {
+  const pageCache = new Map(), handlers = new Map();
+  const keyOf = value => new URL(typeof value === 'string' || value instanceof URL ? value : value.url).href;
+  const caches = { open: async () => ({
+    addAll: async () => {},
+    put: async (request, response) => pageCache.set(keyOf(request), response.clone()),
+    match: async (request, options = {}) => {
+      const key = keyOf(request);
+      if (pageCache.has(key)) return pageCache.get(key).clone();
+      if (options.ignoreSearch) {
+        const path = new URL(key).pathname;
+        for (const [cachedKey, response] of pageCache) if (new URL(cachedKey).pathname === path) return response.clone();
+      }
+      return undefined;
+    },
+  }), keys: async () => [] };
+  const self = { location: { origin: 'https://leotruyen.vercel.app' }, addEventListener: (name, handler) => handlers.set(name, handler), skipWaiting: async () => {} };
+  const onlineHtml = '<html><body><main data-reader-content>Original Reader UI</main><div data-reader-player></div></body></html>';
+  let networkFetch = async () => new Response(onlineHtml, { status: 200, headers: { 'Content-Type': 'text/html' } });
+  const context = vm.createContext({ self, caches, URL, Response, console, clients: {}, fetch: (...args) => networkFetch(...args) });
+  vm.runInContext(serviceWorkerSource, context);
+  const navigate = async url => {
+    let result;
+    handlers.get('fetch')({ request: { url, method: 'GET', mode: 'navigate', destination: 'document' }, respondWith: promise => { result = promise; } });
+    return result;
+  };
+
+  await (await navigate('https://leotruyen.vercel.app/truyen/kiem-lai/1')).text();
+  networkFetch = async () => { throw new TypeError('offline'); };
+  const response = await navigate('https://leotruyen.vercel.app/truyen/kiem-lai/1?mode=translated');
+  assert.equal(await response.text(), onlineHtml);
 });
 
 test('desktop Reader arrow keys navigate chapters without hijacking form controls', () => {
@@ -491,7 +534,7 @@ test('Reader controls tolerate a stale cached TTS bridge and keep mobile toggle 
   assert.match(readerStylesSource, /@media\(max-width:639px\)\s*\{\s*\.reader-mobile-player-toggle\{position:absolute/);
   assert.match(source, /window\.NovelTTS\?\.getInitialTtsMode\?\.\(/);
   assert.equal((source.match(/playButton\.addEventListener\("click", handlePlayButtonClick\)/g) || []).length, 1);
-  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v17"/);
+  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v18"/);
 });
 
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {
