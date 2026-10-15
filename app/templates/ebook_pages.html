@@ -1,7 +1,25 @@
 {% extends "base.html" %}
 {% block title %}{% if page_type == 'upload' %}Upload Ebook{% else %}{{ book.title }} · Ebook{% endif %} · Leo Truyện{% endblock %}
 {% block content %}
-<main class="site-page mx-auto max-w-5xl">
+<main class="site-page mx-auto max-w-5xl{% if page_type != 'upload' %} ebook-detail-page{% endif %}">
+<style>
+  .ebook-detail-page{max-width:80rem!important}
+  .ebook-detail-hero{grid-template-columns:minmax(13rem,18rem) minmax(0,1fr);align-items:start;border-radius:1rem;padding:1.5rem!important}
+  .ebook-detail-hero>img,.ebook-detail-hero>div:first-child{width:100%;height:24rem;max-height:none;margin:0;object-fit:contain;background:var(--surface-2)}
+  .ebook-detail-hero>div:last-child{min-width:0}
+  .ebook-detail-hero>div:last-child>div.mt-5.grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ebook-detail-hero>div:last-child>div.mt-6.grid{align-items:stretch}
+  .ebook-detail-page>section.site-panel.mt-6{border-radius:1rem}
+  @media(max-width:639px){
+    .ebook-detail-page{padding:1rem .75rem 4rem}
+    .ebook-detail-hero{grid-template-columns:7rem minmax(0,1fr);gap:.9rem;padding:1rem!important}
+    .ebook-detail-hero>img,.ebook-detail-hero>div:first-child{width:7rem;height:10rem;object-fit:contain}
+    .ebook-detail-hero>div:last-child>div.mt-5.grid{grid-template-columns:1fr;gap:.5rem;margin-top:.85rem}
+    .ebook-detail-hero>div:last-child>div.mt-6.grid{grid-template-columns:1fr 1fr;gap:.45rem;margin-top:1rem}
+    .ebook-detail-hero>div:last-child>div.mt-6.grid .site-nav-button{min-width:0;padding-left:.5rem;padding-right:.5rem;font-size:.75rem}
+    .ebook-detail-page>section.site-panel.mt-6{margin-top:1rem}
+  }
+</style>
 {% if page_type == 'upload' %}
   <header class="mb-6"><a class="site-muted text-sm hover:text-[var(--text)]" href="/ebooks">← Ebook của tôi</a><h1 class="site-title mt-3 text-3xl">Upload Ebook</h1></header>
   <section class="site-panel mx-auto max-w-2xl p-5 sm:p-8">
@@ -91,7 +109,7 @@
   <header class="mb-6 flex flex-wrap items-center justify-between gap-3"><a class="site-nav-button" href="/ebooks">← Ebook của tôi</a><a class="site-nav-button" href="/">Thư viện</a></header>
   {% if uploaded %}<p class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 text-sm" role="status">Đã xong.</p>{% endif %}
   {% if queue_error %}<p class="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm" role="alert">Upload thành công nhưng chưa tạo được hàng đợi dịch. Bạn có thể thử lại trong trang chi tiết.</p>{% endif %}
-  <section class="site-panel grid gap-6 p-5 sm:grid-cols-[12rem_minmax(0,1fr)] sm:p-7">
+  <section class="ebook-detail-hero site-panel grid gap-6 p-5 sm:grid-cols-[12rem_minmax(0,1fr)] sm:p-7">
     {% if book.cover_url %}<img src="{{ book.cover_url }}" alt="Bìa {{ book.title }}" class="mx-auto max-h-80 w-full rounded-xl object-contain sm:mx-0">{% else %}<div class="flex min-h-44 items-center justify-center rounded-xl bg-[var(--surface-2)] text-5xl" aria-hidden="true">{% if book.source_format == 'pdf' %}📄{% else %}📚{% endif %}</div>{% endif %}
     <div class="min-w-0"><p class="site-muted text-sm">Ebook riêng tư · {{ book.source_format|upper }}</p><h1 class="site-title mt-1 break-words text-3xl">{{ book.title }}</h1><p class="site-muted mt-2">{{ book.author or 'Chưa rõ tác giả' }} · {% if book.source_language == 'zh' %}Tiếng Trung{% elif book.source_language == 'vi' %}Tiếng Việt{% else %}Chưa xác định ngôn ngữ{% endif %}</p>
       <div class="mt-5 grid grid-cols-2 gap-3 text-sm"><div class="rounded-lg bg-[var(--surface-2)] p-3"><span class="site-muted block">Số chương</span><strong>{{ book.chapter_count }}</strong></div><div class="rounded-lg bg-[var(--surface-2)] p-3"><span class="site-muted block">Trạng thái</span><strong>{% if book.source_format == 'pdf' %}Đã tải lên{% elif book.chapter_count and book.translated_chapters == book.chapter_count %}Đã dịch{% elif book.processing_chapters %}Đang dịch{% elif book.failed_chapters %}Có chương lỗi{% else %}Sẵn sàng{% endif %}</strong></div></div>
