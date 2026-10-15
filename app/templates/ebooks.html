@@ -28,6 +28,23 @@
     .ebook-card .mt-5{margin-top:.85rem}
   }
 </style>
+<style>
+  /* Match the public Library card: cover first, metadata below, actions at the bottom. */
+  .ebook-library-page .ebook-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}
+  .ebook-library-page .ebook-card{padding:0!important;overflow:hidden}
+  .ebook-library-page .ebook-card>div:first-child{display:block!important;margin:0!important}
+  .ebook-library-page .ebook-card>div:first-child>img,.ebook-library-page .ebook-card>div:first-child>div:first-child{display:block;width:100%;height:auto;aspect-ratio:2/3;margin:0;border:0;border-radius:0;object-fit:cover}
+  .ebook-library-page .ebook-card>div:first-child>div:last-child{padding:.65rem .65rem 0}
+  .ebook-library-page .ebook-card>p,.ebook-library-page .ebook-card>div:not(:first-child){margin-left:.65rem!important;margin-right:.65rem!important}
+  .ebook-library-page .ebook-card>p{margin-top:.35rem!important;font-size:.72rem;line-height:1.1}
+  .ebook-library-page .ebook-card>div:last-child{margin-bottom:.65rem!important}
+  .ebook-library-page .ebook-card h2{display:-webkit-box;min-height:2.2rem;overflow:hidden;white-space:normal!important;-webkit-box-orient:vertical;-webkit-line-clamp:2;font-size:.9rem;line-height:1.1}
+  .ebook-library-page .ebook-card .mt-5{margin-top:.65rem}
+  .ebook-library-page .ebook-card .site-nav-button{min-height:2.15rem!important;min-width:0;padding:.25rem .45rem;font-size:.68rem;line-height:1.1}
+  @media(min-width:640px){.ebook-library-page .ebook-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem}.ebook-library-page .ebook-card>div:first-child>div:last-child{padding:.85rem .85rem 0}.ebook-library-page .ebook-card>p,.ebook-library-page .ebook-card>div:not(:first-child){margin-left:.85rem!important;margin-right:.85rem!important}.ebook-library-page .ebook-card .site-nav-button{font-size:.78rem}}
+  @media(min-width:1024px){.ebook-library-page .ebook-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+  @media(max-width:639px){.ebook-library-page{padding-left:.65rem;padding-right:.65rem}.ebook-library-page .ebook-card .flex.gap-2{gap:.35rem}.ebook-library-page .ebook-card .flex.gap-2>*{flex:1 1 0}}
+</style>
   <header class="ebook-library-header mb-6 flex flex-wrap items-end justify-between gap-4">
     <div><p class="site-muted text-sm">Thư viện riêng tư</p><h1 class="site-title text-3xl">Ebook của tôi</h1></div>
     <a href="/" class="site-nav-button">← Thư viện truyện</a>

@@ -323,6 +323,7 @@ def test_upload_page_and_detail_page_render_the_ebook_flow(monkeypatch):
     assert "Đã xong." in detail.text and "đưa 2 chương vào hàng đợi" not in detail.text
     assert "không được nhận diện là tiếng Trung" not in detail.text
     assert "https://signed.example/cover.png" in detail.text
+    assert 'class="ebook-detail-hero' in detail.text
     assert library.status_code == 200 and 'aria-label="Ebook"' in library.text
     assert 'id="ebook-floating-menu"' not in upload.text and 'id="ebook-floating-menu"' not in detail.text
 
