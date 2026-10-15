@@ -9,6 +9,7 @@ const { createRequestQueue } = require('../app/static/tts_timeline.js');
 const source = readFileSync(new URL('../app/templates/reader.html', import.meta.url), 'utf8');
 const ebookSource = readFileSync(new URL('../app/templates/ebook_reader.html', import.meta.url), 'utf8');
 const offlineSource = readFileSync(new URL('../app/static/offline.js', import.meta.url), 'utf8');
+const readerStylesSource = readFileSync(new URL('../app/static/reader.css', import.meta.url), 'utf8');
 const serviceWorkerSource = readFileSync(new URL('../service-worker.js', import.meta.url), 'utf8');
 const baseSource = readFileSync(new URL('../app/templates/base.html', import.meta.url), 'utf8');
 test('both complete Reader scripts have valid JavaScript syntax', () => {
@@ -36,8 +37,12 @@ test('offline reader uses the online reader layout and keeps offline controls', 
   assert.match(offlineSource, /data-voice/);
   assert.match(offlineSource, /data-sleep/);
   assert.match(offlineSource, /renderReader\(\{ book, chapter, entries, index, owner: account, ebook: false \}\)/);
-  assert.match(offlineSource, /grid-template-columns:1fr auto 1fr auto/);
+  assert.match(readerStylesSource, /grid-template-columns:1fr auto 1fr auto/);
   assert.match(offlineSource, /data-reader-settings-button/);
+  assert.doesNotMatch(offlineSource, /\.offline-reader-root\{/);
+  assert.match(offlineSource, /classList\.replace\("off-player-actions", "reader-player-actions"\)/);
+  assert.match(offlineSource, /reader-page-nav \.reader-nav-card\[aria-disabled=/);
+  assert.match(source, /href="\/static\/reader\.css\?v=1"/);
 });
 
 test('offline reader asset and service worker cache versions stay in sync', () => {
@@ -47,9 +52,13 @@ test('offline reader asset and service worker cache versions stay in sync', () =
   assert.equal(assetVersion, cacheVersion);
   assert.match(serviceWorkerSource, new RegExp(`const OFFLINE_SCRIPT = "/static/offline\\.js\\?v=${assetVersion}"`));
   assert.match(serviceWorkerSource, /const STATIC = \[OFFLINE_SCRIPT,/);
+  assert.match(serviceWorkerSource, /const READER_STYLES = "\/static\/reader\.css\?v=1"/);
+  assert.match(serviceWorkerSource, /STATIC = \[OFFLINE_SCRIPT, READER_STYLES,/);
+  assert.match(serviceWorkerSource, /<link rel="stylesheet" href="\$\{READER_STYLES\}">/);
   assert.match(serviceWorkerSource, /cache\.match\(OFFLINE_SCRIPT\)/);
   assert.match(serviceWorkerSource, /<script src="\$\{OFFLINE_SCRIPT\}"><\/script>/);
   new vm.Script(offlineSource);
+  new vm.Script(serviceWorkerSource);
 });
 
 test('desktop Reader arrow keys navigate chapters without hijacking form controls', () => {
@@ -460,10 +469,10 @@ test('Reader controls tolerate a stale cached TTS bridge and keep mobile toggle 
   assert.doesNotThrow(() => vm.runInContext(`${source.slice(stateStart,stateEnd)}\n${source.slice(configureStart,configureEnd)}\nglobalThis.readerControlsContinue=true;`, context));
   assert.equal(context.readerControlsContinue, true);
 
-  assert.match(source, /@media\(max-width:639px\)\{\s*\.reader-mobile-player-toggle\{position:absolute/);
+  assert.match(readerStylesSource, /@media\(max-width:639px\)\s*\{\s*\.reader-mobile-player-toggle\{position:absolute/);
   assert.match(source, /window\.NovelTTS\?\.getInitialTtsMode\?\.\(/);
   assert.equal((source.match(/playButton\.addEventListener\("click", handlePlayButtonClick\)/g) || []).length, 1);
-  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v14"/);
+  assert.match(serviceWorkerSource, /const CACHE = "novel-reader-static-v15"/);
 });
 
 test('a new browser voice starts speech rather than resuming an absent utterance', () => {

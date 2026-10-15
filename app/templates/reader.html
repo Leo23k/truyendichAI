@@ -3,67 +3,8 @@
 {% block header %}{% endblock %}
 {% block footer %}{% endblock %}
 {% block main_class %}min-h-screen{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/reader.css?v=1">{% endblock %}
 {% block content %}
-<style>
-  .reader-bottom-bar{transition:transform 190ms ease,opacity 190ms ease}
-  .reader-bottom-bar.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem))}.reader-tts-active{background:rgba(20,184,166,.13);font-weight:600;border-radius:.3rem;transition:background 150ms ease,font-weight 150ms ease}
-  .reader-header{transition:transform 190ms ease,opacity 190ms ease}
-  .reader-header.is-hidden{opacity:0;transform:translateY(-110%);pointer-events:none}
-  .reader-chapter-nav{transition:transform 190ms ease,opacity 190ms ease}
-  .reader-chapter-nav.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem));pointer-events:none}
-  .reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:none}
-  @media (min-width:640px){.reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:inline-flex}.reader-chapter-nav{display:none}}
-  .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}
-  .reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}
-  .reader-sheet{transform:translateY(100%);transition:transform 210ms ease}
-  .reader-sheet-backdrop.is-open .reader-sheet{transform:translateY(0)}
-  .reader-range{accent-color:rgb(20 184 166)}
-  .reader-page-nav{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(0,13rem);gap:1rem;align-items:center}
-  .reader-nav-card{display:flex;min-height:3.75rem;align-items:center;gap:.65rem;border:1px solid rgba(120,130,125,.38);border-radius:.55rem;padding:.55rem .8rem;font-size:.78rem;line-height:1.2;transition:border-color .15s ease,background .15s ease}
-  .reader-nav-card:hover{border-color:rgb(45 174 162);background:rgba(45,174,162,.08)}
-  .reader-nav-card strong{display:block;margin-top:.2rem;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .reader-player-shell{border-color:rgba(140,145,142,.22)!important;border-radius:1rem!important;background:rgba(255,255,255,.98)!important;box-shadow:0 20px 45px rgba(0,0,0,.24)!important}
-  .reader-player-shell [data-play-toggle]{width:3.1rem;height:3.1rem;background:#0f9d92;box-shadow:0 8px 20px rgba(15,157,146,.28)}
-  .reader-player-track{display:grid;grid-template-columns:2.4rem minmax(0,1fr) 2.4rem;align-items:center;gap:.65rem;color:#687078;font-size:.65rem;font-weight:600}.reader-player-track input{height:.35rem;width:100%;cursor:pointer;accent-color:#11a89d}.reader-player-controls{display:flex;min-width:0;align-items:center;gap:.85rem;margin-top:.45rem}.reader-player-controls [data-segment-prev],.reader-player-controls [data-segment-next],.reader-player-controls [data-play-toggle]{flex:0 0 auto}.reader-player-controls .reader-player-actions{display:flex;min-width:0;margin-left:auto;align-items:center;justify-content:flex-end;gap:.65rem;color:#697078;font-size:.72rem}.reader-player-controls .reader-player-actions button{white-space:nowrap}.reader-player-status{display:inline-flex;flex:0 0 auto;width:max-content;border-radius:.35rem;background:#f5f7f7;padding:.25rem .45rem;font-size:.58rem;font-weight:800;letter-spacing:.05em;color:#697078}.reader-player-shell [data-reader-prev],.reader-player-shell [data-reader-next]{display:none!important}
-  .reader-reading-footer{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(0,13rem);align-items:center;gap:1rem;border-top:1px solid rgba(130,140,135,.28);padding-top:1.8rem}
-  .reader-reading-footer .reader-nav-card{min-height:3.25rem}
-  .reader-progress-chip{position:fixed;z-index:35;top:calc(env(safe-area-inset-top,0px) + .55rem);right:max(.65rem,calc((100vw - 64rem)/2));display:inline-flex;align-items:center;border:1px solid rgba(130,145,140,.38);border-radius:9999px;background:rgba(29,33,31,.9);padding:.27rem .55rem;color:#f0eee3;font-size:.72rem;font-weight:700;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.16);backdrop-filter:blur(8px);pointer-events:none}
-  .reader-mobile-player-toggle{display:none}
-  @media(max-width:639px){.reader-reading-footer{grid-template-columns:1fr 1fr}.reader-reading-footer .reader-nav-card{grid-row:1}.reader-player-controls{gap:.5rem;justify-content:center}.reader-player-status{display:none}.reader-player-shell[data-state="error"] .reader-player-status{display:inline-flex!important;color:#b91c1c}.reader-player-controls .reader-player-actions{margin-left:0;gap:.45rem}.reader-player-controls [data-voice-button]{display:inline-flex;align-items:center;justify-content:center;width:2rem;height:2rem;padding:0}.reader-player-controls [data-sleep-button],.reader-player-controls [data-volume-control]{display:none}.reader-player-controls .reader-player-actions label:first-of-type{display:none}.reader-player-track{grid-template-columns:2rem minmax(0,1fr) 2rem;gap:.4rem}.reader-player-shell{padding:.7rem .8rem!important}}
-  @media(max-width:639px){.reader-page-nav{grid-template-columns:1fr 1fr}.reader-page-nav>span{display:none}.reader-nav-card{min-width:0}.reader-nav-card strong{max-width:8rem}}
-  .reader-player-shell{left:auto!important;right:max(.75rem,env(safe-area-inset-right))!important;bottom:max(.75rem,env(safe-area-inset-bottom))!important;transform:none!important;width:min(56rem,calc(100% - 1.5rem))!important}
-  .reader-player-shell.is-hidden{opacity:0;transform:translateY(calc(100% + 1.25rem))!important;pointer-events:none}
-  @media(max-width:639px){
-    .reader-player-shell{padding:.7rem .75rem!important}
-    .reader-player-controls{display:grid;grid-template-columns:1fr auto 1fr auto;gap:.55rem;margin-top:.55rem}
-    .reader-player-controls [data-segment-prev]{justify-self:end}
-    .reader-player-controls [data-play-toggle]{grid-column:2;width:3.1rem;height:3.1rem}
-    .reader-player-controls [data-segment-next]{grid-column:3;justify-self:start}
-    .reader-player-controls .reader-player-actions{grid-column:4;margin:0;gap:.3rem;justify-self:end}
-    .reader-player-controls [data-voice-button]{display:inline-flex}
-    .reader-player-controls [data-sleep-button]{display:inline-flex}
-    .reader-player-controls [data-rate-control]{display:block;width:2.8rem}
-    .reader-player-controls .reader-player-actions label{display:flex!important}
-    .reader-player-controls [data-volume-control]{width:2.4rem}
-  }
-  @media(max-width:359px){.reader-player-controls{gap:.35rem}.reader-player-controls [data-volume-control]{display:none}.reader-player-track{font-size:.6rem}}
-  @media(max-width:639px){
-    .reader-mobile-player-toggle{position:absolute;inset:0;z-index:2;display:grid;place-items:center;width:100%;height:100%;border:0;background:transparent;color:#0f9d92}
-    .reader-mobile-player-toggle svg{width:1.45rem;height:1.45rem}
-    .reader-player-shell[data-mobile-expanded="false"]{width:3.25rem!important;height:3.25rem!important;min-height:3.25rem;padding:0!important;border-radius:9999px!important;overflow:hidden}
-    .reader-player-shell[data-mobile-expanded="false"]>:not([data-mobile-player-toggle]){display:none!important}
-    .reader-player-shell[data-mobile-expanded="true"] [data-mobile-player-toggle]{top:auto;right:.45rem;bottom:calc(100% + .25rem);left:auto;width:2rem;height:2rem;border:1px solid rgba(140,145,142,.22);border-radius:9999px;background:rgba(255,255,255,.98)}
-  }
-  @media(max-width:639px){
-    .reader-chapter-nav{display:none!important}
-    .reader-player-shell[data-state="error"] .reader-player-status{grid-column:1/-1;grid-row:1;justify-self:stretch;width:auto;max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
-    .reader-player-shell[data-state="error"] .reader-player-controls [data-segment-prev]{grid-column:1;grid-row:2;justify-self:end}
-    .reader-player-shell[data-state="error"] .reader-player-controls [data-play-toggle]{grid-column:2;grid-row:2}
-    .reader-player-shell[data-state="error"] .reader-player-controls [data-segment-next]{grid-column:3;grid-row:2;justify-self:start}
-    .reader-player-shell[data-state="error"] .reader-player-controls .reader-player-actions{grid-column:4;grid-row:2}
-  }
-  [data-replacement-dialog]:not([hidden]){display:flex}
-</style>
 <div
   x-data="{ theme: (localStorage.getItem('reader-theme') || 'dark') === 'gray' ? 'sepia' : (localStorage.getItem('reader-theme') || 'dark'), size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', fontPanel: false, settingsPanel: false }"
   x-init="$watch('theme', value => localStorage.setItem('reader-theme', value)); $watch('size', value => localStorage.setItem('reader-size', value)); $watch('lineHeight', value => localStorage.setItem('reader-line-height-v5', value)); $watch('font', value => localStorage.setItem('reader-font', value))"

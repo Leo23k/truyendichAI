@@ -14,7 +14,7 @@
   <script defer src="https://unpkg.com/lucide@latest"></script>
   <script>document.addEventListener("DOMContentLoaded", () => { if (window.htmx) window.htmx.config.responseHandling = [{code: "204", swap: false}, {code: "[23]xx", swap: true}, {code: "[45]xx", swap: true, error: true}]; });</script>
   <script defer src="/static/reader_resume.js"></script>
-  <script defer src="/static/offline.js?v=14"></script>
+  <script defer src="/static/offline.js?v=15"></script>
   <script>
     if (window.Capacitor?.isNativePlatform?.() && window.Capacitor.registerPlugin && !window.NativeTts) {
       window.NativeTts = window.Capacitor.registerPlugin("NativeTts");
@@ -281,6 +281,7 @@
       document.addEventListener("htmx:afterSettle", () => window.lucide?.createIcons());
     })();
   </script>
+  {% block page_styles %}{% endblock %}
 </head>
 <body class="site-body min-h-screen" data-user-id="{{ request.state.user.id if request.state.user else '' }}">
   {% block header %}
