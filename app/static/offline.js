@@ -20,6 +20,15 @@
   const ebookChapters = bookId => tx("ebookChapters", "readonly", s => s.index("bookId").getAll(bookId));
   const saveEbookChapter = value => tx("ebookChapters", "readwrite", s => s.put(value));
   const text = node => node?.textContent?.trim() || "";
+  const readerText = node => {
+    if (!node) return "";
+    const paragraphs = [...node.querySelectorAll(":scope > p")]
+      .map(paragraph => (paragraph.innerText || paragraph.textContent || "").trim())
+      .filter(Boolean);
+    return paragraphs.length
+      ? paragraphs.join("\n\n")
+      : (node.innerText || node.textContent || "").replace(/\r\n?/g, "\n").trim();
+  };
   const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const chapterId = link => link.dataset.chapterId || link.href.split("?")[0].split("/").pop();
   const storedChapter = chapter => get("chapters", chapter.id).then(found => found?.content ? found : get("chapters", chapter.chapterId)).then(found => found?.content ? found : undefined);
@@ -27,6 +36,7 @@
 
   const styles = `
     :root{color-scheme:dark;--off-bg:#1b1e22;--off-card:#252a30;--off-card2:#2b3036;--off-border:#343a40;--off-muted:#a9afb7;--off-accent:#D6A84F;--off-hover:#E3B963;--off-pressed:#B98A35}
+    .reader-font-panel[hidden],.reader-settings-panel[hidden]{display:none!important}
     *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--off-bg);color:#f4f5f5;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}button,input,select{font:inherit}a{color:inherit;text-decoration:none}button{color:inherit;cursor:pointer}
     .off-shell{max-width:1240px;min-height:100vh;margin:auto;padding:clamp(16px,3vw,36px) clamp(14px,3vw,30px) 110px}.off-app-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-4px 0 18px;padding-bottom:14px;border-bottom:1px solid var(--off-border)}.off-brand{display:inline-flex;align-items:center;gap:9px;font-size:1.05rem}.off-brand-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--off-accent);color:#24201a;font-weight:850}.off-online-badge{color:var(--off-accent);font-size:.7rem;font-weight:750;letter-spacing:.06em}.off-top{display:flex;align-items:center;gap:12px;margin-bottom:20px}.off-top a,.off-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:9px 14px;border:1px solid var(--off-border);border-radius:10px;background:var(--off-card);font-weight:650}.off-top a:hover,.off-btn:hover{border-color:var(--off-accent)}.off-kicker{color:var(--off-accent);font-size:.82rem;font-weight:700;letter-spacing:.04em}.off-title{margin:8px 0;font-size:clamp(1.55rem,4vw,2.35rem);line-height:1.2}.off-muted{color:var(--off-muted)}
     .off-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.off-card{min-width:0;overflow:hidden;border:1px solid var(--off-border);border-radius:12px;background:var(--off-card);transition:transform .16s,border-color .16s}.off-card:hover{transform:translateY(-2px);border-color:var(--off-accent)}.off-cover{display:block;position:relative;aspect-ratio:2/3;background:#30353b;overflow:hidden}.off-cover img{position:relative;z-index:1;width:100%;height:100%;object-fit:cover;display:block}.off-cover-fallback{position:absolute;inset:0;display:grid;place-items:center;color:var(--off-muted);font-size:.92rem}.off-card-body{padding:12px}.off-card-title{font-weight:750;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.off-card-meta{margin-top:5px;color:var(--off-muted);font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.off-progress{height:5px;margin-top:10px;border-radius:99px;background:#3a4046;overflow:hidden}.off-progress>i{display:block;height:100%;background:var(--off-accent)}.off-count{margin-top:7px;color:var(--off-muted);font-size:.78rem}.off-empty{grid-column:1/-1;padding:26px 18px;border:1px dashed var(--off-border);border-radius:12px;color:var(--off-muted);text-align:center}
@@ -242,6 +252,9 @@
       followText.checked = localStorage.getItem(`${key}followText`) !== "false";
       highlightText.checked = localStorage.getItem(`${key}highlightText`) !== "false";
       settingsButton.addEventListener("click", () => { settingsPanel.hidden = !settingsPanel.hidden; });
+      document.addEventListener("click", event => {
+        if (!settingsPanel.hidden && !event.target.closest?.("[data-reader-settings-button], [data-reader-settings-panel]")) settingsPanel.hidden = true;
+      });
       followText.addEventListener("change", () => localStorage.setItem(`${key}followText`, String(followText.checked)));
       highlightText.addEventListener("change", () => { localStorage.setItem(`${key}highlightText`, String(highlightText.checked)); if (!highlightText.checked) document.querySelectorAll(".reader-tts-active").forEach(node => node.classList.remove("reader-tts-active")); });
     }
@@ -483,11 +496,11 @@
       const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 25000);
       const response = await fetch(chapter.url, { cache: "no-store", signal: controller.signal }).finally(() => clearTimeout(timeout)); if (!response.ok) throw new Error(String(response.status));
       const pageResponse = response.clone();
-      const page = new DOMParser().parseFromString(await response.text(), "text/html"), content = text(page.querySelector("[data-reader-content]"));
+      const page = new DOMParser().parseFromString(await response.text(), "text/html"), content = readerText(page.querySelector("[data-reader-content]"));
       if (!content) throw new Error("empty chapter");
       try { await (await caches.open("novel-reader-pages-v1")).put(new URL(chapter.url, location.origin), pageResponse); }
       catch (error) { console.warn("Could not cache original Reader page for offline use", chapter.url, error); }
-      await put("chapters", { ...chapter, title: text(page.querySelector("h2")) || chapter.title, content, savedAt: Date.now() }); return true;
+      await put("chapters", { ...chapter, title: text(page.querySelector("h2")) || chapter.title, content, preservesParagraphs: true, savedAt: Date.now() }); return true;
     } catch (error) { if (!attempt) await new Promise(resolve => setTimeout(resolve, 500)); else console.warn("Offline chapter download failed", chapter.id, error); }
     return false;
   }
@@ -511,13 +524,17 @@
     const downloadMissing = async (updateOnly = false) => {
       const previousList = await get("chapterLists", id), knownChapterIds = new Set((previousList?.chapters || []).map(chapter => String(chapter.chapterId)));
       try { await loadAllChapters(); } catch { status.textContent = "Không tải được mục lục. Có thể thử lại sau."; return; }
-      const local = await Promise.all(chapters.map(storedChapter)), pending = updateOnly ? chapters.filter(chapter => !knownChapterIds.has(String(chapter.chapterId))) : chapters.filter((chapter, index) => !local[index]);
+      const local = await Promise.all(chapters.map(storedChapter)), pending = chapters
+        .map((chapter, index) => ({ chapter, index }))
+        .filter(({ chapter, index }) => updateOnly
+          ? !knownChapterIds.has(String(chapter.chapterId)) || (local[index] && local[index].preservesParagraphs !== true)
+          : !local[index] || local[index].preservesParagraphs !== true);
       await put("chapterLists", { bookId: id, chapters, updatedAt: Date.now() }); await put("books", { ...(await get("books", id)), id, ownerId: account, title, coverUrl, bookUrl: location.pathname, totalChapters: chapters.length, downloadedChapters: stored, updatedAt: Date.now(), status: "downloading" });
       if (!pending.length) { controls(stored); status.textContent = updateOnly ? "Bản offline đã có chương mới nhất." : status.textContent; return; }
       let cursor = 0, failed = false; resume = true; controls(stored, true, resume); const show = () => { status.textContent = `Đang tải ${stored} / ${chapters.length} chương`; controls(stored, true, resume); };
-      await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => { while (cursor < pending.length) { const chapter = pending[cursor++]; if (await fetchChapter(chapter)) { stored += 1; show(); } else failed = true; } }));
+      await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => { while (cursor < pending.length) { const { chapter, index } = pending[cursor++]; if (await fetchChapter(chapter)) { if (!local[index]) stored += 1; show(); } else failed = true; } }));
       await put("books", { ...(await get("books", id)), id, ownerId: account, title, coverUrl, bookUrl: location.pathname, totalChapters: chapters.length, downloadedChapters: stored, updatedAt: Date.now(), status: stored === chapters.length ? "downloaded" : "partial" });
-      resume = stored !== chapters.length; controls(stored, false, resume); status.textContent = stored === chapters.length ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương.${failed ? " Tải thất bại. Có thể tiếp tục sau." : ""}`;
+      resume = stored !== chapters.length; controls(stored, false, resume); status.textContent = stored === chapters.length && !failed ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương.${failed ? " Một số chương chưa tải/cập nhật được. Có thể thử lại sau." : ""}`;
     };
     const runDownload = updateOnly => downloadMissing(updateOnly).catch(error => {
       console.error("Could not save book for offline reading", id, error);

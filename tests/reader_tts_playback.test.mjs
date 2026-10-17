@@ -40,6 +40,18 @@ test('offline novel chapters use the offline Reader renderer with cached-page fa
   assert.match(source, /navigator\.onLine === false/);
 });
 
+test('offline chapter downloads preserve paragraph boundaries and refresh legacy saved text', () => {
+  assert.match(offlineSource, /paragraphs\.join\("\\n\\n"\)/);
+  assert.match(offlineSource, /preservesParagraphs: true/);
+  assert.match(offlineSource, /local\[index\]\.preservesParagraphs !== true/);
+});
+
+test('offline reader settings panel starts hidden and can be dismissed', () => {
+  assert.match(offlineSource, /\.reader-font-panel\[hidden\],\.reader-settings-panel\[hidden\]\{display:none!important\}/);
+  assert.match(offlineSource, /settingsPanel\.hidden = !settingsPanel\.hidden/);
+  assert.match(offlineSource, /settingsPanel\.hidden = true/);
+});
+
 test('book details expose device download controls on both novel detail pages', () => {
   assert.match(bookDetailSource, /data-offline-download/);
   assert.match(bookDetailSource, /data-offline-update hidden/);
