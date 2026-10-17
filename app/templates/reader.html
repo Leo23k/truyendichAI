@@ -3,7 +3,7 @@
 {% block header %}{% endblock %}
 {% block footer %}{% endblock %}
 {% block main_class %}min-h-screen{% endblock %}
-{% block page_styles %}<link rel="stylesheet" href="/static/reader.css?v=1">{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="/static/reader.css?v=2">{% endblock %}
 {% block content %}
 <div
   x-data="{ theme: (localStorage.getItem('reader-theme') || 'dark') === 'gray' ? 'sepia' : (localStorage.getItem('reader-theme') || 'dark'), size: Number(localStorage.getItem('reader-size') || 18), lineHeight: Number(localStorage.getItem('reader-line-height-v5') || 1.85), font: localStorage.getItem('reader-font') || 'Segoe UI, Noto Sans, Arial, sans-serif', fontPanel: false, settingsPanel: false }"

@@ -15,7 +15,7 @@
 .reader-chapter-nav{transition:transform 190ms ease,opacity 190ms ease}
 .reader-chapter-nav.is-hidden{opacity:0;transform:translate(-50%,calc(100% + 1.25rem));pointer-events:none}
 .reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:none}
-@media (min-width:640px){.reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:inline-flex}.reader-chapter-nav{display:none}}
+@media (min-width:640px){.reader-bottom-bar [data-reader-prev],.reader-bottom-bar [data-reader-next]{display:inline-flex}.reader-chapter-nav{display:none!important}}
 .reader-sheet-backdrop{opacity:0;pointer-events:none;transition:opacity 180ms ease}
 .reader-sheet-backdrop.is-open{opacity:1;pointer-events:auto}
 .reader-sheet{transform:translateY(100%);transition:transform 210ms ease}
