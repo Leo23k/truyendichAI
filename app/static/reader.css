@@ -78,11 +78,11 @@
   .reader-content{padding:2rem 1.25rem 2.5rem;font-size:19px}
   .reader-reading-footer{padding-right:1.25rem;padding-left:1.25rem}
   .reader-player-shell{padding:.7rem .75rem!important}
-  .reader-player-controls{display:grid;grid-template-columns:1fr auto 1fr auto;gap:.55rem;margin-top:.55rem}
-  .reader-player-controls [data-segment-prev]{justify-self:end}
-  .reader-player-controls [data-play-toggle]{grid-column:2;width:3.1rem;height:3.1rem}
-  .reader-player-controls [data-segment-next]{grid-column:3;justify-self:start}
-  .reader-player-controls .reader-player-actions{grid-column:4;margin:0;gap:.3rem;justify-self:end}
+  .reader-player-controls{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);grid-template-rows:auto auto;gap:.55rem;margin-top:.55rem}
+  .reader-player-controls [data-segment-prev]{grid-column:1;grid-row:1;justify-self:end}
+  .reader-player-controls [data-play-toggle]{grid-column:2;grid-row:1;width:3.1rem;height:3.1rem}
+  .reader-player-controls [data-segment-next]{grid-column:3;grid-row:1;justify-self:start}
+  .reader-player-controls .reader-player-actions{grid-column:1/-1;grid-row:2;display:flex;min-width:0;width:100%;margin:0;gap:.3rem;justify-content:space-between;flex-wrap:wrap;row-gap:.2rem}
   .reader-player-controls [data-voice-button]{display:inline-flex}
   .reader-player-controls [data-sleep-button]{display:inline-flex}
   .reader-player-controls [data-rate-control]{display:block;width:2.8rem}
@@ -100,10 +100,11 @@
 @media(max-width:639px){
   .reader-chapter-nav{display:none!important}
   .reader-player-shell[data-state="error"] .reader-player-status{grid-column:1/-1;grid-row:1;justify-self:stretch;width:auto;max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
+  .reader-player-shell[data-state="error"] .reader-player-controls{grid-template-rows:auto auto auto}
   .reader-player-shell[data-state="error"] .reader-player-controls [data-segment-prev]{grid-column:1;grid-row:2;justify-self:end}
   .reader-player-shell[data-state="error"] .reader-player-controls [data-play-toggle]{grid-column:2;grid-row:2}
   .reader-player-shell[data-state="error"] .reader-player-controls [data-segment-next]{grid-column:3;grid-row:2;justify-self:start}
-  .reader-player-shell[data-state="error"] .reader-player-controls .reader-player-actions{grid-column:4;grid-row:2}
+  .reader-player-shell[data-state="error"] .reader-player-controls .reader-player-actions{grid-column:1/-1;grid-row:3}
 }
 [data-replacement-dialog]:not([hidden]){display:flex}
 .offline-reader-root{min-height:100vh;padding-bottom:9rem;background:#1d211f;color:#deddd2;transition:background .2s ease,color .2s ease}

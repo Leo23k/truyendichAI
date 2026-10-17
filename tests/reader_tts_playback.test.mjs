@@ -72,7 +72,9 @@ test('offline ebook reader keeps its existing offline controls', () => {
   assert.doesNotMatch(offlineSource, /\.offline-reader-root\{/);
   assert.match(offlineSource, /classList\.replace\("off-player-actions", "reader-player-actions"\)/);
   assert.match(offlineSource, /reader-page-nav \.reader-nav-card\[aria-disabled=/);
-  assert.match(source, /href="\/static\/reader\.css\?v=1"/);
+  assert.match(source, /href="\/static\/reader\.css\?v=3"/);
+  assert.match(readerStylesSource, /grid-template-columns:minmax\(0,1fr\) auto minmax\(0,1fr\)/);
+  assert.match(readerStylesSource, /\.reader-player-controls \.reader-player-actions\{grid-column:1\/-1;grid-row:2/);
 });
 
 test('offline reader asset and service worker cache versions stay in sync', () => {
