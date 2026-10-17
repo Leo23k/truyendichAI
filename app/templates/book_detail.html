@@ -4,7 +4,7 @@
 {% block content %}
 {% set first_chapter = book.chapters[0] if book.chapters else none %}
 {% set is_deleted = book.deleted_at %}
-<section data-offline-book data-book-id="{{ book.id }}" data-book-title="{{ book.translated_title or book.title }}" class="site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
+<section data-offline-book data-book-id="{{ book.id }}" data-book-title="{{ book.translated_title or book.title }}" data-owner-id="{{ request.state.user.id if request.state.user else '' }}" class="site-page mx-auto min-h-[calc(100vh-8rem)] max-w-[1180px]">
   <div class="flex items-center justify-between">
     <a href="/" class="icon-button text-stone-600" aria-label="Quay lại thư viện">
       <i data-lucide="arrow-left" class="h-5 w-5"></i>
@@ -69,6 +69,18 @@
       <p class="mt-6 max-w-3xl whitespace-pre-line text-base leading-8 text-stone-700">{{ book.translated_description or book.description or 'Chưa có mô tả.' }}</p>
       {% if first_chapter %}
       <div class="book-actions mt-7 flex flex-wrap gap-3">
+        <button type="button" data-offline-download class="book-action primary min-w-0 flex-1 sm:flex-none">
+          <i data-lucide="download" class="h-4 w-4"></i>
+          <span>Tải truyện</span>
+        </button>
+        <button type="button" data-offline-update hidden class="book-action min-w-0 flex-1 sm:flex-none">
+          <i data-lucide="refresh-cw" class="h-4 w-4"></i>
+          <span>Cập nhật bản offline</span>
+        </button>
+        <button type="button" data-offline-delete hidden class="book-action min-w-0 flex-1 sm:flex-none">
+          <i data-lucide="trash-2" class="h-4 w-4"></i>
+          <span>Xóa bản offline</span>
+        </button>
         <a data-book-continue-reading="{{ book.id }}" hidden href="#" onclick="return startTranslationProgress(this)" class="book-action primary">
           <i data-lucide="bookmark-check" class="h-4 w-4"></i>
           <span>Đọc tiếp</span>
@@ -77,6 +89,7 @@
           <i data-lucide="book-open" class="h-4 w-4"></i>
           <span>Đọc từ đầu</span>
         </a>
+        <p data-offline-status class="basis-full text-sm text-stone-500" role="status" aria-live="polite"></p>
       </div>
       {% endif %}
     </div>

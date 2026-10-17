@@ -59,7 +59,7 @@
   function fallbackPage() { shell(`<main class="off-shell"><h1 class="off-title">Không có bản offline</h1><p class="off-muted">Nội dung này chưa được tải xuống thiết bị.</p><a class="off-btn off-primary" href="/">Về thư viện offline</a></main>`); }
 
   async function renderOfflineHome() {
-    const novels = await all("books"), account = ownerId();
+    const account = ownerId(), novels = (await all("books")).filter(book => (book.ownerId || "") === account);
     const ebooks = (await all("ebooks")).filter(book => !account || book.ownerId === account);
     const cards = [...novels.map(book => card(book)), ...ebooks.map(book => card(book, { ebook: true }))];
     shell(`<main class="off-shell">${topLink("/", "Thư viện offline")}<h1 class="off-title">Thư viện của bạn</h1><p class="off-muted">Các truyện và Ebook đã lưu trên thiết bị này.</p><section class="off-grid">${cards.join("") || empty("Chưa có truyện nào được lưu offline. Khi có mạng, mở truyện và chọn tải về thiết bị.")}</section></main>`);
@@ -74,7 +74,7 @@
   }
 
   async function renderOfflineBook() {
-    const book = (await all("books")).find(item => item.bookUrl === location.pathname);
+    const account = ownerId(), book = (await all("books")).find(item => item.bookUrl === location.pathname && (item.ownerId || "") === account);
     if (!book) return fallbackPage();
     const entries = (await get("chapterLists", book.id))?.chapters || [];
     const local = (await Promise.all(entries.map(async item => ({ item, chapter: await storedChapter(item) })))).filter(row => row.chapter);
@@ -116,6 +116,29 @@
     }[name] || "");
     shell(`<div data-offline-reader-root class="offline-reader-root min-h-screen pb-36" data-reader-theme="dark"><header data-reader-header class="reader-header"><div class="reader-header-inner"><a class="icon-button" href="${escape(book.bookUrl)}" aria-label="Quay lại chi tiết truyện">${icon("arrow-left")}</a><div><h1>${escape(chapter.title || chapterLabel)}</h1><p>${escape(book.title)} · ${escape(chapterLabel)}</p></div><div class="reader-header-actions"><button class="icon-button" data-reader-theme-toggle aria-label="Đổi nền đọc">${icon("palette")}</button><button class="icon-button" data-toc-button aria-label="Mục lục">${icon("list")}</button><div class="relative"><button class="icon-button" data-font-settings aria-label="Kiểu chữ">${icon("type")}</button><div class="reader-font-panel" data-font-panel hidden><div class="off-reader-tools"><button type="button" data-font-down aria-label="Giảm cỡ chữ">A−</button><span>Kiểu chữ</span><button type="button" data-font-up aria-label="Tăng cỡ chữ">A+</button></div><label>Phông chữ<select data-font-select>${fontOptions.map((font, i) => `<option value="${escape(font)}">${["Sans hiện đại", "Georgia", "Cambria", "Trebuchet"][i]}</option>`).join("")}</select></label></div></div></div></div></header><div data-reader-reading-progress class="reader-progress-chip" role="progressbar" aria-label="Tiến trình đọc chương" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span class="reader-progress-number">${percent}%</span></div><nav class="reader-breadcrumb"><a href="${escape(book.bookUrl)}">← Quay lại</a><span>›</span><span>${escape(book.title)}</span><span>›</span><span>${escape(chapter.title || chapterLabel)}</span></nav><div class="reader-page-nav"><a class="reader-nav-card" href="${prev ? escape(chapterUrl(prev)) : "#"}" ${prev ? "" : "aria-disabled=\"true\""}>${icon("skip-back")}<span><small>CHƯƠNG TRƯỚC</small><strong>${escape(prev?.title || "Chương trước")}</strong></span></a><span>${ebook ? "EBOOK OFFLINE" : "TRUYỆN OFFLINE"}</span><a class="reader-nav-card" href="${next ? escape(chapterUrl(next)) : "#"}" ${next ? "" : "aria-disabled=\"true\""}><span><small>CHƯƠNG SAU</small><strong>${escape(next?.title || "Chương sau")}</strong></span>${icon("skip-forward")}</a></div><article class="reader-content" lang="vi"><h2 data-reader-content-title data-title="${escape(chapter.title || chapterLabel)}">${escape(chapter.title || chapterLabel)}<span></span></h2><div data-reader-content class="reader-prose">${body}</div></article><nav class="reader-reading-footer"><a class="reader-nav-card" href="${prev ? escape(chapterUrl(prev)) : "#"}" ${prev ? "" : "aria-disabled=\"true\""}>${icon("skip-back")}<span><small>CHƯƠNG TRƯỚC</small><strong>${escape(prev?.title || "Chương trước")}</strong></span></a><span></span><a class="reader-nav-card" href="${next ? escape(chapterUrl(next)) : "#"}" ${next ? "" : "aria-disabled=\"true\""}><span><small>CHƯƠNG SAU</small><strong>${escape(next?.title || "Chương sau")}</strong></span>${icon("skip-forward")}</a></nav><section data-reader-player class="reader-player-shell reader-bottom-bar" aria-label="Trình phát đọc bằng giọng nói" data-mobile-expanded="false"><button type="button" data-mobile-player-toggle class="reader-mobile-player-toggle off-mobile-player-toggle" aria-label="Mở trình phát đọc giọng nói" aria-expanded="false">${icon("headphones")}</button><div class="reader-player-track"><span data-current-time>0:00</span><input data-audio-progress type="range" min="0" max="0" value="0" aria-label="Tiến trình đọc"><span data-duration>0:00</span></div><div class="reader-player-controls off-player-controls"><span class="reader-player-status" data-tts-status role="status" aria-live="polite">SẴN SÀNG</span><button type="button" data-segment-prev data-prev-segment disabled aria-label="Đọc lại đoạn trước">${icon("skip-back")}</button><button type="button" data-play-toggle data-play aria-label="Phát hoặc tạm dừng"><i data-play-icon="play">${icon("play")}</i><i data-play-icon="pause" hidden>${icon("pause")}</i><i data-play-icon="loading" hidden>${icon("loading")}</i></button><button type="button" data-segment-next data-next-segment disabled aria-label="Đọc đoạn kế tiếp">${icon("skip-forward")}</button><div class="reader-player-actions off-player-actions"><button type="button" data-voice-button aria-label="Chọn giọng đọc">${icon("audio-lines")}<span class="sr-only">Giọng đọc</span></button><span data-rate-status>1x</span><button type="button" data-sleep-button>Hẹn giờ</button><label title="Tốc độ"><input data-rate-control type="range" min="0.75" max="2" step="0.05" value="1" aria-label="Tốc độ"></label><label title="Âm lượng"><input data-volume-control type="range" min="0" max="1" step="0.05" value="1" aria-label="Âm lượng"></label></div></div><select data-rate hidden><option value="0.75">0.75x</option><option value="0.9">0.9x</option><option value="1" selected>1x</option><option value="1.1">1.1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="1.75">1.75x</option><option value="2">2x</option></select><select data-sleep hidden><option value="0">Hẹn giờ</option><option value="15">15 phút</option><option value="30">30 phút</option><option value="45">45 phút</option><option value="60">60 phút</option><option value="end">Hết chương</option></select><button type="button" data-stop hidden>Đừng</button></section><div data-sheet-backdrop class="reader-sheet-backdrop off-sheet" hidden><section data-sheet="voice" class="reader-sheet off-sheet-panel" role="dialog" aria-modal="true"><div class="off-sheet-head"><strong>Giọng đọc</strong><button type="button" data-close-sheet aria-label="Đóng">×</button></div><label class="off-voice-sheet-label">Giọng Tiếng Việt trên thiết bị<select data-voice aria-label="Giọng đọc"><option>Đang tìm giọng đọc…</option></select></label><p class="off-voice-note">Chỉ hiển thị giọng đọc có thể dùng offline.</p></section><section data-sheet="sleep" class="reader-sheet off-sheet-panel" role="dialog" aria-modal="true" hidden><div class="off-sheet-head"><strong>Hẹn giờ</strong><button type="button" data-close-sheet aria-label="Đóng">×</button></div><div class="off-sheet-list"><button type="button" data-sleep-option="15" class="off-sheet-item">15 phút</button><button type="button" data-sleep-option="30" class="off-sheet-item">30 phút</button><button type="button" data-sleep-option="45" class="off-sheet-item">45 phút</button><button type="button" data-sleep-option="60" class="off-sheet-item">60 phút</button><button type="button" data-sleep-option="end" class="off-sheet-item">Hết chương hiện tại</button><button type="button" data-sleep-option="0" class="off-sheet-item">Tắt hẹn giờ</button></div></section><section data-sheet="toc" class="reader-sheet off-sheet-panel" role="dialog" aria-modal="true" hidden><div class="off-sheet-head"><strong>Mục lục · ${escape(book.title)}</strong><button type="button" data-close-sheet aria-label="Đóng">×</button></div><div class="off-sheet-list" data-toc-list>${tocItems}</div></section></div></div>`, `${chapter.title || chapterLabel} · ${book.title}`);
 
+    const readerStyle = document.createElement("style");
+    readerStyle.textContent = `
+      .offline-reader-root .reader-content{max-width:48rem;padding:2.5rem 1.25rem 3rem;font-family:"Segoe UI","Noto Sans",Arial,sans-serif;line-height:1.85;overflow-wrap:anywhere}
+      .offline-reader-root .reader-content h2{margin:0 0 3.5rem;text-align:center;font-size:clamp(1.875rem,5vw,3rem);font-weight:800;line-height:1.2}
+      .offline-reader-root .reader-content h2 span{display:block;width:5rem;height:.25rem;margin:1.5rem auto 0;border-radius:9999px;background:rgba(45,174,162,.6)}
+      .offline-reader-root .reader-prose p{margin:0 0 1.65em;white-space:pre-wrap}
+      .offline-reader-root[data-ebook-reader-root] .reader-ebook-mode-bar{margin:1.25rem auto .5rem}
+      @media(max-width:639px){
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-content{padding:2rem 1rem 8rem;font-size:19px}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-content-title{margin-bottom:3rem}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-chapter-nav{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.5rem;margin:0 auto 5rem;padding:1.25rem 1rem 0}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-nav-card{min-width:0;padding:.5rem}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-nav-card strong{max-width:9rem;font-size:.78rem}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-player{bottom:max(.65rem,env(safe-area-inset-bottom))!important;width:calc(100% - 1rem)!important;padding:.65rem .75rem!important}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-player .reader-player-controls{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);grid-template-rows:auto auto;gap:.4rem;margin-top:.45rem}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-player .reader-player-controls [data-segment-prev]{grid-column:1;grid-row:1;justify-self:end}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-player .reader-player-controls [data-play-toggle]{grid-column:2;grid-row:1;width:2.75rem;height:2.75rem}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-player .reader-player-controls [data-segment-next]{grid-column:3;grid-row:1;justify-self:start}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-player .reader-player-controls .reader-player-actions{grid-column:1/-1;grid-row:2;display:flex;min-width:0;width:100%;margin:0;justify-content:space-between;gap:.35rem;flex-wrap:wrap}
+        .offline-reader-root[data-ebook-reader-root] .reader-ebook-player .reader-player-controls [data-volume-control]{display:none}
+      }
+    `;
+    document.head.append(readerStyle);
     if (ebook) {
       const root = document.querySelector("[data-offline-reader-root]");
       root.dataset.ebookReaderRoot = "";
@@ -446,27 +469,47 @@
   async function setupBook(bookRoot) {
     const status = bookRoot.querySelector("[data-offline-status]"), download = bookRoot.querySelector("[data-offline-download]"), update = bookRoot.querySelector("[data-offline-update]"), del = bookRoot.querySelector("[data-offline-delete]");
     if (!status || !download || !update || !del) return;
-    const id = bookRoot.dataset.bookId, title = bookRoot.dataset.bookTitle, coverUrl = bookRoot.querySelector(".book-cover img, img.book-cover")?.currentSrc || bookRoot.querySelector(".book-cover img, img.book-cover")?.src || "";
+    const id = bookRoot.dataset.bookId, title = bookRoot.dataset.bookTitle, account = bookRoot.dataset.ownerId || "", coverUrl = bookRoot.querySelector(".book-cover img, img.book-cover")?.currentSrc || bookRoot.querySelector(".book-cover img, img.book-cover")?.src || "";
+    localStorage.setItem("novel-reader-offline-owner", account);
     let chapters = [...bookRoot.querySelectorAll("[data-offline-chapter]")].map((link, order) => { const sourceId = chapterId(link); return { id: `${id}:${sourceId}`, chapterId: sourceId, url: new URL(link.href).pathname, title: text(link.querySelector("span:last-child")) || text(link), bookId: id, bookUrl: location.pathname, order }; });
     const loadAllChapters = async () => { const url = bookRoot.dataset.offlineChaptersUrl; if (!url) return; const response = await fetch(url, { cache: "no-store" }); if (!response.ok) throw new Error("chapter list unavailable"); chapters = (await response.json()).map((chapter, order) => ({ id: `${id}:${chapter.id}`, chapterId: String(chapter.id), url: chapter.url, title: chapter.title || `Chương ${chapter.chapter_number}`, bookId: id, bookUrl: location.pathname, order })); };
     const count = async () => (await Promise.all(chapters.map(storedChapter))).filter(Boolean).length;
     const controls = (stored, busy = false, resumable = false) => { const complete = stored === chapters.length && chapters.length > 0, label = download.querySelector("span"); download.disabled = busy || complete; label.textContent = busy ? `Đang tải ${stored} / ${chapters.length}` : complete ? "✓ Đã tải toàn bộ" : (stored || resumable) ? "Tải tiếp tất cả chương" : "Tải tất cả chương"; update.hidden = !complete; del.hidden = !(stored || resumable); update.disabled = del.disabled = busy; };
-    let stored = await count(), resume = Boolean(await get("books", id)), existingBook = await get("books", id);
+    const existingBook = await get("books", id);
+    let stored = await count(), resume = Boolean(existingBook && (existingBook.ownerId || "") === account && existingBook.status !== "downloaded");
     if (existingBook && coverUrl && !existingBook.coverUrl) await put("books", { ...existingBook, coverUrl });
-    controls(stored, false, resume); if (stored || resume) status.textContent = stored === chapters.length ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương. Có thể tải tiếp.`;
+    controls(stored, false, resume);
+    if (stored || resume) status.textContent = stored === chapters.length
+      ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương`
+      : `Đã tải ${stored} / ${chapters.length} chương. Có thể tải tiếp.`;
+    else status.textContent = "Lưu truyện trên thiết bị này để đọc khi không có mạng.";
     const downloadMissing = async (updateOnly = false) => {
       const previousList = await get("chapterLists", id), knownChapterIds = new Set((previousList?.chapters || []).map(chapter => String(chapter.chapterId)));
       try { await loadAllChapters(); } catch { status.textContent = "Không tải được mục lục. Có thể thử lại sau."; return; }
       const local = await Promise.all(chapters.map(storedChapter)), pending = updateOnly ? chapters.filter(chapter => !knownChapterIds.has(String(chapter.chapterId))) : chapters.filter((chapter, index) => !local[index]);
-      await put("chapterLists", { bookId: id, chapters, updatedAt: Date.now() }); await put("books", { ...(await get("books", id)), id, title, coverUrl, bookUrl: location.pathname, totalChapters: chapters.length, downloadedChapters: stored, updatedAt: Date.now(), status: "downloading" });
+      await put("chapterLists", { bookId: id, chapters, updatedAt: Date.now() }); await put("books", { ...(await get("books", id)), id, ownerId: account, title, coverUrl, bookUrl: location.pathname, totalChapters: chapters.length, downloadedChapters: stored, updatedAt: Date.now(), status: "downloading" });
       if (!pending.length) { controls(stored); status.textContent = updateOnly ? "Bản offline đã có chương mới nhất." : status.textContent; return; }
       let cursor = 0, failed = false; resume = true; controls(stored, true, resume); const show = () => { status.textContent = `Đang tải ${stored} / ${chapters.length} chương`; controls(stored, true, resume); };
       await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => { while (cursor < pending.length) { const chapter = pending[cursor++]; if (await fetchChapter(chapter)) { stored += 1; show(); } else failed = true; } }));
-      await put("books", { ...(await get("books", id)), id, title, coverUrl, bookUrl: location.pathname, totalChapters: chapters.length, downloadedChapters: stored, updatedAt: Date.now(), status: stored === chapters.length ? "downloaded" : "partial" });
+      await put("books", { ...(await get("books", id)), id, ownerId: account, title, coverUrl, bookUrl: location.pathname, totalChapters: chapters.length, downloadedChapters: stored, updatedAt: Date.now(), status: stored === chapters.length ? "downloaded" : "partial" });
       resume = stored !== chapters.length; controls(stored, false, resume); status.textContent = stored === chapters.length ? `✓ Đã tải offline · ${stored} / ${chapters.length} chương` : `Đã tải ${stored} / ${chapters.length} chương.${failed ? " Tải thất bại. Có thể tiếp tục sau." : ""}`;
     };
-    download.onclick = () => downloadMissing(false); update.onclick = () => downloadMissing(true);
-    del.onclick = async () => { await removeBookChapters(id); await Promise.all([remove("chapterLists", id), remove("books", id)]); stored = 0; resume = false; controls(stored); status.textContent = "Đã xóa bản offline."; };
+    const runDownload = updateOnly => downloadMissing(updateOnly).catch(error => {
+      console.error("Could not save book for offline reading", id, error);
+      status.textContent = `Không thể lưu truyện offline: ${error.message || "đã xảy ra lỗi."}`;
+      controls(stored, false, true);
+    });
+    download.onclick = () => runDownload(false); update.onclick = () => runDownload(true);
+    del.onclick = async () => {
+      del.disabled = true;
+      try {
+        await removeBookChapters(id); await Promise.all([remove("chapterLists", id), remove("books", id)]);
+        stored = 0; resume = false; controls(stored); status.textContent = "Đã xóa bản offline.";
+      } catch (error) {
+        console.error("Could not remove offline book", id, error);
+        status.textContent = `Không thể xóa bản offline: ${error.message || "đã xảy ra lỗi."}`;
+      } finally { del.disabled = false; }
+    };
   }
 
   async function setupEbookDownload() {
@@ -573,7 +616,24 @@
     return { isSupported: supported, isSpeaking: () => speaking, getVoices, speak(value, options = {}) { if (!supported()) { options.onerror?.(new Error("TTS không khả dụng trên trình duyệt này.")); return false; } if (!String(value || "").trim()) return false; const voices = synth.getVoices(), voice = voices.find(item => item.voiceURI === options.voiceURI) || (!options.voiceURI && voices.find(item => item.lang?.toLowerCase().startsWith("vi"))); if (!voice || !voice.lang?.toLowerCase().startsWith("vi")) { options.onerror?.(new Error("Không tìm thấy giọng đọc tiếng Việt trên thiết bị.")); return false; } if (options.replaceCurrent !== false) synth.cancel(); const token = ++generation, utterance = new SpeechSynthesisUtterance(String(value)); active = utterance; utterance.voice = voice; utterance.lang = voice.lang; utterance.rate = Math.max(.5, Math.min(2, Number(options.rate) || 1)); utterance.pitch = Math.max(.5, Math.min(2, Number(options.pitch) || 1)); utterance.volume = Math.max(0, Math.min(1, Number(options.volume ?? 1))); utterance.onstart = event => { if (token === generation) { speaking = true; options.onstart?.(event); } }; utterance.onboundary = event => { if (token === generation) options.onboundary?.(event); }; utterance.onend = event => { if (token === generation) { speaking = false; active = null; options.onend?.(event); } }; utterance.onerror = event => { if (token === generation) { speaking = false; active = null; if (event.error !== "canceled" && event.error !== "interrupted") options.onerror?.(new Error(event.error || "Lỗi TTS thiết bị.")); } }; synth.speak(utterance); return true; }, pause() { if (supported()) { synth.pause(); speaking = false; } }, resume() { if (supported()) { synth.resume(); speaking = true; } }, stop() { generation++; speaking = false; active = null; if (supported()) synth.cancel(); } };
   };
   const createManager = ({ device, server, initialMode = "server" } = {}) => { let mode = initialMode === "device" ? "device" : "server"; const active = () => mode === "device" ? device : server; return { get mode() { return mode; }, setMode(value) { if (value !== "device" && value !== "server") throw new Error("TTS mode không hợp lệ"); if (mode !== value) { device?.stop?.(); server?.stop?.(); mode = value; } }, isSupported() { return Boolean(active()?.isSupported?.() ?? active()); }, getVoices() { return device?.getVoices?.() || Promise.resolve([]); }, speak(...args) { return active()?.speak?.(...args); }, pause() { return active()?.pause?.(); }, resume() { return active()?.resume?.(); }, stop() { device?.stop?.(); server?.stop?.(); } }; };
-  document.addEventListener("DOMContentLoaded", () => { const book = document.querySelector("[data-offline-book]"); if (book && "indexedDB" in window) setupBook(book).catch(error => console.warn("Offline storage unavailable", error)); setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error)); });
+  document.addEventListener("DOMContentLoaded", () => {
+    const book = document.querySelector("[data-offline-book]");
+    if (book) {
+      if ("indexedDB" in window) setupBook(book).catch(error => {
+        console.error("Offline storage unavailable", error);
+        const status = book.querySelector("[data-offline-status]");
+        const download = book.querySelector("[data-offline-download]");
+        if (download) download.disabled = true;
+        if (status) status.textContent = `Không thể khởi tạo lưu offline: ${error.message || "đã xảy ra lỗi."}`;
+      });
+      else {
+        const download = book.querySelector("[data-offline-download]"), status = book.querySelector("[data-offline-status]");
+        if (download) download.disabled = true;
+        if (status) status.textContent = "Trình duyệt này không hỗ trợ lưu truyện offline.";
+      }
+    }
+    setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error));
+  });
   window.NovelOffline = { renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, saveLocalEbook, store: { get, put, all, byUrl } };
   window.NovelTTS = { createDeviceProvider, createManager, configureMediaSession, getInitialTtsMode, getPreferredDeviceVoice, setMediaSessionState, splitDeviceText };
 })();

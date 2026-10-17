@@ -1,9 +1,9 @@
-const CACHE = "novel-reader-static-v19";
+const CACHE = "novel-reader-static-v20";
 const MEDIA_CACHE = "novel-reader-media-v1";
 const READER_PAGE_CACHE = "novel-reader-pages-v1";
 const READER_ASSET_CACHE = "novel-reader-assets-v1";
 const READER_SCRIPT_HOSTS = new Set(["cdn.tailwindcss.com", "cdn.jsdelivr.net", "unpkg.com"]);
-const OFFLINE_SCRIPT = "/static/offline.js?v=19";
+const OFFLINE_SCRIPT = "/static/offline.js?v=20";
 const READER_STYLES = "/static/reader.css?v=3";
 const STATIC = [OFFLINE_SCRIPT, READER_STYLES, "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
@@ -99,6 +99,9 @@ self.addEventListener("fetch", event => {
         return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ebook offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineEbookDetail())</script>');
       }
       if (/^\/truyen\/[^/]+$/.test(url.pathname)) {
+        return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Truyện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineBook())</script>');
+      }
+      if (/^\/books\/[^/]+$/.test(url.pathname)) {
         return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Truyện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineBook())</script>');
       }
       return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thư viện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineHome())</script>');

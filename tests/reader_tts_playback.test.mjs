@@ -12,6 +12,7 @@ const offlineSource = readFileSync(new URL('../app/static/offline.js', import.me
 const readerStylesSource = readFileSync(new URL('../app/static/reader.css', import.meta.url), 'utf8');
 const serviceWorkerSource = readFileSync(new URL('../service-worker.js', import.meta.url), 'utf8');
 const baseSource = readFileSync(new URL('../app/templates/base.html', import.meta.url), 'utf8');
+const bookDetailSource = readFileSync(new URL('../app/templates/book_detail.html', import.meta.url), 'utf8');
 test('both complete Reader scripts have valid JavaScript syntax', () => {
   for (const template of [source,ebookSource]) {
     const scripts=[...template.matchAll(/<script>([\s\S]*?)<\/script>/g)];
@@ -36,6 +37,17 @@ test('offline novel chapters use the cached original Reader instead of a separat
   assert.match(serviceWorkerSource, /cache\.match\(READER_STYLES\)/);
   assert.doesNotMatch(serviceWorkerSource, /renderOfflineReader/);
   assert.match(source, /navigator\.onLine === false/);
+});
+
+test('book details expose device download controls and the offline reader layout', () => {
+  assert.match(bookDetailSource, /data-offline-download/);
+  assert.match(bookDetailSource, /data-offline-update hidden/);
+  assert.match(bookDetailSource, /data-offline-delete hidden/);
+  assert.match(bookDetailSource, /data-offline-status/);
+  assert.match(bookDetailSource, /data-owner-id=/);
+  assert.match(offlineSource, /reader-ebook-player \.reader-player-controls\{display:grid;grid-template-columns:minmax\(0,1fr\) auto minmax\(0,1fr\)/);
+  assert.match(offlineSource, /reader-ebook-player \.reader-player-actions\{grid-column:1\/-1;grid-row:2/);
+  assert.ok(serviceWorkerSource.includes('if (/^\\/books\\/[^/]+$/.test(url.pathname))'));
 });
 
 test('offline ebook reader keeps its existing offline controls', () => {
