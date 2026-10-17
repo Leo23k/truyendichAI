@@ -86,6 +86,31 @@
     sort.addEventListener("change", () => { [...list.querySelectorAll(".off-chapter")].reverse().forEach(row => list.append(row)); });
   }
 
+  async function renderOfflineReader() {
+    const path = location.pathname;
+    const chapters = await all("chapters");
+    const chapter = chapters.find(item => item.url && new URL(item.url, location.origin).pathname === path);
+    const account = ownerId();
+    const book = chapter && await get("books", chapter.bookId);
+    if (chapter && book && (book.ownerId || "") === account) {
+      const entries = chapters.filter(item => item.bookId === book.id && item.content)
+        .sort((left, right) => (left.order || 0) - (right.order || 0));
+      const index = entries.findIndex(item => item.id === chapter.id);
+      if (index >= 0) return renderReader({ book, chapter, entries, index, owner: account, ebook: false });
+    }
+    if (typeof caches !== "undefined") {
+      const cache = await caches.open("novel-reader-pages-v1");
+      const cached = await cache.match(location.href, { ignoreSearch: true });
+      if (cached) {
+        document.open();
+        document.write(await cached.text());
+        document.close();
+        return;
+      }
+    }
+    shell(`<main class="off-shell">${topLink("/", "Thư viện offline")}<p class="off-empty">Chương này chưa được lưu trên thiết bị. Khi có mạng, hãy tải truyện từ trang thông tin trước khi đọc offline.</p></main>`, "Chương chưa sẵn sàng offline");
+  }
+
   function progressIdentity(owner, book, number, type) {
     return { position: `reader.${owner || "anonymous"}.reader.${type}.position.${book.id}.${number}`, last: `reader.${owner || "anonymous"}.reader.lastUrl.book.${book.id}` };
   }
@@ -634,6 +659,6 @@
     }
     setupEbookDownload().catch(error => console.warn("Offline Ebook storage unavailable", error));
   });
-  window.NovelOffline = { renderOfflineBook, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, saveLocalEbook, store: { get, put, all, byUrl } };
+  window.NovelOffline = { renderOfflineBook, renderOfflineReader, renderOfflineHome, renderOfflineEbookLibrary, renderOfflineEbookDetail, renderOfflineEbookReader, saveLocalEbook, store: { get, put, all, byUrl } };
   window.NovelTTS = { createDeviceProvider, createManager, configureMediaSession, getInitialTtsMode, getPreferredDeviceVoice, setMediaSessionState, splitDeviceText };
 })();

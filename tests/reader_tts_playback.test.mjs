@@ -13,6 +13,7 @@ const readerStylesSource = readFileSync(new URL('../app/static/reader.css', impo
 const serviceWorkerSource = readFileSync(new URL('../service-worker.js', import.meta.url), 'utf8');
 const baseSource = readFileSync(new URL('../app/templates/base.html', import.meta.url), 'utf8');
 const bookDetailSource = readFileSync(new URL('../app/templates/book_detail.html', import.meta.url), 'utf8');
+const syncedBookDetailSource = readFileSync(new URL('../app/templates/synced_book_detail.html', import.meta.url), 'utf8');
 test('both complete Reader scripts have valid JavaScript syntax', () => {
   for (const template of [source,ebookSource]) {
     const scripts=[...template.matchAll(/<script>([\s\S]*?)<\/script>/g)];
@@ -28,23 +29,28 @@ test('Ebook reader defaults to sans-serif and initializes after dynamic navigati
   assert.match(ebookSource, /document\.addEventListener\('htmx:afterSwap', initEbookReader\)/);
 });
 
-test('offline novel chapters use the cached original Reader instead of a separate renderer', () => {
-  assert.doesNotMatch(offlineSource, /renderOfflineReader/);
+test('offline novel chapters use the offline Reader renderer with cached-page fallback', () => {
+  assert.match(offlineSource, /async function renderOfflineReader\(\)/);
+  assert.match(offlineSource, /document\.write\(await cached\.text\(\)\)/);
   assert.match(offlineSource, /novel-reader-pages-v1/);
   assert.match(offlineSource, /Could not cache original Reader page for offline use/);
   assert.match(serviceWorkerSource, /const READER_PAGE_CACHE = "novel-reader-pages-v1"/);
-  assert.match(serviceWorkerSource, /cache\.match\(request, \{ ignoreSearch: true \}\)/);
+  assert.match(serviceWorkerSource, /NovelOffline\.renderOfflineReader\(\)/);
   assert.match(serviceWorkerSource, /cache\.match\(READER_STYLES\)/);
-  assert.doesNotMatch(serviceWorkerSource, /renderOfflineReader/);
   assert.match(source, /navigator\.onLine === false/);
 });
 
-test('book details expose device download controls and the offline reader layout', () => {
+test('book details expose device download controls on both novel detail pages', () => {
   assert.match(bookDetailSource, /data-offline-download/);
   assert.match(bookDetailSource, /data-offline-update hidden/);
   assert.match(bookDetailSource, /data-offline-delete hidden/);
   assert.match(bookDetailSource, /data-offline-status/);
   assert.match(bookDetailSource, /data-owner-id=/);
+  assert.match(syncedBookDetailSource, /data-offline-download/);
+  assert.match(syncedBookDetailSource, /data-offline-update hidden/);
+  assert.match(syncedBookDetailSource, /data-offline-delete hidden/);
+  assert.match(syncedBookDetailSource, /data-offline-status/);
+  assert.match(syncedBookDetailSource, /data-owner-id=/);
   assert.match(offlineSource, /reader-ebook-player \.reader-player-controls\{display:grid;grid-template-columns:minmax\(0,1fr\) auto minmax\(0,1fr\)/);
   assert.match(offlineSource, /reader-ebook-player \.reader-player-actions\{grid-column:1\/-1;grid-row:2/);
   assert.ok(serviceWorkerSource.includes('if (/^\\/books\\/[^/]+$/.test(url.pathname))'));
@@ -105,7 +111,7 @@ test('offline reader asset and service worker cache versions stay in sync', () =
   new vm.Script(serviceWorkerSource);
 });
 
-test('Service Worker returns the exact cached online Reader HTML while offline', async () => {
+test('Service Worker opens the local Reader renderer when offline', async () => {
   const pageCache = new Map(), handlers = new Map();
   const keyOf = value => new URL(typeof value === 'string' || value instanceof URL ? value : value.url).href;
   const caches = { open: async () => ({
@@ -135,7 +141,9 @@ test('Service Worker returns the exact cached online Reader HTML while offline',
   await (await navigate('https://leotruyen.vercel.app/truyen/kiem-lai/1')).text();
   networkFetch = async () => { throw new TypeError('offline'); };
   const response = await navigate('https://leotruyen.vercel.app/truyen/kiem-lai/1?mode=translated');
-  assert.equal(await response.text(), onlineHtml);
+  const offlineHtml = await response.text();
+  assert.match(offlineHtml, /NovelOffline\.renderOfflineReader\(\)/);
+  assert.doesNotMatch(offlineHtml, /Original Reader UI/);
 });
 
 test('desktop Reader arrow keys navigate chapters without hijacking form controls', () => {

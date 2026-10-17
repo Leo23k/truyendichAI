@@ -1,9 +1,9 @@
-const CACHE = "novel-reader-static-v20";
+const CACHE = "novel-reader-static-v21";
 const MEDIA_CACHE = "novel-reader-media-v1";
 const READER_PAGE_CACHE = "novel-reader-pages-v1";
 const READER_ASSET_CACHE = "novel-reader-assets-v1";
 const READER_SCRIPT_HOSTS = new Set(["cdn.tailwindcss.com", "cdn.jsdelivr.net", "unpkg.com"]);
-const OFFLINE_SCRIPT = "/static/offline.js?v=20";
+const OFFLINE_SCRIPT = "/static/offline.js?v=21";
 const READER_STYLES = "/static/reader.css?v=3";
 const STATIC = [OFFLINE_SCRIPT, READER_STYLES, "/static/reader_resume.js", "/static/pwa-icon.svg", "/manifest.webmanifest"];
 
@@ -81,10 +81,7 @@ self.addEventListener("fetch", event => {
       return response;
     }).catch(async () => {
       if (isReaderPage) {
-        const cache = await caches.open(READER_PAGE_CACHE);
-        const cached = await cache.match(request, { ignoreSearch: true });
-        if (cached) return cached;
-        return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chương chưa sẵn sàng offline</title><p>Hãy mở chương này khi có mạng để lưu trang đọc offline.</p>');
+        return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Đang mở chương offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineReader())</script>');
       }
       if (url.pathname === "/" || url.pathname === "/ebooks") {
         return offlinePage('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thư viện offline</title><script src="/static/offline.js"></script><script>addEventListener("DOMContentLoaded",()=>NovelOffline.renderOfflineHome())</script>');
