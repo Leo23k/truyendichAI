@@ -18,14 +18,13 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.18");
+  assert.equal(manifest.version, "1.0.19");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 24000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
   assert.match(serviceWorker, /BACKEND_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /GEMINI_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /ensureGeminiTab\(20000\)/);
-  assert.match(serviceWorker, /Math\.min\(14000, deadline - Date\.now\(\) - 1000\)/);
   assert.match(serviceWorker, /geminiCheck, 22000, "GEMINI_CHECK_TIMEOUT"/);
   assert.match(serviceWorker, /status", "GET", undefined, 12000/);
   assert.doesNotMatch(serviceWorker.slice(serviceWorker.indexOf('if (message.type === "connect-app")'), serviceWorker.indexOf('if (message.type === "disconnect-app")')), /\/api\/gemini-extension\/status/);
@@ -38,15 +37,16 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
   assert.match(popupScript, /result\?\.backend\?\.message/);
 });
 
-test("Gemini content script loads with the page and supports immediate injection into an existing tab", async () => {
+test("Gemini content script loads with the page using a required host permission", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
   assert.ok(manifest.permissions.includes("scripting"));
-  assert.ok(manifest.optional_host_permissions.includes("https://gemini.google.com/*"));
+  assert.ok(manifest.host_permissions.includes("https://gemini.google.com/*"));
+  assert.equal(manifest.optional_host_permissions, undefined);
   assert.deepEqual(manifest.content_scripts[0].matches, ["https://gemini.google.com/*"]);
   assert.deepEqual(manifest.content_scripts[0].js, ["content.js"]);
-  assert.match(serviceWorker, /chrome\.scripting\.executeScript\(\{ target: \{ tabId: tab\.id \}, files: \["content\.js"\], injectImmediately: true \}\)/);
-  assert.match(popupScript, /"INJECT_TIMEOUT", "INJECT_FAILED"/);
+  assert.doesNotMatch(serviceWorker, /files: \["content\.js"\]/);
+  assert.match(popupScript, /geminiCode !== "CONTENT_SCRIPT_NOT_READY"/);
 });
 
 test("Gemini health check does not require send or new-chat buttons before a job", () => {
@@ -113,8 +113,9 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, injectError = null, injectTimeout = false, backendTimeout = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null } = {}) {
-  let injections = 0;
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, newTabScriptReady = true, backendTimeout = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null } = {}) {
+  let newTab;
+  let createdTabs = 0;
   const apiRequests = [];
   const storageState = { appTabId: 2 };
   const geminiTab = { id: 1, url: tabUrl, status: tabStatus };
@@ -123,7 +124,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.18", host_permissions: ["https://leotruyen.vercel.app/*"], optional_host_permissions: manifestDeclared ? ["https://gemini.google.com/*"] : [] }),
+      getManifest: () => ({ version: "1.0.19", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -131,14 +132,14 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
     },
     alarms: { get: async () => ({ name: "gemini-companion-poll" }), create: async () => {}, onAlarm: { addListener: () => {} } },
     sidePanel: { setPanelBehavior: async () => {} },
-    storage: { local: { get: async (key) => key === "appTabId" ? { appTabId: storageState.appTabId } : {}, set: async (value) => Object.assign(storageState, value), remove: async () => {} } },
+    storage: { local: { get: async (keys) => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map((key) => [key, storageState[key]])), set: async (value) => Object.assign(storageState, value), remove: async (keys) => { for (const key of Array.isArray(keys) ? keys : [keys]) delete storageState[key]; } } },
     tabs: {
-      get: async (id) => id === 1 ? geminiTab : appTab,
-      query: async () => [geminiTab],
-      create: async () => geminiTab,
+      get: async (id) => id === 1 ? geminiTab : id === 2 ? appTab : id === 3 && newTab ? newTab : Promise.reject(new Error("Tab missing")),
+      query: async () => [geminiTab, ...(newTab ? [newTab] : [])],
+      create: async () => { createdTabs += 1; newTab = { id: 3, url: "https://gemini.google.com/app", status: "complete" }; return newTab; },
       reload: async () => {},
-      sendMessage: async (_id, message) => {
-        if (message.type === "ping") return contentScriptReady ? { ready: true } : undefined;
+      sendMessage: async (id, message) => {
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },
@@ -153,13 +154,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
     },
     scripting: {
       executeScript: async ({ target, files, args }) => {
-        if (files?.includes("content.js")) {
-          injections += 1;
-          if (injectError) throw injectError;
-          contentScriptReady = true;
-          if (injectTimeout) return new Promise(() => {});
-          return [];
-        }
+        if (files?.includes("content.js")) throw new Error("Dynamic injection must not run");
         if (args?.[0]?.path) apiRequests.push(args[0].path);
         if (target.tabId === 2 && backendTimeout) return new Promise(() => {});
         return [{ result: { ok: true } }];
@@ -167,8 +162,8 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
     },
   };
   const context = { chrome, console: { info() {} }, URL, Date, Promise, Error, Object, String, Array, Math, JSON, setTimeout, clearTimeout };
-  vm.runInNewContext(`${serviceWorker}\nglobalThis.__test = { ensureGeminiTabReady, healthCheck };`, context);
-  return { api: context.__test, geminiTab, listeners, apiRequests, storageState, get injections() { return injections; } };
+  vm.runInNewContext(`${serviceWorker}\nglobalThis.__test = { ensureGeminiTabReady, ensureGeminiTab, healthCheck };`, context);
+  return { api: context.__test, geminiTab, listeners, apiRequests, storageState, get createdTabs() { return createdTabs; } };
 }
 
 test("connecting the website tab does not wait for the remote queue status API", async () => {
@@ -182,18 +177,18 @@ test("connecting the website tab does not wait for the remote queue status API",
   assert.ok(!worker.apiRequests.includes("/api/gemini-extension/status"));
 });
 
-test("missing runtime permission stops before ping or injection", async () => {
+test("missing runtime permission stops before using a Gemini tab", async () => {
   const worker = loadServiceWorker({ runtimeGranted: false });
 
   await assert.rejects(worker.api.ensureGeminiTabReady({ id: 1, url: "https://gemini.google.com/app" }, 1000), (error) => error.code === "HOST_PERMISSION_REQUIRED");
-  assert.equal(worker.injections, 0);
+  assert.equal(worker.createdTabs, 0);
 });
 
 test("missing manifest host declaration is distinct from a user-denied permission", async () => {
   const worker = loadServiceWorker({ manifestDeclared: false });
 
   await assert.rejects(worker.api.ensureGeminiTabReady({ id: 1, url: "https://gemini.google.com/app" }, 1000), (error) => error.code === "HOST_PERMISSION_MISSING");
-  assert.equal(worker.injections, 0);
+  assert.equal(worker.createdTabs, 0);
 });
 
 test("permission API failure is not reported as an ordinary denial", async () => {
@@ -212,50 +207,61 @@ test("permission API failure is not displayed as granted", async () => {
   assert.equal(result.browser.code, "PERMISSION_CHECK_FAILED");
 });
 
-test("granted permission dynamically injects content.js once and waits for its ping", async () => {
-  const worker = loadServiceWorker();
-
-  const result = await worker.api.ensureGeminiTabReady({ id: 1, url: "https://gemini.google.com/app" }, 1000);
-
-  assert.equal(result.injected, true);
-  assert.equal(result.permissionDiagnostics.actualAccess, true);
-  assert.equal(worker.injections, 1);
-});
-
-test("a content script already loaded by the browser needs no dynamic injection", async () => {
+test("an existing Gemini tab with its content script is reused", async () => {
   const worker = loadServiceWorker({ contentScriptReady: true });
 
-  const result = await worker.api.ensureGeminiTabReady({ id: 1, url: "https://gemini.google.com/app" }, 1000);
+  const result = await worker.api.ensureGeminiTab(1000);
 
   assert.equal(result.injected, false);
-  assert.equal(worker.injections, 0);
+  assert.equal(result.tab.id, 1);
+  assert.equal(worker.createdTabs, 0);
 });
 
-test("a late inject response is accepted when the content script became reachable", async () => {
-  const worker = loadServiceWorker({ injectTimeout: true });
-
-  const result = await worker.api.ensureGeminiTabReady({ id: 1, url: "https://gemini.google.com/app" }, 40);
-
-  assert.equal(result.injected, true);
-  assert.equal(result.permissionDiagnostics.actualAccess, true);
-  assert.equal(worker.injections, 1);
-});
-
-test("invalid tab URL is distinguished before injection", async () => {
+test("a stale Gemini tab is left intact and a fresh Companion tab is used", async () => {
   const worker = loadServiceWorker();
 
-  await assert.rejects(worker.api.ensureGeminiTabReady({ id: 3, url: "https://example.com/" }, 1000), (error) => error.code === "TAB_URL_INVALID");
-  assert.equal(worker.injections, 0);
+  const result = await worker.api.ensureGeminiTab(6000);
+
+  assert.equal(result.tab.id, 3);
+  assert.equal(result.permissionDiagnostics.actualAccess, true);
+  assert.equal(worker.storageState.geminiTabId, 3);
+  assert.equal(worker.createdTabs, 1);
+  await worker.api.ensureGeminiTab(1000);
+  assert.equal(worker.createdTabs, 1);
 });
 
-test("a loading Gemini tab is allowed to finish before content script injection", async () => {
-  const worker = loadServiceWorker({ tabStatus: "loading" });
+test("a fresh tab without a content script fails without opening more tabs", async () => {
+  const worker = loadServiceWorker({ newTabScriptReady: false });
+
+  await assert.rejects(worker.api.ensureGeminiTab(6000), (error) => error.code === "CONTENT_SCRIPT_NOT_READY" && error.tabId === 3);
+  await assert.rejects(worker.api.ensureGeminiTab(1000), (error) => error.code === "CONTENT_SCRIPT_NOT_READY");
+  assert.equal(worker.createdTabs, 1);
+});
+
+test("a Companion tab in Google sign-in stays selected until login completes", async () => {
+  const worker = loadServiceWorker({ tabUrl: "https://accounts.google.com/signin" });
+  worker.storageState.geminiTabId = 1;
+
+  await assert.rejects(worker.api.ensureGeminiTab(1000), (error) => error.code === "GEMINI_LOGIN_REQUIRED");
+  assert.equal(worker.createdTabs, 0);
+  assert.equal(worker.storageState.geminiTabId, 1);
+});
+
+test("invalid tab URL is distinguished before content script access", async () => {
+  const worker = loadServiceWorker({ tabUrl: "https://example.com/" });
+
+  await assert.rejects(worker.api.ensureGeminiTabReady({ id: 1, url: "https://example.com/" }, 1000), (error) => error.code === "TAB_URL_INVALID");
+  assert.equal(worker.createdTabs, 0);
+});
+
+test("a loading Gemini tab is allowed to finish before content script access", async () => {
+  const worker = loadServiceWorker({ tabStatus: "loading", contentScriptReady: true });
   const tab = { id: 1, url: "https://gemini.google.com/app", status: "loading" };
   setTimeout(() => { worker.geminiTab.status = "complete"; }, 20);
 
   const result = await worker.api.ensureGeminiTabReady(tab, 1000);
-  assert.equal(result.injected, true);
-  assert.equal(worker.injections, 1);
+  assert.equal(result.injected, false);
+  assert.equal(worker.createdTabs, 0);
 });
 
 test("a Gemini tab stuck loading returns a bounded load timeout", async () => {
@@ -263,13 +269,7 @@ test("a Gemini tab stuck loading returns a bounded load timeout", async () => {
   const tab = { id: 1, url: "https://gemini.google.com/app", status: "loading" };
 
   await assert.rejects(worker.api.ensureGeminiTabReady(tab, 40), (error) => error.code === "TAB_LOAD_TIMEOUT" && error.tabStatus === "loading");
-  assert.equal(worker.injections, 0);
-});
-
-test("Chrome injection denial is distinct from missing permission", async () => {
-  const worker = loadServiceWorker({ injectError: new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host.") });
-
-  await assert.rejects(worker.api.ensureGeminiTabReady({ id: 1, url: "https://gemini.google.com/app" }, 1000), (error) => error.code === "INJECT_FAILED" && error.diagnostics.runtimeGranted && error.diagnostics.actualAccess === false);
+  assert.equal(worker.createdTabs, 0);
 });
 
 test("backend timeout does not hide a separate Gemini permission failure", async () => {
@@ -283,12 +283,12 @@ test("backend timeout does not hide a separate Gemini permission failure", async
   assert.equal(result.code, "BACKEND_CHECK_TIMEOUT");
 });
 
-test("Gemini inject failure leaves a healthy backend healthy", async () => {
-  const worker = loadServiceWorker({ injectError: new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host.") });
+test("Gemini content script failure leaves a healthy backend healthy", async () => {
+  const worker = loadServiceWorker({ newTabScriptReady: false });
 
   const result = await worker.api.healthCheck();
 
   assert.equal(result.backend.ok, true);
-  assert.equal(result.browser.code, "INJECT_FAILED");
-  assert.equal(result.gemini.code, "INJECT_FAILED");
+  assert.equal(result.browser.code, "CONTENT_SCRIPT_NOT_READY");
+  assert.equal(result.gemini.code, "CONTENT_SCRIPT_NOT_READY");
 });

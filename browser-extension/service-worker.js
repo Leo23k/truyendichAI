@@ -3,6 +3,7 @@ const GEMINI_URL = "https://gemini.google.com/app";
 const GEMINI_PERMISSION = "https://gemini.google.com/*";
 const HEALTH_CHECK_TIMEOUT_MS = 24000;
 let busy = false;
+let geminiTabOpening;
 
 function withTimeout(promise, timeoutMs, code, message) {
   let timer;
@@ -55,24 +56,6 @@ async function geminiPermissionState(tabId, url) {
   return state;
 }
 
-async function hasGeminiHostPermission(tabId, url, state) {
-  state ||= await geminiPermissionState(tabId, url);
-  return state.manifestDeclared && state.runtimeGranted;
-}
-
-async function geminiHostAccessError(error, tabId, url) {
-  if (!/cannot access contents|permission to access the respective host|cannot access.*page/i.test(String(error?.message || error))) return null;
-  const diagnostics = await geminiPermissionState(tabId, url);
-  diagnostics.actualAccess = false;
-  const code = !diagnostics.manifestDeclared ? "HOST_PERMISSION_MISSING" : !diagnostics.runtimeGranted ? "HOST_PERMISSION_REQUIRED" : "INJECT_FAILED";
-  const message = diagnostics.manifestDeclared
-    ? diagnostics.runtimeGranted
-      ? "Trình duyệt từ chối inject dù API báo quyền đã cấp. Hãy kiểm tra Site access của Gemini, rồi tải lại tab và extension."
-      : "Chưa được cấp quyền truy cập Gemini. Bấm Cấp quyền Gemini trong Companion rồi chấp nhận yêu cầu."
-    : `Manifest extension đang chạy thiếu ${GEMINI_PERMISSION}. Hãy nạp đúng thư mục browser-extension của project.`;
-  return companionError(code, message, { tabId, url, diagnostics, rawError: String(error?.message || error), cause: error });
-}
-
 async function startPolling() {
   if (!await chrome.alarms.get(ALARM)) await chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
   const { appTabId } = await chrome.storage.local.get("appTabId");
@@ -91,8 +74,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 void startPolling().catch(() => {});
 chrome.tabs.onRemoved.addListener(async (tabId) => {
-  const { appTabId } = await chrome.storage.local.get("appTabId");
+  const { appTabId, geminiTabId } = await chrome.storage.local.get(["appTabId", "geminiTabId"]);
   if (appTabId === tabId) await chrome.storage.local.remove(["appTabId", "appOrigin"]);
+  if (geminiTabId === tabId) await chrome.storage.local.remove("geminiTabId");
 });
 
 async function pageRequest(tabId, path, method = "GET", body, timeoutMs = 60000) {
@@ -146,14 +130,26 @@ async function setSiteConnection(tabId, message, connected) {
 }
 
 async function findGeminiTab() {
+  const { geminiTabId } = await chrome.storage.local.get("geminiTabId");
+  if (geminiTabId) {
+    const saved = await chrome.tabs.get(geminiTabId).catch(() => null);
+    if (saved?.url?.startsWith("https://gemini.google.com/") || saved?.url?.startsWith("https://accounts.google.com/") || saved?.pendingUrl?.startsWith("https://gemini.google.com/")) return saved;
+    await chrome.storage.local.remove("geminiTabId");
+  }
   const tabs = await chrome.tabs.query({ url: "https://gemini.google.com/*" });
   return tabs.find((tab) => tab.active) || tabs[0] || null;
 }
 
 async function openGeminiTab() {
-  const tab = await chrome.tabs.create({ url: GEMINI_URL, active: true });
-  log("TAB", { code: "OPENED", tabId: tab.id, url: tab.url || GEMINI_URL });
-  return tab;
+  if (geminiTabOpening) return geminiTabOpening;
+  geminiTabOpening = (async () => {
+    const tab = await chrome.tabs.create({ url: GEMINI_URL, active: true });
+    await chrome.storage.local.set({ geminiTabId: tab.id });
+    log("TAB", { code: "OPENED", tabId: tab.id, url: tab.url || GEMINI_URL });
+    return tab;
+  })();
+  try { return await geminiTabOpening; }
+  finally { geminiTabOpening = null; }
 }
 
 async function pingGemini(tabId) {
@@ -175,7 +171,7 @@ async function waitForGeminiContentScript(tabId) {
   if (!tab.url?.startsWith("https://gemini.google.com/")) throw companionError("TAB_URL_INVALID", "Tab sau khi nạp lại không còn ở Gemini Web.", { tabId, url: tab.url });
   const diagnostics = await geminiPermissionState(tabId, tab.url);
   if (!diagnostics.manifestDeclared) throw companionError("HOST_PERMISSION_MISSING", `Manifest chưa khai báo ${GEMINI_PERMISSION}.`, { tabId, url: tab.url, diagnostics });
-  if (!diagnostics.runtimeGranted) throw companionError("HOST_PERMISSION_REQUIRED", "Chưa cấp quyền truy cập Gemini. Bấm Cấp quyền Gemini trong Companion.", { tabId, url: tab.url, diagnostics });
+  if (!diagnostics.runtimeGranted) throw companionError("HOST_PERMISSION_REQUIRED", "Edge chưa cho Companion truy cập Gemini. Hãy bật Site access cho Gemini trong chi tiết extension.", { tabId, url: tab.url, diagnostics });
   while (Date.now() < deadline) {
     tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) throw companionError("TAB_NOT_FOUND", "Không tìm thấy tab Gemini sau khi nạp lại.", { tabId });
@@ -186,12 +182,13 @@ async function waitForGeminiContentScript(tabId) {
   throw companionError("CONTENT_SCRIPT_NOT_READY", "Tab Gemini đã nạp lại nhưng content.js chưa phản hồi. Hãy tải lại tab Gemini rồi kiểm tra extension.", { tabId, url: tab?.url });
 }
 
-async function ensureGeminiTabReady(tab, timeoutMs = 30000) {
+async function ensureGeminiTabReady(tab, timeoutMs = 30000, scriptWaitMs = 2500) {
   if (!tab?.id) throw companionError("TAB_NOT_FOUND", "Không tìm thấy tab Gemini.");
+  const tabId = tab.id;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    tab = await chrome.tabs.get(tab.id).catch(() => null);
-    if (!tab) throw companionError("TAB_NOT_FOUND", "Tab Gemini đã đóng.", { tabId: tab.id });
+    tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) throw companionError("TAB_NOT_FOUND", "Tab Gemini đã đóng.", { tabId });
     if (tab.url?.startsWith("https://gemini.google.com/") && tab.status !== "loading") break;
     if (tab.url?.startsWith("https://accounts.google.com/")) {
       throw companionError("GEMINI_LOGIN_REQUIRED", "Hãy đăng nhập Google trong tab Gemini rồi kiểm tra lại.", { tabId: tab.id, url: tab.url });
@@ -205,53 +202,42 @@ async function ensureGeminiTabReady(tab, timeoutMs = 30000) {
     throw companionError("TAB_LOAD_TIMEOUT", `Tab Gemini vẫn đang tải sau ${Math.ceil(timeoutMs / 1000)} giây.`, { tabId: tab.id, url: tab.url, tabStatus: tab.status });
   }
   const permissionDiagnostics = await geminiPermissionState(tab.id, tab.url);
-  permissionDiagnostics.runtimeCheck = await hasGeminiHostPermission(tab.id, tab.url, permissionDiagnostics);
+  permissionDiagnostics.runtimeCheck = permissionDiagnostics.manifestDeclared && permissionDiagnostics.runtimeGranted;
   if (!permissionDiagnostics.manifestDeclared) {
     throw companionError("HOST_PERMISSION_MISSING", `Manifest extension đang chạy chưa khai báo ${GEMINI_PERMISSION}. Hãy nạp lại đúng thư mục browser-extension.`, { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics });
   }
   if (!permissionDiagnostics.runtimeGranted) {
-    throw companionError("HOST_PERMISSION_REQUIRED", "Chưa cấp quyền truy cập Gemini. Hãy bấm Cấp quyền Gemini trong Companion.", { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics });
+    throw companionError("HOST_PERMISSION_REQUIRED", "Edge chưa cho Companion truy cập Gemini. Hãy bật Site access cho Gemini trong chi tiết extension.", { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics });
   }
   if (await pingGemini(tab.id)) {
     permissionDiagnostics.actualAccess = true;
     return { tab, injected: false, permissionDiagnostics };
   }
-  log("INJECT", { code: "START", tabId: tab.id, url: tab.url });
-  try {
-    const injectTimeoutMs = Math.max(1, Math.min(14000, deadline - Date.now() - 1000));
-    await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"], injectImmediately: true }),
-      injectTimeoutMs, "INJECT_TIMEOUT", "Edge mất quá lâu khi nạp content script vào tab Gemini.",
-    );
-  } catch (error) {
-    if (error.code === "INJECT_TIMEOUT") {
-      if (await pingGemini(tab.id)) {
-        permissionDiagnostics.actualAccess = true;
-        log("INJECT", { code: "READY_AFTER_TIMEOUT", tabId: tab.id, url: tab.url });
-        return { tab, injected: true, permissionDiagnostics };
-      }
-      throw companionError(error.code, error.message, { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics });
-    }
-    const mapped = await geminiHostAccessError(error, tab.id, tab.url);
-    if (mapped) throw mapped;
-    const missingFile = /could not load file|file.*not found|cannot find.*content\.js/i.test(String(error?.message || error));
-    throw companionError(missingFile ? "CONTENT_SCRIPT_FILE_MISSING" : "INJECT_FAILED", "Trình duyệt không thể inject content.js vào tab Gemini.", { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics, rawError: String(error?.message || error), cause: error });
-  }
-  const readyDeadline = Math.min(deadline, Date.now() + 5000);
+  const readyDeadline = Math.min(deadline, Date.now() + scriptWaitMs);
   while (Date.now() < readyDeadline) {
     if (await pingGemini(tab.id)) {
       permissionDiagnostics.actualAccess = true;
-      log("INJECT", { code: "READY", tabId: tab.id, url: tab.url });
-      return { tab, injected: true, permissionDiagnostics };
+      return { tab, injected: false, permissionDiagnostics };
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
-  throw companionError("CONTENT_SCRIPT_NOT_READY", "Đã inject content.js nhưng script chưa phản hồi ping.", { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics });
+  throw companionError("CONTENT_SCRIPT_NOT_READY", "Trang Gemini không có mã Companion dù quyền truy cập đã được cấp.", { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics });
 }
 
 async function ensureGeminiTab(timeoutMs = 30000) {
-  const tab = await findGeminiTab() || await openGeminiTab();
-  return ensureGeminiTabReady(tab, timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  const tab = await findGeminiTab();
+  if (tab) {
+    try {
+      return await ensureGeminiTabReady(tab, timeoutMs);
+    } catch (error) {
+      const { geminiTabId } = await chrome.storage.local.get("geminiTabId");
+      if (error.code !== "CONTENT_SCRIPT_NOT_READY" || tab.id === geminiTabId) throw error;
+    }
+  }
+  const fresh = await openGeminiTab();
+  const remaining = Math.max(1000, deadline - Date.now());
+  return ensureGeminiTabReady(fresh, remaining, remaining);
 }
 
 async function healthCheck() {
@@ -331,7 +317,7 @@ async function processOneJob() {
     const message = String(error?.message || error);
     log("JOB", { code: error.code || "JOB_ERROR", message, tabId: activeGeminiTab?.id || appTab?.id, url: activeGeminiTab?.url || appTab?.url });
     if (job && appTab) {
-      const reason = error.code === "QUOTA_PAUSED" ? "quota" : ["HOST_PERMISSION_MISSING", "HOST_PERMISSION_REQUIRED", "PERMISSION_CHECK_FAILED", "TAB_NOT_FOUND", "TAB_URL_INVALID", "TAB_LOAD_TIMEOUT", "INJECT_TIMEOUT", "INJECT_FAILED", "CONTENT_SCRIPT_FILE_MISSING", "CONTENT_SCRIPT_NOT_READY", "MANUAL_ACTION_REQUIRED", "GEMINI_LOGIN_REQUIRED", "GEMINI_COMPOSER_NOT_FOUND", "GEMINI_SEND_BUTTON_NOT_FOUND", "GEMINI_RESPONSE_TIMEOUT", "GEMINI_RESPONSE_READ_FAILED", "UI_CHANGED", "NEW_CHAT_SELECTOR_NOT_FOUND"].includes(error.code) ? "manual" : "transient";
+      const reason = error.code === "QUOTA_PAUSED" ? "quota" : ["HOST_PERMISSION_MISSING", "HOST_PERMISSION_REQUIRED", "PERMISSION_CHECK_FAILED", "TAB_NOT_FOUND", "TAB_URL_INVALID", "TAB_LOAD_TIMEOUT", "CONTENT_SCRIPT_NOT_READY", "MANUAL_ACTION_REQUIRED", "GEMINI_LOGIN_REQUIRED", "GEMINI_COMPOSER_NOT_FOUND", "GEMINI_SEND_BUTTON_NOT_FOUND", "GEMINI_RESPONSE_TIMEOUT", "GEMINI_RESPONSE_READ_FAILED", "UI_CHANGED", "NEW_CHAT_SELECTOR_NOT_FOUND"].includes(error.code) ? "manual" : "transient";
       await pauseJob(appTab.id, job.id, reason, `Companion gặp lỗi sau khi nhận job: ${message}`).catch(() => {});
     }
     await chrome.storage.local.set({ lastError: message });
@@ -386,7 +372,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "open-gemini") {
-    chrome.tabs.create({ url: GEMINI_URL, active: true })
+    openGeminiTab()
       .then((tab) => sendResponse({ ok: true, tabId: tab.id }))
       .catch((error) => sendResponse({ ok: false, code: "TAB_OPEN_FAILED", message: String(error?.message || error) }));
     return true;

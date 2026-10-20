@@ -28,7 +28,7 @@ function showHealthResult(result) {
   const geminiCode = result?.gemini?.code || result?.browser?.code;
   const permissionCheckFailed = result?.browser?.code === "PERMISSION_CHECK_FAILED";
   const manifestState = diagnostics ? (diagnostics.manifestDeclared ? "có" : "thiếu") : permissionCheckFailed ? "chưa kiểm tra" : "OK";
-  const runtimeState = diagnostics ? `API contains(): ${diagnostics.runtimeGranted ? "có" : "không"} · inject: ${diagnostics.actualAccess === true ? "được phép" : diagnostics.actualAccess === false ? "bị từ chối" : "chưa thử"}` : permissionCheckFailed ? "API contains(): chưa xác nhận" : "OK";
+  const runtimeState = diagnostics ? `API contains(): ${diagnostics.runtimeGranted ? "có" : "không"} · content script: ${diagnostics.actualAccess === true ? "OK" : "chưa phản hồi"}` : permissionCheckFailed ? "API contains(): chưa xác nhận" : "OK";
   $("message").textContent = [
     `Extension: v${diagnostics?.extensionVersion || chrome.runtime.getManifest().version} · ID ${diagnostics?.extensionId || chrome.runtime.id}`,
     `Backend: ${check(result?.backend)}${result?.backend?.message ? ` — ${result.backend.message}` : ""}`,
@@ -44,8 +44,8 @@ function showHealthResult(result) {
     result?.gemini?.rawError ? `Lỗi gốc: ${result.gemini.rawError}` : "",
   ].filter(Boolean).join("\n");
   const permissionIssue = ["HOST_PERMISSION_REQUIRED", "HOST_PERMISSION_MISSING"].includes(geminiCode);
-  $("grantPermission").hidden = !permissionIssue || !diagnostics?.manifestDeclared || !!diagnostics?.runtimeGranted;
-  $("reloadGemini").hidden = !["INJECT_TIMEOUT", "INJECT_FAILED", "CONTENT_SCRIPT_NOT_READY", "CONTENT_SCRIPT_FILE_MISSING"].includes(geminiCode) || !diagnostics?.runtimeGranted;
+  $("grantPermission").hidden = !permissionIssue || !chrome.runtime.getManifest().optional_host_permissions?.includes(GEMINI_PERMISSION) || !!diagnostics?.runtimeGranted;
+  $("reloadGemini").hidden = geminiCode !== "CONTENT_SCRIPT_NOT_READY" || !diagnostics?.runtimeGranted;
   log(geminiCode || result?.code || "UNKNOWN", result?.gemini?.rawError || result?.gemini?.message || result?.backend?.message || "Health check completed", result?.gemini?.tabId, result?.gemini?.url);
 }
 
