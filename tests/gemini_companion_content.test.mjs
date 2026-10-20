@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.47");
+  assert.equal(manifest.version, "1.0.48");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.47"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.48"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -405,6 +405,25 @@ test("Gemini does not choose an unlabeled rightmost control as Send", () => {
   assert.deepEqual(Array.from(result.diagnostics.buttons[0].icons), []);
 });
 
+test("Gemini send failure summary includes all nearby buttons and prompt match without exposing prompt", () => {
+  const context = { globalThis: {}, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__sendSummary = sendButtonFailureSummary;\n})();");
+  vm.runInNewContext(instrumented, context);
+  const prompt = "PRIVATE PROMPT";
+  const buttons = ["plus", "keyboard_arrow_down", "mic"].map((iconName, index) => ({
+    tagName: "BUTTON", ariaLabel: ["Tools", "Mode", "Nhập bằng giọng nói"][index],
+    icons: [{ iconName }], disabled: false, ariaDisabled: null, reason: "no_send_semantics",
+  }));
+  const box = { innerText: prompt };
+  const summary = JSON.parse(context.globalThis.__sendSummary({ composer: { tag: "DIV", contentEditable: "true" }, buttons }, box, prompt));
+
+  assert.equal(summary.composer.promptMatches, true);
+  assert.equal(summary.composer.chars, prompt.length);
+  assert.equal(summary.buttons.length, 3);
+  assert.equal(summary.buttons[2].icon, "mic");
+  assert.doesNotMatch(JSON.stringify(summary), new RegExp(prompt));
+});
+
 test("Gemini reports a distinct error when no button exists near the composer", async () => {
   let mutation;
   const root = { tagName: "DIV", contains: () => false, getAttribute: () => null };
@@ -602,7 +621,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.47", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.48", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -618,7 +637,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.47", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.48", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -642,7 +661,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.47" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.48" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },
