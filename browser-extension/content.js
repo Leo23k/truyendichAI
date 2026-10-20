@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.41";
+const CONTENT_SCRIPT_VERSION = "1.0.42";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -17,6 +17,8 @@ const visible = (node) => node?.getClientRects().length > 0;
 const MAX_CHAPTERS_PER_CONVERSATION = 10;
 const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
+let conversationStatsKey = null;
+let conversationInstructionsSent = false;
 const GeminiSelectors = {
   composer: () => {
     const editors = [...document.querySelectorAll('[role="textbox"], textarea, [contenteditable="true"]')].filter(visible);
@@ -223,10 +225,14 @@ async function startNewConversation(tabId) {
   const key = `geminiConversationStats:${tabId}`;
   const stored = await chrome.storage.local.get(key);
   const stats = stored[key] || { chapters: 0 };
-  if (!responseNodes().length) {
-    await chrome.storage.local.set({ [key]: { chapters: 0 } });
+  conversationStatsKey = key;
+  const hasConversationHistory = GeminiSelectors.userMessages().length > 0 || responseNodes().length > 0;
+  if (!hasConversationHistory) {
+    conversationInstructionsSent = false;
+    await chrome.storage.local.set({ [key]: { chapters: 0, instructionSent: false } });
     return;
   }
+  conversationInstructionsSent = stats.instructionSent ?? Number(stats.chapters || 0) > 0;
   if (stats.chapters < MAX_CHAPTERS_PER_CONVERSATION) return;
   const button = GeminiSelectors.newChat();
   if (!button) throw Object.assign(new Error("Không tìm thấy nút tạo cuộc trò chuyện mới trong Gemini."), { code: "CHAT_INITIALIZATION_FAILED", reason: "manual" });
@@ -248,14 +254,35 @@ async function startNewConversation(tabId) {
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
     if (composer() && !GeminiSelectors.userMessages().length && !responseNodes().length) finish();
   });
-  await chrome.storage.local.set({ [key]: { chapters: 0 } });
+  conversationInstructionsSent = false;
+  await chrome.storage.local.set({ [key]: { chapters: 0, instructionSent: false } });
 }
 
 async function recordConversationChapter(tabId) {
   const key = `geminiConversationStats:${tabId}`;
   const stored = await chrome.storage.local.get(key);
   const stats = stored[key] || { chapters: 0 };
-  await chrome.storage.local.set({ [key]: { chapters: stats.chapters + 1 } });
+  await chrome.storage.local.set({ [key]: { ...stats, chapters: stats.chapters + 1, instructionSent: conversationInstructionsSent } });
+}
+
+function translationPrompt(promptSnapshot, text) {
+  return conversationInstructionsSent ? String(text) : promptSnapshot.replace("{{text}}", text);
+}
+
+async function markConversationInstructionsSent() {
+  conversationInstructionsSent = true;
+  if (!conversationStatsKey) return;
+  const stored = await chrome.storage.local.get(conversationStatsKey);
+  const stats = stored[conversationStatsKey] || { chapters: 0 };
+  if (stats.instructionSent) return;
+  await chrome.storage.local.set({ [conversationStatsKey]: { ...stats, instructionSent: true } });
+}
+
+async function submitTranslationText(promptSnapshot, text, onProgress = () => {}) {
+  const prompt = translationPrompt(promptSnapshot, text);
+  const result = await submitPrompt(prompt, onProgress);
+  await markConversationInstructionsSent().catch((error) => log("CHAT_STATE", { code: "INSTRUCTION_STATE_SAVE_FAILED", message: String(error?.message || error), url: location.href }));
+  return result;
 }
 
 function waitForUsableSendButton(timeoutMs = 10000) {
@@ -419,6 +446,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
       const accepted = promptWasAccepted({ composerCleared, generating, responseAdded: nodes.length > before, userMessageMatches });
       if (accepted) {
         sawAccepted = true;
+        markConversationInstructionsSent().catch((error) => log("CHAT_STATE", { code: "INSTRUCTION_STATE_SAVE_FAILED", message: String(error?.message || error), url: location.href }));
         clearTimeout(startTimer);
         if (!reportedAccepted) {
           reportedAccepted = true;
@@ -537,7 +565,7 @@ async function translateWholeChapter(job, onProgress = () => {}) {
   let issue = null;
   try {
     onProgress(`Đang gửi toàn chương (${job.content.length} ký tự) lên Gemini.`, 0, 0);
-    whole = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.content), onProgress));
+    whole = cleanResult(await submitTranslationText(job.prompt_snapshot, job.content, onProgress));
     issue = translationIssue(job.content, whole, job.prompt_snapshot);
   } catch (error) {
     if (error.reason !== "too_long") throw error;
@@ -554,7 +582,7 @@ async function translateWholeChapter(job, onProgress = () => {}) {
   const translated = [];
   for (const [index, chunk] of chunks.entries()) {
     onProgress(`Đang gửi đoạn ${index + 1}/${chunks.length} (${chunk.length} ký tự) lên Gemini.`, index, chunks.length);
-    const result = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", chunk), onProgress));
+    const result = cleanResult(await submitTranslationText(job.prompt_snapshot, chunk, onProgress));
     const chunkIssue = translationIssue(chunk, result, job.prompt_snapshot);
     if (chunkIssue) throw Object.assign(new Error(`Gemini trả chunk không hợp lệ (${chunkIssue}); job đã pause để kiểm tra.`), { reason: "manual" });
     translated.push(result);
@@ -572,20 +600,19 @@ async function runTranslationJob(job, tabId, onProgress = () => {}) {
   onProgress("Đang chuẩn bị cuộc trò chuyện Gemini.", 0, 0);
   await startNewConversation(tabId);
   const translatedContent = await translateWholeChapter(job, onProgress);
-  const titlePrompt = job.prompt_snapshot.replace("{{text}}", job.title);
   onProgress("Đang dịch tiêu đề chương.", 0, 0);
-  const translatedTitle = cleanResult(await submitPrompt(titlePrompt, onProgress));
+  const translatedTitle = cleanResult(await submitTranslationText(job.prompt_snapshot, job.title, onProgress));
   if (!translatedTitle || translatedTitle === job.title) {
     throw Object.assign(new Error("Tên chương chưa được dịch; job đã pause để kiểm tra."), { reason: "manual" });
   }
   const translation = { translated_title: translatedTitle, translated_content: translatedContent };
   if (job.metadata) {
     onProgress("Đang dịch tên truyện.", 0, 0);
-    translation.translated_novel_title = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.title), onProgress));
+    translation.translated_novel_title = cleanResult(await submitTranslationText(job.prompt_snapshot, job.metadata.title, onProgress));
     if (!translation.translated_novel_title || translation.translated_novel_title === job.metadata.title) throw Object.assign(new Error("Tên truyện chưa được dịch."), { reason: "manual" });
     if (job.metadata.author) {
       onProgress("Đang dịch tên tác giả.", 0, 0);
-      translation.translated_author = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.author), onProgress));
+      translation.translated_author = cleanResult(await submitTranslationText(job.prompt_snapshot, job.metadata.author, onProgress));
       if (!translation.translated_author || translation.translated_author === job.metadata.author) throw Object.assign(new Error("Tên tác giả chưa được dịch."), { reason: "manual" });
     }
     if (job.metadata.description) translation.translated_description = await translateWholeChapter({ content: job.metadata.description, prompt_snapshot: job.prompt_snapshot }, onProgress);
