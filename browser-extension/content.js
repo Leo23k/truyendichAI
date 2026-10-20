@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.42";
+const CONTENT_SCRIPT_VERSION = "1.0.43";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -330,6 +330,10 @@ function promptWasAccepted({ composerCleared, generating, responseAdded, userMes
   return !!(generating || responseAdded || userMessageMatches);
 }
 
+function responseChangedSinceSubmit({ priorCount, currentCount, previousOutput, output, generationSeen }) {
+  return currentCount > priorCount || (!!generationSeen && !!output && output !== previousOutput);
+}
+
 function waitForComposerText(box, prompt, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     let timer;
@@ -439,11 +443,15 @@ async function submitPrompt(prompt, onProgress = () => {}) {
       const userMessages = GeminiSelectors.userMessages();
       const newUserMessage = userMessages.find((node) => !previousUserMessages.includes(node));
       const userMessageMatches = !!newUserMessage && composerTextMatches(newUserMessage, prompt);
+      const responseChanged = responseChangedSinceSubmit({
+        priorCount: before, currentCount: nodes.length, previousOutput, output,
+        generationSeen: sawGenerating || generating || userMessageMatches,
+      });
       if (composerCleared && !reportedComposerCleared) {
         reportedComposerCleared = true;
         log("PROMPT_CLEARED", { code: "EDITOR_EMPTY", url: location.href });
       }
-      const accepted = promptWasAccepted({ composerCleared, generating, responseAdded: nodes.length > before, userMessageMatches });
+      const accepted = promptWasAccepted({ composerCleared, generating, responseAdded: responseChanged, userMessageMatches });
       if (accepted) {
         sawAccepted = true;
         markConversationInstructionsSent().catch((error) => log("CHAT_STATE", { code: "INSTRUCTION_STATE_SAVE_FAILED", message: String(error?.message || error), url: location.href }));
@@ -454,20 +462,20 @@ async function submitPrompt(prompt, onProgress = () => {}) {
           onProgress("Gemini đã nhận prompt; đang chờ bắt đầu dịch.");
         }
       }
-      if (generating || nodes.length > before) {
+      if (generating || responseChanged) {
         sawGenerating = true;
         if (!reportedGenerating) {
           reportedGenerating = true;
-          log("RESPONSE_STARTED", { code: generating ? "GENERATION_ACTIVE" : "NEW_RESPONSE_NODE", url: location.href });
+          log("RESPONSE_STARTED", { code: generating ? "GENERATION_ACTIVE" : nodes.length > before ? "NEW_RESPONSE_NODE" : "RESPONSE_TEXT_CHANGED", url: location.href });
           onProgress("Gemini đã bắt đầu tạo phản hồi.");
         }
       }
       if (generating) sawStopButton = true;
       const composerIdle = !!composerNode && !composerNode.disabled && composerNode.getAttribute("aria-disabled") !== "true";
-      if (output && nodes.length > before && !stopVisible() && composerIdle) {
+      if (output && responseChanged && !stopVisible() && composerIdle) {
         if (!reportedResponseDetected) {
           reportedResponseDetected = true;
-          log("RESPONSE_DETECTED", { code: "NEW_RESPONSE_TEXT", chars: output.length, url: location.href });
+          log("RESPONSE_DETECTED", { code: nodes.length > before ? "NEW_RESPONSE_TEXT" : "UPDATED_RESPONSE_TEXT", chars: output.length, url: location.href });
         }
         clearTimeout(readTimer);
         clearTimeout(quietTimer);
@@ -477,7 +485,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
         readTimer = setTimeout(() => {
           const finalNodes = responseNodes();
           const finalOutput = finalNodes.at(-1)?.innerText?.trim() || "";
-          if (finalNodes.length > before && finalOutput) {
+          if (responseChangedSinceSubmit({ priorCount: before, currentCount: finalNodes.length, previousOutput, output: finalOutput, generationSeen: sawGenerating || sawAccepted })) {
             if (!reportedResponseDetected) log("RESPONSE_DETECTED", { code: "FINAL_DOM_READ", chars: finalOutput.length, url: location.href });
             return finishStable(finalOutput);
           }
