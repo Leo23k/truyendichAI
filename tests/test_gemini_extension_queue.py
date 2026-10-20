@@ -15,7 +15,9 @@ class FakeRemote:
         if table == "translation_queue":
             return [self.job] if self.job["status"] == "queued" else []
         if table == "chapters":
-            return [{"id": 7, "chapter_number": 3, "title": "原题", "content_path": "chapters/novel/003.json"}]
+            return [{"id": 7, "novel_id": 2, "chapter_number": 3, "title": "原题", "content_path": "chapters/novel/003.json"}]
+        if table == "novels":
+            return [{"id": 2, "title": "原題", "author": "作者", "description": "简介", "original_title": "原題", "original_author": "作者", "original_description": "简介", "metadata_translated": False}]
         return []
 
     def download_json(self, _bucket: str, _path: str) -> dict:
@@ -39,6 +41,7 @@ def test_claim_extension_job_returns_whole_chapter_and_prompt_snapshot() -> None
     assert job["prompt_snapshot"] == "Dịch tự nhiên:\n{{text}}"
     assert job["attempts"] == 1
     assert job["source_hash"] and job["combined_hash"]
+    assert job["metadata"] == {"title": "原題", "author": "作者", "description": "简介"}
     assert remote.job["status"] == "translating"
 
 

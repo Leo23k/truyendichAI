@@ -146,6 +146,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ ready: true });
     return;
   }
+  if (message.type === "health-check") {
+    const blocked = classifyPage();
+    sendResponse(blocked ? { ok: false, ...blocked } : composer() ? { ok: true } : {
+      ok: false, reason: "ui_changed", message: "Không tìm thấy ô nhập Gemini; có thể UI đã thay đổi.",
+    });
+    return;
+  }
   if (message.type !== "translate-chapter") return;
   (async () => {
     const { job } = message;
@@ -155,7 +162,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!translatedTitle || translatedTitle === job.title) {
       throw Object.assign(new Error("Tên chương chưa được dịch; job đã pause để kiểm tra."), { reason: "manual" });
     }
-    sendResponse({ ok: true, translation: { translated_title: translatedTitle, translated_content: translatedContent } });
+    const translation = { translated_title: translatedTitle, translated_content: translatedContent };
+    if (job.metadata) {
+      translation.translated_novel_title = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.title)));
+      if (!translation.translated_novel_title || translation.translated_novel_title === job.metadata.title) throw Object.assign(new Error("Tên truyện chưa được dịch."), { reason: "manual" });
+      if (job.metadata.author) {
+        translation.translated_author = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.author)));
+        if (!translation.translated_author || translation.translated_author === job.metadata.author) throw Object.assign(new Error("Tên tác giả chưa được dịch."), { reason: "manual" });
+      }
+      if (job.metadata.description) translation.translated_description = await translateWholeChapter({ content: job.metadata.description, prompt_snapshot: job.prompt_snapshot });
+    }
+    sendResponse({ ok: true, translation });
   })().catch((error) => sendResponse({ ok: false, reason: error.reason || "transient", message: String(error.message || error) }));
   return true;
 });

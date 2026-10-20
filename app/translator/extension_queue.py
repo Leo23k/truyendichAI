@@ -35,12 +35,16 @@ def claim_next_extension_job(remote) -> dict | None:
         return None
     job = claimed[0]
     chapters = remote.rows(
-        "chapters", {"select": "id,chapter_number,title,content_path", "id": f"eq.{job['chapter_id']}", "limit": "1"},
+        "chapters", {"select": "id,novel_id,chapter_number,title,content_path", "id": f"eq.{job['chapter_id']}", "limit": "1"},
     )
     if not chapters:
         remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {"status": "failed", "error_code": "chapter_missing", "error_message": "Không tìm thấy chương gốc."})
         return None
     chapter = chapters[0]
+    novels = remote.rows("novels", {
+        "select": "id,title,author,description,original_title,original_author,original_description,metadata_translated",
+        "id": f"eq.{chapter['novel_id']}", "limit": "1",
+    })
     path = str(chapter.get("content_path") or "")
     if not path.startswith("chapters/"):
         remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {"status": "failed", "error_code": "source_missing", "error_message": "Chương chưa có nội dung gốc trong kho lưu trữ."})
@@ -63,6 +67,11 @@ def claim_next_extension_job(remote) -> dict | None:
         "title": title, "content": content, "prompt_name": str(job.get("prompt_name") or ""), "prompt_snapshot": prompt,
         "model": str(job.get("model") or "gemini-web"), "attempts": int(job.get("attempts") or 0),
         "source_hash": source_hash, "combined_hash": combined_hash,
+        "metadata": ({
+            "title": novels[0].get("original_title") or novels[0].get("title"),
+            "author": novels[0].get("original_author") or novels[0].get("author"),
+            "description": novels[0].get("original_description") or novels[0].get("description"),
+        } if novels and not novels[0].get("metadata_translated", True) else None),
     }
 
 
