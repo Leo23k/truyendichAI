@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.38";
+const CONTENT_SCRIPT_VERSION = "1.0.39";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -427,12 +427,18 @@ async function submitPrompt(prompt, onProgress = () => {}) {
       if (!sawAccepted) {
         const currentComposer = composer();
         const retained = !!currentComposer && composerTextMatches(currentComposer, prompt);
-        const details = { code: "PROMPT_NOT_ACCEPTED", method: send ? "button" : "enter", composerChars: composerText(currentComposer || {}).length, retained, userMessageCount: GeminiSelectors.userMessages().length, responseCount: responseNodes().length, generating: stopVisible(), url: location.href };
+        const details = {
+          code: "PROMPT_NOT_ACCEPTED", method: "button.click", composer: describeComposer(currentComposer),
+          composerChars: composerText(currentComposer || {}).length, retained,
+          sendButton: describeSendButton(send), sendConnected: send.isConnected !== false,
+          userMessageCount: GeminiSelectors.userMessages().length, responseCount: responseNodes().length,
+          generating: stopVisible(), url: location.href,
+        };
         log("SUBMIT_NOT_ACCEPTED", details);
-        const message = retained
+        const reason = retained
           ? "Gemini giữ prompt trong ô nhập nhưng chưa thấy tin nhắn mới hoặc trạng thái tạo phản hồi sau khi bấm nút Gửi. Không tự gửi lại để tránh trùng prompt."
           : "Gemini chưa tạo tin nhắn/cuộc trò chuyện sau khi gửi; prompt không còn trong ô nhập. Hãy kiểm tra tab Gemini trước khi thử lại.";
-        finish(Object.assign(new Error(message), { code: "SEND_NOT_CONFIRMED", reason: "manual" }));
+        finish(Object.assign(new Error(`${reason} Chẩn đoán nút gửi: ${JSON.stringify({ method: details.method, composer: details.composer, composerChars: details.composerChars, retained: details.retained, sendButton: details.sendButton, sendConnected: details.sendConnected, userMessageCount: details.userMessageCount, responseCount: details.responseCount, generating: details.generating })}`), { code: "SEND_NOT_CONFIRMED", reason: "manual" }));
       }
     }, 15000);
     try { send.click(); }
