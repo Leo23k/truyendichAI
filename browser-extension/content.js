@@ -1,6 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
+const CONTENT_SCRIPT_VERSION = "1.0.32";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -438,7 +439,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ping") {
-    sendResponse({ ready: true });
+    sendResponse({ ready: true, version: CONTENT_SCRIPT_VERSION });
     return;
   }
   if (message.type === "health-check") {

@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.31");
+  assert.equal(manifest.version, "1.0.32");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -37,6 +37,12 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
   assert.match(popupScript, /void refresh\(\)/);
   assert.match(popupScript, /includes\(geminiCode\)/);
   assert.match(popupScript, /result\?\.backend\?\.message/);
+});
+
+test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.32"/);
+  assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
+  assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
 });
 
 test("Gemini content script loads by default and the app bridge is injected after site access is granted", async () => {
@@ -261,7 +267,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.32", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -272,7 +278,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.23", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.32", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -295,7 +301,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.32" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },
@@ -375,6 +381,15 @@ test("an existing Gemini tab with its content script is reused", async () => {
   assert.equal(result.injected, false);
   assert.equal(result.tab.id, 1);
   assert.equal(worker.createdTabs, 0);
+});
+
+test("a Gemini tab with stale Companion code is replaced with a current tab", async () => {
+  const worker = loadServiceWorker({ contentScriptReady: true, contentScriptVersion: "1.0.31" });
+
+  const result = await worker.api.ensureGeminiTab(6000);
+
+  assert.equal(result.tab.id, 3);
+  assert.equal(worker.createdTabs, 1);
 });
 
 test("a stale Gemini tab is left intact and a fresh Companion tab is used", async () => {

@@ -162,7 +162,7 @@ async function pingGemini(tabId) {
       chrome.tabs.sendMessage(tabId, { type: "ping" }),
       1000, "GEMINI_PING_TIMEOUT", "Tab Gemini không phản hồi ping.",
     );
-    return reply?.ready === true;
+    return reply?.ready === true && reply.version === chrome.runtime.getManifest().version;
   } catch {
     return false;
   }
