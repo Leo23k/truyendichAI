@@ -25,25 +25,28 @@ function showHealthResult(result) {
   const check = (item) => item?.ok ? "OK" : item?.code || "FAILED";
   const dom = result?.gemini?.checks || {};
   const diagnostics = result?.browser?.diagnostics;
-  const manifestState = diagnostics ? (diagnostics.manifestDeclared ? "có" : "thiếu") : "OK";
-  const runtimeState = diagnostics ? `API contains(): ${diagnostics.runtimeGranted ? "có" : "không"} · inject: ${diagnostics.actualAccess ? "được phép" : "bị từ chối"}` : "OK";
+  const geminiCode = result?.gemini?.code || result?.browser?.code;
+  const permissionCheckFailed = result?.browser?.code === "PERMISSION_CHECK_FAILED";
+  const manifestState = diagnostics ? (diagnostics.manifestDeclared ? "có" : "thiếu") : permissionCheckFailed ? "chưa kiểm tra" : "OK";
+  const runtimeState = diagnostics ? `API contains(): ${diagnostics.runtimeGranted ? "có" : "không"} · inject: ${diagnostics.actualAccess === true ? "được phép" : diagnostics.actualAccess === false ? "bị từ chối" : "chưa thử"}` : permissionCheckFailed ? "API contains(): chưa xác nhận" : "OK";
   $("message").textContent = [
     `Extension: v${diagnostics?.extensionVersion || chrome.runtime.getManifest().version} · ID ${diagnostics?.extensionId || chrome.runtime.id}`,
-    `Backend: ${check(result?.backend)}`,
-    `Quyền Gemini: ${check(result?.browser)} (${result?.browser?.host || GEMINI_PERMISSION})`,
+    `Backend: ${check(result?.backend)}${result?.backend?.message ? ` — ${result.backend.message}` : ""}`,
+    `Quyền Gemini: ${check(result?.browser)} (${result?.browser?.host || GEMINI_PERMISSION})${result?.browser?.message ? ` — ${result.browser.message}` : ""}`,
     `Manifest host: ${manifestState} · ${runtimeState}`,
     diagnostics ? `Manifest hosts: ${diagnostics.manifestHosts.join(", ") || "(none)"}` : "",
     diagnostics ? `Runtime origins: ${diagnostics.runtimeOrigins.join(", ") || "(none)"}` : "",
-    `Tab / content script: ${result?.gemini?.tabId ? `tab ${result.gemini.tabId}` : "không sẵn sàng"} / ${result?.browser?.injected ? "đã inject" : check(result?.browser)}`,
-    `Đăng nhập: ${dom.loggedIn ? "OK" : "không"} · Composer: ${dom.composer ? "OK" : "không"} · Nút gửi: ${dom.sendButton ? "OK" : "không"}`,
+    `Tab / content script: ${result?.gemini?.tabId ? `tab ${result.gemini.tabId}` : "không sẵn sàng"} / ${check(result?.gemini)}`,
+    `Đăng nhập: ${dom.loginRequired ? "cần đăng nhập" : dom.loggedIn ? "OK" : "chưa xác định"} · Composer: ${dom.composer ? "OK" : "không"} · Nút gửi: ${dom.sendButton ? "OK" : "không"}`,
     `Chat mới: ${dom.newChat ? "OK" : "không"} · Vùng phản hồi: ${dom.responseContainer ? "OK" : "không"}`,
-    `Mã: ${result?.code || "UNKNOWN"}${result?.gemini?.message ? ` — ${result.gemini.message}` : ""}`,
+    `Mã tổng: ${result?.code || "UNKNOWN"}`,
+    result?.gemini?.message ? `Chi tiết Gemini (${geminiCode || "FAILED"}): ${result.gemini.message}` : "",
     result?.gemini?.rawError ? `Lỗi gốc: ${result.gemini.rawError}` : "",
   ].filter(Boolean).join("\n");
-  const permissionIssue = ["HOST_PERMISSION_REQUIRED", "HOST_PERMISSION_MISSING"].includes(result?.code);
+  const permissionIssue = ["HOST_PERMISSION_REQUIRED", "HOST_PERMISSION_MISSING"].includes(geminiCode);
   $("grantPermission").hidden = !permissionIssue || !diagnostics?.manifestDeclared || !!diagnostics?.runtimeGranted;
-  $("reloadGemini").hidden = result?.code !== "HOST_PERMISSION_REQUIRED" || !diagnostics?.runtimeGranted;
-  log(result?.code || "UNKNOWN", result?.gemini?.rawError || result?.gemini?.message || "Health check completed", result?.gemini?.tabId, result?.gemini?.url);
+  $("reloadGemini").hidden = !["INJECT_FAILED", "CONTENT_SCRIPT_NOT_READY", "CONTENT_SCRIPT_FILE_MISSING"].includes(geminiCode) || !diagnostics?.runtimeGranted;
+  log(geminiCode || result?.code || "UNKNOWN", result?.gemini?.rawError || result?.gemini?.message || result?.backend?.message || "Health check completed", result?.gemini?.tabId, result?.gemini?.url);
 }
 
 async function refresh() {
@@ -93,14 +96,14 @@ $("healthCheck").addEventListener("click", async () => {
 });
 $("grantPermission").addEventListener("click", async () => {
   $("grantPermission").disabled = true;
-  $("message").textContent = "Đang yêu cầu Edge cấp quyền Gemini…";
+  $("message").textContent = "Đang yêu cầu trình duyệt cấp quyền Gemini…";
   try {
     const granted = await chrome.permissions.request({ origins: [GEMINI_PERMISSION] });
     log(granted ? "PERMISSION_GRANTED" : "PERMISSION_DENIED", `User permission request result: ${granted}`);
     if (granted) showHealthResult(await send({ type: "health-check" }));
-    else $("message").textContent = "Edge chưa cấp quyền. Mở edge://extensions → Gemini Companion → Details → Site access, bật https://gemini.google.com/* rồi thử lại.";
+    else $("message").textContent = "Chưa cấp quyền Gemini. Chấp nhận yêu cầu của trình duyệt rồi thử lại.";
   } catch (error) {
-    $("message").textContent = `Không thể yêu cầu quyền: ${String(error?.message || error)}. Hãy bật quyền trong edge://extensions → Details → Site access.`;
+    $("message").textContent = `Không thể yêu cầu quyền: ${String(error?.message || error)}. Mở phần cài đặt extension và cấp quyền truy cập Gemini.`;
     log("PERMISSION_REQUEST_FAILED", $("message").textContent);
   } finally {
     $("grantPermission").disabled = false;

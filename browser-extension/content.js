@@ -46,7 +46,7 @@ chrome.runtime.sendMessage({ type: "gemini-ready" }).catch(() => {});
 function classifyPage() {
   const body = readBody().slice(-2000);
   if (/captcha|verify it's you|xác minh bạn|verification/.test(body)) return { code: "MANUAL_ACTION_REQUIRED", reason: "manual", message: "Gemini yêu cầu xác minh/CAPTCHA. Hãy xử lý trong tab Gemini rồi resume." };
-  if (/sign in|đăng nhập/.test(body) && !GeminiSelectors.composer()) return { code: "GEMINI_NOT_LOGGED_IN", reason: "manual", message: "Gemini chưa đăng nhập. Hãy đăng nhập trong tab Gemini rồi resume." };
+  if (/sign in|đăng nhập/.test(body) && !GeminiSelectors.composer()) return { code: "GEMINI_LOGIN_REQUIRED", reason: "manual", message: "Gemini chưa đăng nhập. Hãy đăng nhập trong tab Gemini rồi resume." };
   if (/usage limit|you've reached your limit|đã đạt giới hạn|vượt quá giới hạn|try again later/.test(body)) return { code: "QUOTA_PAUSED", reason: "quota", message: "Gemini báo giới hạn sử dụng. Job đã pause để bạn resume sau." };
   if (/prompt is too long|input is too long|message is too long|exceeds (the )?(context|token) limit/.test(body)) return { code: "PROMPT_TOO_LONG", reason: "too_long", message: "Chương vượt giới hạn một lần gửi; sẽ thử dịch theo đoạn." };
   return null;
@@ -116,7 +116,7 @@ function waitForUsableSendButton(timeoutMs = 10000) {
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
     timer = setTimeout(() => finish(null, Object.assign(
       new Error("Gemini chưa hiển thị nút Gửi khả dụng sau khi nhập prompt."),
-      { code: "SEND_BUTTON_NOT_USABLE", reason: "ui_changed" },
+      { code: "GEMINI_SEND_BUTTON_NOT_FOUND", reason: "ui_changed" },
     )), timeoutMs);
     check();
   });
@@ -126,7 +126,7 @@ async function submitPrompt(prompt) {
   const blocked = classifyPage();
   if (blocked) throw Object.assign(new Error(blocked.message), blocked);
   const box = composer();
-  if (!box) throw Object.assign(new Error("Không nhận diện được ô nhập Gemini; có thể UI đã thay đổi."), { code: "COMPOSER_NOT_FOUND", reason: "ui_changed" });
+  if (!box) throw Object.assign(new Error("Không nhận diện được ô nhập Gemini; có thể UI đã thay đổi."), { code: "GEMINI_COMPOSER_NOT_FOUND", reason: "ui_changed" });
   if (stopVisible()) throw Object.assign(new Error("Gemini vẫn đang tạo phản hồi trước đó."), { code: "GENERATION_IN_PROGRESS", reason: "transient" });
   const before = responseNodes().length;
   const previousOutput = responseNodes().at(-1)?.innerText?.trim() || "";
@@ -145,9 +145,11 @@ async function submitPrompt(prompt) {
 
   return new Promise((resolve, reject) => {
     let sawGenerating = false;
+    let sawStopButton = false;
     let quietTimer;
+    let readTimer;
     let startTimer;
-    const deadline = setTimeout(() => finish(new Error("Gemini không hoàn tất phản hồi trong thời hạn chờ.")), 240000);
+    const deadline = setTimeout(() => finish(Object.assign(new Error("Gemini không hoàn tất phản hồi trong thời hạn chờ."), { code: "GEMINI_RESPONSE_TIMEOUT", reason: "manual" })), 240000);
     const finishStable = (output) => {
       if (output === previousOutput) return finish(Object.assign(new Error("Gemini trả lại đúng phản hồi cũ; job đã pause để tránh lưu trùng."), { code: "DUPLICATE_RESPONSE", reason: "manual" }));
       log("RESPONSE", { code: "EXTRACTED", chars: output.length, url: location.href });
@@ -158,19 +160,27 @@ async function submitPrompt(prompt) {
       if (blockedNow) return finish(Object.assign(new Error(blockedNow.message), blockedNow));
       const nodes = responseNodes();
       const output = nodes.at(-1)?.innerText?.trim() || "";
-      if (stopVisible() || nodes.length > before) {
+      const generating = stopVisible();
+      if (generating || nodes.length > before) {
         sawGenerating = true;
         clearTimeout(startTimer);
       }
+      if (generating) sawStopButton = true;
       const composerNode = composer();
       const composerIdle = !!composerNode && !composerNode.disabled && composerNode.getAttribute("aria-disabled") !== "true";
       if (output && nodes.length > before && !stopVisible() && composerIdle) {
+        clearTimeout(readTimer);
         clearTimeout(quietTimer);
         quietTimer = setTimeout(() => finishStable(output), 1200);
+      } else if (sawGenerating && sawStopButton && !generating && composerIdle) {
+        clearTimeout(readTimer);
+        readTimer = setTimeout(() => finish(Object.assign(new Error("Gemini đã hoàn tất nhưng không đọc được nội dung phản hồi."), { code: "GEMINI_RESPONSE_READ_FAILED", reason: "manual" })), 1500);
+      } else {
+        clearTimeout(readTimer);
       }
     });
     const finish = (error, output) => {
-      clearTimeout(deadline); clearTimeout(quietTimer); clearTimeout(startTimer); observer.disconnect();
+      clearTimeout(deadline); clearTimeout(quietTimer); clearTimeout(readTimer); clearTimeout(startTimer); observer.disconnect();
       if (error) reject(error); else resolve(output);
     };
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
@@ -254,7 +264,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "health-check") {
     const blocked = classifyPage();
     const checks = {
-      loggedIn: !!composer(),
+      loggedIn: blocked?.code !== "GEMINI_LOGIN_REQUIRED" && !!composer(),
+      loginRequired: blocked?.code === "GEMINI_LOGIN_REQUIRED",
       composer: !!composer(),
       sendButton: !!GeminiSelectors.send(),
       newChat: !!GeminiSelectors.newChat(),
@@ -262,9 +273,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       quota: blocked?.code === "QUOTA_PAUSED",
       manualAction: blocked?.code === "MANUAL_ACTION_REQUIRED",
     };
-    const firstFailure = blocked || (!checks.loggedIn ? { code: "GEMINI_NOT_LOGGED_IN", message: "Gemini chưa đăng nhập hoặc chưa tải xong." }
-      : !checks.composer ? { code: "COMPOSER_NOT_FOUND", message: "Không tìm thấy ô nhập Gemini." }
-        : !checks.responseContainer ? { code: "UI_CHANGED", message: "Không tìm thấy vùng phản hồi Gemini." } : null);
+    const firstFailure = blocked || (!checks.composer ? { code: "GEMINI_COMPOSER_NOT_FOUND", message: "Không tìm thấy ô nhập Gemini; chưa đủ dấu hiệu để kết luận tài khoản đã đăng xuất." }
+      : !checks.responseContainer ? { code: "UI_CHANGED", message: "Không tìm thấy vùng phản hồi Gemini." } : null);
     const result = { ok: !firstFailure, code: firstFailure?.code || "READY", message: firstFailure?.message || "Gemini đã sẵn sàng.", checks };
     log("HEALTH", { code: result.code, checks, url: location.href });
     sendResponse(result);
