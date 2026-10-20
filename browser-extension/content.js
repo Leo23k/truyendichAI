@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.43";
+const CONTENT_SCRIPT_VERSION = "1.0.44";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -80,6 +80,12 @@ function inspectSendButton() {
           ariaLabel: node.getAttribute("aria-label"), title: node.getAttribute("title"),
           testId: node.getAttribute("data-testid") || node.getAttribute("data-test-id"),
           disabled: !!node.disabled || !!node.hasAttribute?.("disabled"), ariaDisabled: node.getAttribute("aria-disabled"),
+          childTags: [...(node.children || [])].slice(0, 8).map((child) => child.tagName || "unknown"),
+          icons: [...(node.querySelectorAll?.("svg, mat-icon, [data-mat-icon-name], [data-icon]") || [])].slice(0, 5).map((icon) => ({
+            tagName: icon.tagName || "unknown", ariaLabel: icon.getAttribute("aria-label"),
+            iconName: icon.getAttribute("data-mat-icon-name") || icon.getAttribute("data-icon"),
+            viewBox: icon.getAttribute("viewBox"), pathCount: icon.querySelectorAll?.("path").length || 0,
+          })),
           visible: isVisible, nearby, semanticSend, reason,
         },
         nearby, semanticSend, disabled, excluded,

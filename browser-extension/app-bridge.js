@@ -31,7 +31,9 @@
           }
         }
         const payload = await response.json().catch(() => ({}));
-        sendResponse(response.ok ? { ok: true, payload } : { ok: false, error: payload.detail || `HTTP ${response.status}` });
+        const detail = payload.detail;
+        const error = typeof detail === "string" ? detail : detail ? JSON.stringify(detail) : `HTTP ${response.status}`;
+        sendResponse(response.ok ? { ok: true, payload } : { ok: false, error });
       } finally {
         clearTimeout(timer);
       }

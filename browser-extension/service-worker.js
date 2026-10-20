@@ -108,7 +108,10 @@ async function pageRequest(tabId, path, method = "GET", body, timeoutMs = 60000)
     chrome.tabs.sendMessage(tabId, { type: "app-bridge-request", path, method, body, timeoutMs }),
     timeoutMs + 1000, "BACKEND_REQUEST_TIMEOUT", "Website không trả lời yêu cầu hàng đợi. Companion sẽ thử lại ở lượt kiểm tra sau.",
   );
-  if (!reply?.ok) throw companionError("BACKEND_REQUEST_FAILED", reply?.error || "Website không trả lời yêu cầu Companion.");
+  if (!reply?.ok) {
+    const error = reply?.error;
+    throw companionError("BACKEND_REQUEST_FAILED", typeof error === "string" ? error : error ? JSON.stringify(error) : "Website không trả lời yêu cầu Companion.");
+  }
   return reply.payload;
 }
 
