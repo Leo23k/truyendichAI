@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.37";
+const CONTENT_SCRIPT_VERSION = "1.0.38";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -18,8 +18,13 @@ const MAX_CHAPTERS_PER_CONVERSATION = 10;
 const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
 const GeminiSelectors = {
-  composer: () => [...document.querySelectorAll('[role="textbox"], textarea, [contenteditable="true"]')].filter(visible).at(-1),
-  buttons: () => [...document.querySelectorAll('button, [role="button"], input[type="submit"], [data-testid*="send"], [data-test-id*="send"]')].filter(visible),
+  composer: () => {
+    const editors = [...document.querySelectorAll('[role="textbox"], textarea, [contenteditable="true"]')].filter(visible);
+    const active = document.activeElement;
+    return editors.filter((node) => node === active || node.contains?.(active)).at(-1) || editors.at(-1);
+  },
+  buttonElements: () => [...document.querySelectorAll('button, [role="button"], input[type="submit"], [data-testid*="send"], [data-test-id*="send"]')],
+  buttons: () => GeminiSelectors.buttonElements().filter(visible),
   newChat: () => {
     const buttons = GeminiSelectors.buttons();
     return buttons.find((node) => /new (chat|conversation)|start (a )?(new )?chat|create (a )?(new )?(chat|conversation)|cuộc trò chuyện mới|tạo (cuộc trò chuyện|đoạn chat) mới/i.test(buttonText(node)))
@@ -49,32 +54,31 @@ function inspectSendButton() {
   const boxRect = box?.getBoundingClientRect?.();
   const diagnostics = { composer: describeComposer(box), scope: [], buttonCount: 0, buttons: [] };
   if (!boxRect) return { button: null, reason: "not_found", diagnostics };
-  const allButtons = GeminiSelectors.buttons();
+  const allButtons = GeminiSelectors.buttonElements();
   const isExcluded = (node) => /feedback|stop|dừng|ngừng|microphone|mic|attach|upload|menu|share|voice|model|flash|thinking|reasoning/i.test(buttonText(node));
   let root = box.parentElement;
   for (let depth = 0; root && depth < 6; depth += 1, root = root.parentElement) {
-    const rootRect = root.getBoundingClientRect?.();
-    if (!rootRect) continue;
     const scoped = allButtons.filter((node) => root.contains?.(node));
     const inspected = scoped.map((node) => {
       const rect = node.getBoundingClientRect?.();
       const verticalGap = rect ? Math.max(0, rect.top - boxRect.bottom, boxRect.top - rect.bottom) : Infinity;
-      const centerX = rect ? rect.left + rect.width / 2 : -Infinity;
-      const nearby = !!rect && verticalGap <= 48 && centerX >= rootRect.left + rootRect.width * 0.58 && centerX <= rootRect.right + 8;
+      const isVisible = visible(node);
+      const nearby = isVisible && !!rect && verticalGap <= 48;
       const label = buttonText(node);
       const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
       const semanticSend = /\b(send(?:_up)?|submit|gửi)\b|arrow_upward/i.test(label) || /send|submit/i.test(testId);
       const disabled = !!node.disabled || node.hasAttribute?.("disabled") || node.getAttribute("aria-disabled") === "true";
       const excluded = isExcluded(node);
-      const reason = disabled ? (node.getAttribute("aria-disabled") === "true" ? "aria_disabled" : "disabled")
-        : excluded ? "unrelated_control" : !nearby ? "outside_composer_region" : "eligible";
+      const reason = !isVisible ? "not_visible" : disabled ? (node.getAttribute("aria-disabled") === "true" ? "aria_disabled" : "disabled")
+        : excluded ? "unrelated_control" : !nearby ? "outside_composer_region" : semanticSend ? "eligible" : "no_send_semantics";
       return {
         node,
         summary: {
           tagName: node.tagName || "unknown", role: node.getAttribute("role"),
-          ariaLabel: node.getAttribute("aria-label"), testId: node.getAttribute("data-testid") || node.getAttribute("data-test-id"),
+          ariaLabel: node.getAttribute("aria-label"), title: node.getAttribute("title"),
+          testId: node.getAttribute("data-testid") || node.getAttribute("data-test-id"),
           disabled: !!node.disabled || !!node.hasAttribute?.("disabled"), ariaDisabled: node.getAttribute("aria-disabled"),
-          nearby, semanticSend, reason,
+          visible: isVisible, nearby, semanticSend, reason,
         },
         nearby, semanticSend, disabled, excluded,
       };
@@ -88,13 +92,15 @@ function inspectSendButton() {
       }
       diagnostics.buttonCount = nearby.length;
       diagnostics.buttons = nearby.slice(0, 12).map((candidate) => candidate.summary);
-      const eligible = nearby.filter((candidate) => !candidate.disabled && !candidate.excluded);
-      const semantic = eligible.find((candidate) => candidate.semanticSend);
-      const chosen = semantic || eligible.sort((left, right) => right.node.getBoundingClientRect().right - left.node.getBoundingClientRect().right)[0];
-      if (chosen) return { button: chosen.node, reason: null, diagnostics };
-      return { button: null, reason: nearby.some((candidate) => candidate.disabled && !candidate.excluded) ? "disabled" : "unknown", diagnostics };
+      const semantic = nearby.filter((candidate) => candidate.semanticSend && !candidate.excluded);
+      const enabled = semantic.find((candidate) => !candidate.disabled);
+      if (enabled) return { button: enabled.node, reason: null, diagnostics };
+      return { button: null, reason: semantic.some((candidate) => candidate.disabled) ? "disabled" : "unknown", diagnostics };
     }
-    if (!diagnostics.buttons.length) diagnostics.buttons = inspected.slice(0, 12).map((candidate) => candidate.summary);
+    if (!diagnostics.buttons.length) {
+      diagnostics.buttonCount = inspected.length;
+      diagnostics.buttons = inspected.slice(0, 12).map((candidate) => candidate.summary);
+    }
   }
   return { button: null, reason: diagnostics.buttons.length ? "unknown" : "not_found", diagnostics };
 }
@@ -335,7 +341,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   catch (error) {
     const details = error.diagnostics || inspectSendButton().diagnostics;
     log("SEND_BUTTON_NOT_READY", { code: error.code || "SEND_STATE_UNKNOWN", ...details, url: location.href });
-    throw Object.assign(new Error(`${error.message} Chẩn đoán giao diện (không gồm nội dung prompt): ${JSON.stringify(details).slice(0, 700)}`), { code: error.code || "SEND_STATE_UNKNOWN", reason: "manual" });
+    throw Object.assign(new Error(`${error.message} Chẩn đoán giao diện (không gồm nội dung prompt): ${JSON.stringify(details).slice(0, 1200)}`), { code: error.code || "SEND_STATE_UNKNOWN", reason: "manual" });
   }
   log("SEND_BUTTON_READY", { code: "READY", button: describeSendButton(send), url: location.href });
   const currentComposer = composer();

@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.37");
+  assert.equal(manifest.version, "1.0.38");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.37"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.38"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -121,6 +121,17 @@ test("Gemini health check does not require send or new-chat buttons before a job
   assert.equal(result.code, "READY");
   assert.equal(result.checks.sendButton, false);
   assert.equal(result.checks.newChat, false);
+});
+
+test("Gemini chooses the active composer when multiple text editors are visible", () => {
+  const inactive = { getClientRects: () => [{}], contains: () => false };
+  const active = { getClientRects: () => [{}], contains: () => false };
+  const document = { activeElement: active, querySelectorAll: () => [inactive, active] };
+  const context = { globalThis: {}, document, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__composer = GeminiSelectors.composer;\n})();");
+  vm.runInNewContext(instrumented, context);
+
+  assert.equal(context.globalThis.__composer(), active);
 });
 
 test("unrelated Stop controls do not block a Gemini job", () => {
@@ -210,7 +221,7 @@ test("Gemini send detection supports send-button test IDs and synchronizes compo
   assert.match(contentScript, /send\.click\(\)/);
 });
 
-test("Gemini send detection finds an unlabeled control beside the composer without clicking the microphone", () => {
+test("Gemini send detection selects the composer-associated send label, not the microphone", () => {
   const root = { parentElement: null, contains: (node) => node.parentElement === root, getBoundingClientRect: () => ({ left: 0, right: 500, width: 500, top: 0, bottom: 140 }) };
   const makeControl = (label, right) => ({
     parentElement: root, innerText: "", title: "", value: "", disabled: false,
@@ -219,7 +230,7 @@ test("Gemini send detection finds an unlabeled control beside the composer witho
     getBoundingClientRect: () => ({ left: right - 30, right, width: 30, top: 90, bottom: 120 }),
   });
   const microphone = makeControl("Use microphone", 480);
-  const sendControl = makeControl("", 450);
+  const sendControl = makeControl("Send message", 450);
   const unrelatedSend = makeControl("Send message", 490);
   unrelatedSend.parentElement = {};
   const box = {
@@ -235,8 +246,53 @@ test("Gemini send detection finds an unlabeled control beside the composer witho
 
   assert.equal(context.globalThis.__send(), sendControl);
   assert.match(contentScript, /verticalGap <= 48/);
-  assert.match(contentScript, /rootRect\.left \+ rootRect\.width \* 0\.58/);
+  assert.match(contentScript, /candidate\.semanticSend/);
+  assert.doesNotMatch(contentScript, /sort\(\(left, right\) => right\.node\.getBoundingClientRect\(\)\.right/);
   assert.match(contentScript, /model\|flash\|thinking\|reasoning/);
+});
+
+test("Gemini does not choose an unlabeled rightmost control as Send", () => {
+  const root = { parentElement: null, contains: (node) => node.parentElement === root, getAttribute: () => null, getBoundingClientRect: () => ({ left: 0, right: 500, width: 500, top: 0, bottom: 140 }) };
+  const control = {
+    tagName: "BUTTON", parentElement: root, innerText: "", title: "", disabled: false,
+    getClientRects: () => [{}], getAttribute: () => null, hasAttribute: () => false,
+    querySelector: () => null, querySelectorAll: () => [],
+    getBoundingClientRect: () => ({ left: 470, right: 500, width: 30, top: 90, bottom: 120 }),
+  };
+  const box = {
+    tagName: "DIV", parentElement: root, isContentEditable: true,
+    getClientRects: () => [{}], getAttribute: () => "true",
+    getBoundingClientRect: () => ({ left: 0, right: 400, width: 400, top: 0, bottom: 80 }),
+  };
+  const document = { querySelectorAll: (selector) => selector.startsWith('[role="textbox"]') ? [box] : [control] };
+  const context = { globalThis: {}, document, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__inspectSend = inspectSendButton;\n})();");
+  vm.runInNewContext(instrumented, context);
+  const result = context.globalThis.__inspectSend();
+
+  assert.equal(result.button, null);
+  assert.equal(result.reason, "unknown");
+  assert.equal(result.diagnostics.buttons[0].reason, "no_send_semantics");
+});
+
+test("Gemini reports a distinct error when no button exists near the composer", async () => {
+  let mutation;
+  const root = { tagName: "DIV", contains: () => false, getAttribute: () => null };
+  const box = {
+    tagName: "DIV", parentElement: root, isContentEditable: true,
+    getClientRects: () => [{}], getAttribute: () => "true",
+    getBoundingClientRect: () => ({ left: 0, right: 400, width: 400, top: 0, bottom: 80 }),
+  };
+  const document = { body: {}, querySelectorAll: (selector) => selector.startsWith('[role="textbox"]') ? [box] : [] };
+  const context = {
+    globalThis: {}, document, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } },
+    console: { info() {} }, MutationObserver: class { constructor(callback) { mutation = callback; } observe() {} disconnect() {} }, setTimeout, clearTimeout,
+  };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__waitSend = waitForUsableSendButton;\n})();");
+  vm.runInNewContext(instrumented, context);
+  const waiting = context.globalThis.__waitSend(5);
+  mutation();
+  await assert.rejects(waiting, (error) => error.code === "SEND_BUTTON_NOT_FOUND" && error.diagnostics.buttonCount === 0);
 });
 
 test("Gemini logs DOM evidence for each submission step without logging prompt text", () => {
@@ -292,7 +348,7 @@ test("Gemini does not treat a disabled send control as ready", async () => {
     tagName: "BUTTON", innerText: "", title: "",
     disabled: true,
     getClientRects: () => [{}],
-    getAttribute: (name) => name === "aria-disabled" ? ariaDisabled : null,
+    getAttribute: (name) => name === "aria-disabled" ? ariaDisabled : name === "aria-label" ? "Send message" : null,
     hasAttribute: () => false, querySelector: () => null, querySelectorAll: () => [],
     getBoundingClientRect: () => ({ left: 470, right: 500, width: 30, top: 90, bottom: 120 }),
   };
@@ -364,7 +420,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.37", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.38", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -380,7 +436,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.37", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.38", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -404,7 +460,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.37" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.38" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },
