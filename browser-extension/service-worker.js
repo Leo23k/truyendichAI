@@ -165,4 +165,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.tabs.create({ url: "https://gemini.google.com/app", active: true }).then(() => sendResponse({ ok: true }));
     return true;
   }
+  if (message.type === "health-check") {
+    (async () => {
+      const tab = await geminiTab();
+      const result = await chrome.tabs.sendMessage(tab.id, { type: "health-check" });
+      if (!result?.ok) throw new Error(result?.message || "Gemini cần thao tác thủ công.");
+      sendResponse({ ok: true });
+    })().catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
 });
