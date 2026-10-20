@@ -69,3 +69,23 @@ def test_gemini_web_profile_name_is_filesystem_safe() -> None:
     assert providers.GeminiWebProvider.normalize_profile(" Tài khoản 01 ") == "T-i-kho-n-01"
     with pytest.raises(ValueError):
         providers.GeminiWebProvider.normalize_profile("***")
+
+
+def test_gemini_api_key_is_saved_to_local_config_not_translation_jobs(tmp_path, monkeypatch) -> None:
+    from app import main
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".env").write_text("APP_URL=http://localhost\nGOOGLE_API_KEY=old-key\n", encoding="utf-8")
+    monkeypatch.setattr(main, "BASE_DIR", project_root / "app")
+    monkeypatch.setattr(main.settings, "gemini_api_key", None)
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    main._save_gemini_api_key("  new-secret-key  ")
+
+    saved = (project_root / ".env").read_text(encoding="utf-8")
+    assert "GEMINI_API_KEY=new-secret-key" in saved
+    assert "GOOGLE_API_KEY=old-key" not in saved
+    assert main.settings.gemini_api_key == "new-secret-key"
+    assert main.os.environ["GEMINI_API_KEY"] == "new-secret-key"

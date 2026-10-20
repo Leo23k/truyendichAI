@@ -924,6 +924,26 @@ def _translation_provider_context() -> dict[str, object]:
     }
 
 
+def _save_gemini_api_key(api_key: str) -> None:
+    key = api_key.strip()
+    if not key:
+        return
+    if "\n" in key or "\r" in key:
+        raise ValueError("API key không hợp lệ.")
+    if os.getenv("VERCEL"):
+        raise ValueError("Hãy cấu hình Gemini API key trên máy chạy app/worker cục bộ.")
+    env_path = BASE_DIR.parent / ".env"
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+        lines = [line for line in lines if not line.startswith(("GEMINI_API_KEY=", "GOOGLE_API_KEY="))]
+        lines.append(f"GEMINI_API_KEY={key}")
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise ValueError("Không thể lưu API key vào cấu hình cục bộ.") from exc
+    settings.gemini_api_key = key
+    os.environ["GEMINI_API_KEY"] = key
+
+
 def _gemini_web_available() -> bool:
     try:
         import playwright.sync_api  # noqa: F401
@@ -1021,6 +1041,7 @@ def update_admin_novel_source_page(
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
     prompt_id: str = Form(...),
+    gemini_api_key: str = Form(""),
 ):
     source_url = source_url.strip()
     try:
@@ -1033,6 +1054,7 @@ def update_admin_novel_source_page(
         source_type = str(novel.get("source_type") or "zh")
         if getattr(crawler, "source_type", "zh") != source_type:
             raise CdnDataError("Loại nguồn không khớp với truyện này.")
+        _save_gemini_api_key(gemini_api_key)
         translation_choice = provider_settings(provider, model, web_profile)
         prompt_choice = resolve_prompt(SupabaseSync(), prompt_id)
         update_admin_novel_source(novel_id, source_url)
@@ -1245,6 +1267,7 @@ def retranslate_novel(
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
     prompt_id: str = Form(...),
+    gemini_api_key: str = Form(""),
 ):
     if mode not in {"all", "selected"}:
         raise HTTPException(status_code=400, detail="Tùy chọn dịch lại không hợp lệ.")
@@ -1256,6 +1279,7 @@ def retranslate_novel(
     selected_ids = sorted(set(chapter_ids)) if mode == "selected" else None
     try:
         remote = SupabaseSync()
+        _save_gemini_api_key(gemini_api_key)
         translation_choice = provider_settings(provider, model, web_profile)
         prompt_choice = resolve_prompt(remote, prompt_id)
         result = remote.rpc_rows("reset_retranslation_with_provider", {
@@ -1323,6 +1347,7 @@ async def jobs_crawler_search(
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
     prompt_id: str = Form(...),
+    gemini_api_key: str = Form(""),
 ):
     query = " ".join(query.split())
     if source_type not in {"zh", "vi"}:
@@ -1330,6 +1355,7 @@ async def jobs_crawler_search(
     if not query:
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Hãy nhập tên truyện hoặc URL nguồn để tìm.", "error": True}, status_code=400)
     try:
+        _save_gemini_api_key(gemini_api_key)
         remote = SupabaseSync()
         translation_choice = provider_settings(provider, model, web_profile)
         prompt_choice = resolve_prompt(remote, prompt_id)
@@ -1385,12 +1411,14 @@ def start_crawler_translation(
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
     prompt_id: str = Form(...),
+    gemini_api_key: str = Form(""),
 ):
     try:
         crawler = registry.get_for_url(source_url)
         if getattr(crawler, "source_type", "zh") != source_type:
             raise ValueError("Loại nguồn không khớp website này.")
         remote = SupabaseSync()
+        _save_gemini_api_key(gemini_api_key)
         translation_choice = provider_settings(provider, model, web_profile)
         prompt_choice = resolve_prompt(remote, prompt_id)
         job = enqueue_remote_crawl(source_url, source_type=source_type, **translation_choice, **prompt_choice)
@@ -1887,12 +1915,14 @@ async def update_synced_book(
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
     prompt_id: str = Form(...),
+    gemini_api_key: str = Form(""),
 ):
     try:
         novel = get_synced_novel_for_management(slug)
         source_url = novel.get("source_url")
         if not source_url:
             raise CdnDataError("Truyện chưa có URL nguồn để cập nhật. Hãy đồng bộ lại từ máy local.")
+        _save_gemini_api_key(gemini_api_key)
         translation_choice = provider_settings(provider, model, web_profile)
         prompt_choice = resolve_prompt(SupabaseSync(), prompt_id)
         enqueue_remote_crawl(str(source_url), **translation_choice, **prompt_choice)
