@@ -294,6 +294,32 @@ async function pauseJob(tabId, jobId, reason, message) {
   await pageRequest(tabId, `/api/gemini-extension/jobs/${encodeURIComponent(jobId)}/pause`, "POST", { reason, message });
 }
 
+function translateChapter(tabId, job) {
+  return new Promise((resolve, reject) => {
+    const port = chrome.tabs.connect(tabId, { name: "gemini-translation" });
+    let finished = false;
+    port.onMessage.addListener((message) => {
+      if (message?.type === "heartbeat") return;
+      if (message?.type !== "result") return;
+      finished = true;
+      port.disconnect();
+      resolve(message.result);
+    });
+    port.onDisconnect.addListener(() => {
+      if (finished) return;
+      const message = chrome.runtime.lastError?.message || "Gemini đã đóng kênh trao đổi trước khi trả kết quả.";
+      reject(companionError("GEMINI_MESSAGE_CHANNEL_CLOSED", message, { tabId }));
+    });
+    try {
+      port.postMessage({ type: "translate-chapter", job, tabId });
+    } catch (error) {
+      finished = true;
+      port.disconnect();
+      reject(companionError("GEMINI_MESSAGE_CHANNEL_CLOSED", String(error?.message || error), { tabId }));
+    }
+  });
+}
+
 async function processOneJob() {
   if (busy) return;
   busy = true;
@@ -309,12 +335,12 @@ async function processOneJob() {
     await chrome.storage.local.set({ currentJob: `${job.chapter_number}` });
     const { tab } = await ensureGeminiTab();
     activeGeminiTab = tab;
-    let result = await chrome.tabs.sendMessage(tab.id, { type: "translate-chapter", job });
+    let result = await translateChapter(tab.id, job);
     if (result?.code === "GENERATION_IN_PROGRESS" && result.submittedPrompts === 0) {
       // This job was not submitted. Leave the old conversation alone and retry once in a fresh tab.
       const fresh = await openGeminiTab();
       activeGeminiTab = (await ensureGeminiTabReady(fresh, 30000, 30000)).tab;
-      result = await chrome.tabs.sendMessage(activeGeminiTab.id, { type: "translate-chapter", job });
+      result = await translateChapter(activeGeminiTab.id, job);
     }
     if (!result?.ok) {
       const message = result?.message || "Gemini Web cần thao tác thủ công.";

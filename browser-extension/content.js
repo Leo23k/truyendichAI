@@ -318,6 +318,50 @@ async function translateWholeChapter(job) {
   return result;
 }
 
+async function runTranslationJob(job, tabId) {
+  activeJobSubmissions = 0;
+  await startNewConversation(tabId);
+  const translatedContent = await translateWholeChapter(job);
+  const titlePrompt = job.prompt_snapshot.replace("{{text}}", job.title);
+  const translatedTitle = cleanResult(await submitPrompt(titlePrompt));
+  if (!translatedTitle || translatedTitle === job.title) {
+    throw Object.assign(new Error("Tên chương chưa được dịch; job đã pause để kiểm tra."), { reason: "manual" });
+  }
+  const translation = { translated_title: translatedTitle, translated_content: translatedContent };
+  if (job.metadata) {
+    translation.translated_novel_title = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.title)));
+    if (!translation.translated_novel_title || translation.translated_novel_title === job.metadata.title) throw Object.assign(new Error("Tên truyện chưa được dịch."), { reason: "manual" });
+    if (job.metadata.author) {
+      translation.translated_author = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.author)));
+      if (!translation.translated_author || translation.translated_author === job.metadata.author) throw Object.assign(new Error("Tên tác giả chưa được dịch."), { reason: "manual" });
+    }
+    if (job.metadata.description) translation.translated_description = await translateWholeChapter({ content: job.metadata.description, prompt_snapshot: job.prompt_snapshot });
+  }
+  if (tabId != null) await recordConversationChapter(tabId);
+  return translation;
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "gemini-translation") return;
+  let started = false;
+  const heartbeat = setInterval(() => {
+    try { port.postMessage({ type: "heartbeat" }); } catch { clearInterval(heartbeat); }
+  }, 15000);
+  port.onDisconnect.addListener(() => clearInterval(heartbeat));
+  port.onMessage.addListener((message) => {
+    if (started || message?.type !== "translate-chapter") return;
+    started = true;
+    const tabId = message.tabId ?? port.sender?.tab?.id;
+    // Port messages keep the MV3 worker alive while Gemini handles long prompts.
+    runTranslationJob(message.job, tabId).then((translation) => {
+      try { port.postMessage({ type: "result", result: { ok: true, translation } }); } catch {}
+    }).catch((error) => {
+      log("ERROR", { code: error.code || "TRANSLATION_ERROR", message: String(error.message || error), url: location.href });
+      try { port.postMessage({ type: "result", result: { ok: false, code: error.code || "TRANSLATION_ERROR", reason: error.reason || "transient", message: String(error.message || error), submittedPrompts: activeJobSubmissions } }); } catch {}
+    });
+  });
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ping") {
     sendResponse({ ready: true });
@@ -344,30 +388,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
   if (message.type !== "translate-chapter") return;
-  (async () => {
-    const { job } = message;
-    activeJobSubmissions = 0;
-    const tabId = sender.tab?.id;
-    await startNewConversation(tabId);
-    const translatedContent = await translateWholeChapter(job);
-    const titlePrompt = job.prompt_snapshot.replace("{{text}}", job.title);
-    const translatedTitle = cleanResult(await submitPrompt(titlePrompt));
-    if (!translatedTitle || translatedTitle === job.title) {
-      throw Object.assign(new Error("Tên chương chưa được dịch; job đã pause để kiểm tra."), { reason: "manual" });
-    }
-    const translation = { translated_title: translatedTitle, translated_content: translatedContent };
-    if (job.metadata) {
-      translation.translated_novel_title = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.title)));
-      if (!translation.translated_novel_title || translation.translated_novel_title === job.metadata.title) throw Object.assign(new Error("Tên truyện chưa được dịch."), { reason: "manual" });
-      if (job.metadata.author) {
-        translation.translated_author = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.author)));
-        if (!translation.translated_author || translation.translated_author === job.metadata.author) throw Object.assign(new Error("Tên tác giả chưa được dịch."), { reason: "manual" });
-      }
-      if (job.metadata.description) translation.translated_description = await translateWholeChapter({ content: job.metadata.description, prompt_snapshot: job.prompt_snapshot });
-    }
-    if (tabId != null) await recordConversationChapter(tabId);
-    sendResponse({ ok: true, translation });
-  })().catch((error) => {
+  runTranslationJob(message.job, sender.tab?.id).then((translation) => sendResponse({ ok: true, translation })).catch((error) => {
     log("ERROR", { code: error.code || "TRANSLATION_ERROR", message: String(error.message || error), url: location.href });
     sendResponse({ ok: false, code: error.code || "TRANSLATION_ERROR", reason: error.reason || "transient", message: String(error.message || error), submittedPrompts: activeJobSubmissions });
   });
