@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.46";
+const CONTENT_SCRIPT_VERSION = "1.0.47";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -547,6 +547,11 @@ function cleanResult(value) {
   return value.replace(/^```(?:text|markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
+function cleanChapterTitle(value) {
+  return cleanResult(value).replace(/Gemini\s+đã\s+nói/giu, "")
+    .replace(/\s+/g, " ").replace(/^[\s:：\-–—|·]+|[\s:：\-–—|·]+$/g, "").trim();
+}
+
 function translationIssue(source, output, prompt) {
   if (!output.trim()) return "empty";
   if (/\[(?:response )?truncated\]|output was cut off|response was truncated|输出已截断/i.test(output)) return "truncated";
@@ -621,7 +626,7 @@ async function runTranslationJob(job, tabId, onProgress = () => {}) {
   await startNewConversation(tabId);
   const translatedContent = await translateWholeChapter(job, onProgress);
   onProgress("Đang dịch tiêu đề chương.", 0, 0);
-  const translatedTitle = cleanResult(await submitTranslationText(job.prompt_snapshot, job.title, onProgress));
+  const translatedTitle = cleanChapterTitle(await submitTranslationText(job.prompt_snapshot, job.title, onProgress));
   if (!translatedTitle || translatedTitle === job.title) {
     throw Object.assign(new Error("Tên chương chưa được dịch; job đã pause để kiểm tra."), { reason: "manual" });
   }
