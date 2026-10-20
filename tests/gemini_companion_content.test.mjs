@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.45");
+  assert.equal(manifest.version, "1.0.46");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.45"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.46"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -469,7 +469,8 @@ test("Gemini logs DOM evidence for each submission step without logging prompt t
   for (const stage of ["COMPOSER_FOUND", "PROMPT_FILLED", "SEND_BUTTON_READY", "SEND_TRIGGERED", "PROMPT_CLEARED", "PROMPT_SUBMITTED_CONFIRMED", "RESPONSE_STARTED", "RESPONSE_DETECTED", "RESPONSE_COMPLETED", "TRANSLATION_EXTRACTED"]) {
     assert.match(contentScript, new RegExp(`log\\("${stage}"`));
   }
-  assert.match(contentScript, /Chẩn đoán giao diện \(không gồm nội dung prompt\):.*JSON\.stringify\(details\)/);
+  assert.match(contentScript, /log\("SEND_BUTTON_NOT_READY", \{ code: error\.code \|\| "SEND_STATE_UNKNOWN", \.\.\.details/);
+  assert.match(contentScript, /Nút gần ô nhập: \$\{summary\}/);
   assert.match(serviceWorker, /log\("GEMINI_TAB_FOUND"/);
   assert.match(serviceWorker, /saved\?\.status !== "completed"/);
   assert.match(serviceWorker, /log\("BACKEND_SAVE_CONFIRMED"/);
@@ -653,7 +654,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
     },
   };
   const context = { chrome, console: { info() {} }, URL, Date, Promise, Error, Object, String, Array, Math, JSON, setTimeout, clearTimeout };
-  vm.runInNewContext(`${serviceWorker}\nglobalThis.__test = { ensureGeminiTabReady, ensureGeminiTab, findGeminiTab, activateGeminiTab, healthCheck, pageRequest };`, context);
+  vm.runInNewContext(`${serviceWorker}\nglobalThis.__test = { ensureGeminiTabReady, ensureGeminiTab, findGeminiTab, activateGeminiTab, healthCheck, pageRequest, jobStatusMessage };`, context);
   return { api: context.__test, geminiTab, listeners, apiRequests, storageState, activatedTabIds, get createdTabs() { return createdTabs; } };
 }
 
@@ -677,6 +678,14 @@ test("connecting the website tab does not wait for the remote queue status API",
   assert.equal(response.ok, true);
   assert.equal(worker.storageState.appTabId, 2);
   assert.ok(!worker.apiRequests.includes("/api/gemini-extension/status"));
+});
+
+test("Companion caps progress and pause messages below the backend's 1000-character limit", () => {
+  const worker = loadServiceWorker();
+  const message = worker.api.jobStatusMessage(`${"x".repeat(1200)}${"🙂".repeat(200)}`);
+
+  assert.equal(message.length, 900);
+  assert.ok(Array.from(message).length <= 900);
 });
 
 test("a hung website queue request returns an error instead of waiting forever", async () => {

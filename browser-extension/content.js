@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.45";
+const CONTENT_SCRIPT_VERSION = "1.0.46";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -411,7 +411,13 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   catch (error) {
     const details = error.diagnostics || inspectSendButton().diagnostics;
     log("SEND_BUTTON_NOT_READY", { code: error.code || "SEND_STATE_UNKNOWN", ...details, url: location.href });
-    throw Object.assign(new Error(`${error.message} Chẩn đoán giao diện (không gồm nội dung prompt): ${JSON.stringify(details).slice(0, 1200)}`), { code: error.code || "SEND_STATE_UNKNOWN", reason: "manual" });
+    const buttons = details.buttons.map(({ tagName, ariaLabel, title, icons, disabled, ariaDisabled, reason }) => ({
+      tag: tagName, label: (ariaLabel || title || "").slice(0, 60),
+      icon: (icons || []).map((icon) => icon.iconName).filter(Boolean).join(",").slice(0, 40),
+      disabled, ariaDisabled, reason,
+    }));
+    const summary = JSON.stringify({ composer: details.composer, buttons }).slice(0, 520);
+    throw Object.assign(new Error(`${error.message} Nút gần ô nhập: ${summary}`), { code: error.code || "SEND_STATE_UNKNOWN", reason: "manual" });
   }
   log("SEND_BUTTON_READY", { code: "READY", button: describeSendButton(send), url: location.href });
   const currentComposer = composer();

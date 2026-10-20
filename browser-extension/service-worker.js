@@ -2,9 +2,14 @@ const ALARM = "gemini-companion-poll";
 const GEMINI_URL = "https://gemini.google.com/app";
 const GEMINI_PERMISSION = "https://gemini.google.com/*";
 const HEALTH_CHECK_TIMEOUT_MS = 35000;
+const MAX_JOB_STATUS_MESSAGE_LENGTH = 900;
 let busy = false;
 let geminiTabOpening;
 let appBridgeLoading;
+
+function jobStatusMessage(value) {
+  return String(value ?? "").slice(0, MAX_JOB_STATUS_MESSAGE_LENGTH);
+}
 
 function withTimeout(promise, timeoutMs, code, message) {
   let timer;
@@ -310,7 +315,7 @@ async function healthCheck() {
 async function updateJobProgress(tabId, jobId, message, currentChunk = 0, totalChunks = 0) {
   try {
     await pageRequest(tabId, `/api/gemini-extension/jobs/${encodeURIComponent(jobId)}/progress`, "POST", {
-      message, current_chunk: currentChunk, total_chunks: totalChunks,
+      message: jobStatusMessage(message), current_chunk: currentChunk, total_chunks: totalChunks,
     }, 10000);
   } catch (error) {
     log("PROGRESS", { code: error.code || "PROGRESS_UPDATE_FAILED", message: String(error?.message || error), tabId });
@@ -318,7 +323,7 @@ async function updateJobProgress(tabId, jobId, message, currentChunk = 0, totalC
 }
 
 async function pauseJob(tabId, jobId, reason, message) {
-  await pageRequest(tabId, `/api/gemini-extension/jobs/${encodeURIComponent(jobId)}/pause`, "POST", { reason, message });
+  await pageRequest(tabId, `/api/gemini-extension/jobs/${encodeURIComponent(jobId)}/pause`, "POST", { reason, message: jobStatusMessage(message) });
 }
 
 function translateChapter(tabId, job, appTabId) {
@@ -330,7 +335,7 @@ function translateChapter(tabId, job, appTabId) {
       if (message?.type === "heartbeat") return;
       if (message?.type === "progress") {
         progressQueue = progressQueue.then(() => pageRequest(appTabId, `/api/gemini-extension/jobs/${encodeURIComponent(job.id)}/progress`, "POST", {
-          message: message.message,
+          message: jobStatusMessage(message.message),
           current_chunk: message.currentChunk ?? 0,
           total_chunks: message.totalChunks ?? 0,
         }, 10000)).catch((error) => log("PROGRESS", { code: error.code || "PROGRESS_UPDATE_FAILED", message: String(error?.message || error), tabId }));
