@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const contentScript = await readFile(new URL("../browser-extension/content.js", import.meta.url), "utf8");
+const appBridge = await readFile(new URL("../browser-extension/app-bridge.js", import.meta.url), "utf8");
 const serviceWorker = await readFile(new URL("../browser-extension/service-worker.js", import.meta.url), "utf8");
 const popupScript = await readFile(new URL("../browser-extension/popup.js", import.meta.url), "utf8");
 
@@ -18,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.22");
+  assert.equal(manifest.version, "1.0.23");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -44,10 +45,33 @@ test("Gemini content script loads with the page using a required host permission
   assert.ok(manifest.permissions.includes("scripting"));
   assert.ok(manifest.host_permissions.includes("https://gemini.google.com/*"));
   assert.equal(manifest.optional_host_permissions, undefined);
-  assert.deepEqual(manifest.content_scripts[0].matches, ["https://gemini.google.com/*"]);
-  assert.deepEqual(manifest.content_scripts[0].js, ["content.js"]);
+  const geminiScript = manifest.content_scripts.find((script) => script.js.includes("content.js"));
+  const appScript = manifest.content_scripts.find((script) => script.js.includes("app-bridge.js"));
+  assert.deepEqual(geminiScript.matches, ["https://gemini.google.com/*"]);
+  assert.deepEqual(geminiScript.js, ["content.js"]);
+  assert.ok(appScript.matches.includes("https://leotruyen.vercel.app/*"));
   assert.doesNotMatch(serviceWorker, /files: \["content\.js"\]/);
   assert.match(popupScript, /geminiCode !== "CONTENT_SCRIPT_NOT_READY"/);
+});
+
+test("website app bridge keeps queue requests in the logged-in page origin", async () => {
+  let onMessage;
+  let requested;
+  const chrome = { runtime: { onMessage: { addListener: (listener) => { onMessage = listener; } } } };
+  const context = {
+    globalThis: {}, chrome, location: { origin: "https://leotruyen.vercel.app" }, URL,
+    AbortController, setTimeout, clearTimeout,
+    fetch: async (url, options) => {
+      requested = { url: String(url), options };
+      return { ok: true, json: async () => ({ job: null }) };
+    },
+  };
+  vm.runInNewContext(appBridge, context);
+  const result = await new Promise((resolve) => onMessage({ type: "app-bridge-request", path: "/api/gemini-extension/jobs/next" }, {}, resolve));
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.payload)), { job: null });
+  assert.equal(requested.url, "https://leotruyen.vercel.app/api/gemini-extension/jobs/next");
+  assert.equal(requested.options.credentials, "same-origin");
 });
 
 test("Gemini health check does not require send or new-chat buttons before a job", () => {
@@ -153,7 +177,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.20", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.23", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -168,6 +192,14 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
       create: async () => { createdTabs += 1; newTab = { id: 3, url: "https://gemini.google.com/app", status: "complete" }; return newTab; },
       reload: async () => {},
       sendMessage: async (id, message) => {
+        if (message.type === "app-bridge-ping") return id === 2 ? { ready: true } : undefined;
+        if (message.type === "app-bridge-request") {
+          apiRequests.push(message.path);
+          if (message.path === "/api/gemini-extension/status" && legacyStatusTimeout) return new Promise(() => {});
+          if (message.path === "/api/gemini-extension/jobs/next" && queueRequestHangs) return new Promise(() => {});
+          if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
+          return { ok: true, payload: {} };
+        }
         if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
@@ -184,10 +216,6 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
     scripting: {
       executeScript: async ({ target, files, args }) => {
         if (files?.includes("content.js")) throw new Error("Dynamic injection must not run");
-        if (args?.[0]?.path) apiRequests.push(args[0].path);
-        if (target.tabId === 2 && args?.[0]?.path === "/api/gemini-extension/status" && legacyStatusTimeout) return new Promise(() => {});
-        if (target.tabId === 2 && args?.[0]?.path === "/api/gemini-extension/jobs/next" && queueRequestHangs) return new Promise(() => {});
-        if (target.tabId === 2 && args?.[0]?.path === "/health" && backendError) throw backendError;
         return [{ result: { ok: true } }];
       },
     },

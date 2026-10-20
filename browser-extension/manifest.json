@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Leo Truyện Gemini Companion",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "description": "Dịch tuần tự các chương đã xếp hàng bằng tab Gemini bạn đang đăng nhập.",
   "permissions": ["activeTab", "alarms", "sidePanel", "scripting", "storage", "tabs"],
   "host_permissions": [
@@ -11,7 +11,8 @@
     "https://gemini.google.com/*"
   ],
   "content_scripts": [
-    { "matches": ["https://gemini.google.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+    { "matches": ["https://gemini.google.com/*"], "js": ["content.js"], "run_at": "document_idle" },
+    { "matches": ["https://leotruyen.vercel.app/*", "http://127.0.0.1/*", "http://localhost/*"], "js": ["app-bridge.js"], "run_at": "document_idle" }
   ],
   "action": { "default_title": "Gemini Companion" },
   "side_panel": { "default_path": "popup.html" },

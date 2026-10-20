@@ -4,6 +4,7 @@ const GEMINI_PERMISSION = "https://gemini.google.com/*";
 const HEALTH_CHECK_TIMEOUT_MS = 35000;
 let busy = false;
 let geminiTabOpening;
+let appBridgeLoading;
 
 function withTimeout(promise, timeoutMs, code, message) {
   let timer;
@@ -21,11 +22,6 @@ function companionError(code, message, details = {}) {
 
 function log(stage, data = {}) {
   console.info(`[GEMINI_COMPANION][${stage}]`, JSON.stringify({ code: "INFO", message: "", tabId: null, url: null, timestamp: new Date().toISOString(), ...data }));
-}
-
-function hostAccessError(error, host, tabId, url) {
-  if (!/cannot access contents|permission to access the respective host|cannot access.*page/i.test(String(error?.message || error))) return error;
-  return companionError("HOST_PERMISSION_MISSING", `Trình duyệt chưa cấp quyền truy cập ${host}. Hãy cấp Site access cho host này trong chi tiết extension.`, { tabId, url, cause: error });
 }
 
 async function geminiPermissionState(tabId, url) {
@@ -79,33 +75,35 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (geminiTabId === tabId) await chrome.storage.local.remove("geminiTabId");
 });
 
+async function pingAppBridge(tabId) {
+  return withTimeout(chrome.tabs.sendMessage(tabId, { type: "app-bridge-ping" }), 1000, "APP_BRIDGE_PING_TIMEOUT", "").then((reply) => reply?.ready === true).catch(() => false);
+}
+
+async function ensureAppBridge(tabId) {
+  if (await pingAppBridge(tabId)) return;
+  if (appBridgeLoading?.tabId === tabId) return appBridgeLoading.promise;
+  const promise = (async () => {
+    await chrome.tabs.reload(tabId);
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      if (await pingAppBridge(tabId)) return;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw companionError("APP_BRIDGE_NOT_READY", "Tab Leo Truyện chưa nạp mã Companion. Hãy tải lại tab website rồi kết nối lại.");
+  })();
+  appBridgeLoading = { tabId, promise };
+  try { await promise; }
+  finally { if (appBridgeLoading?.promise === promise) appBridgeLoading = null; }
+}
+
 async function pageRequest(tabId, path, method = "GET", body, timeoutMs = 60000) {
-  const tab = await withTimeout(chrome.tabs.get(tabId), 5000, "APP_TAB_TIMEOUT", "Không đọc được tab Leo Truyện trong 5 giây.");
-  try {
-    const results = await withTimeout(chrome.scripting.executeScript({
-      target: { tabId }, world: "MAIN",
-      func: async ({ path, method, body, timeoutMs }) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-          const response = await fetch(path, {
-            method, credentials: "same-origin", signal: controller.signal,
-            headers: body ? { "Content-Type": "application/json" } : {},
-            body: body ? JSON.stringify(body) : undefined,
-          });
-          const payload = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
-          return payload;
-        } finally {
-          clearTimeout(timer);
-        }
-      },
-      args: [{ path, method, body, timeoutMs }],
-    }), timeoutMs + 5000, "BACKEND_REQUEST_TIMEOUT", "Website không trả lời yêu cầu hàng đợi. Companion sẽ thử lại ở lượt kiểm tra sau.");
-    return results[0]?.result;
-  } catch (error) {
-    throw hostAccessError(error, `${new URL(tab.url).origin}/*`, tabId, tab.url);
-  }
+  await ensureAppBridge(tabId);
+  const reply = await withTimeout(
+    chrome.tabs.sendMessage(tabId, { type: "app-bridge-request", path, method, body, timeoutMs }),
+    timeoutMs + 1000, "BACKEND_REQUEST_TIMEOUT", "Website không trả lời yêu cầu hàng đợi. Companion sẽ thử lại ở lượt kiểm tra sau.",
+  );
+  if (!reply?.ok) throw companionError("BACKEND_REQUEST_FAILED", reply?.error || "Website không trả lời yêu cầu Companion.");
+  return reply.payload;
 }
 
 async function activeAppTab() {
@@ -229,15 +227,20 @@ async function ensureGeminiTab(timeoutMs = 30000) {
   const tab = await findGeminiTab();
   if (tab) {
     try {
-      return await ensureGeminiTabReady(tab, timeoutMs);
+      const ready = await ensureGeminiTabReady(tab, timeoutMs);
+      await chrome.storage.local.remove("geminiRecoveryFailedTabId");
+      return ready;
     } catch (error) {
-      const { geminiTabId } = await chrome.storage.local.get("geminiTabId");
-      if (error.code !== "CONTENT_SCRIPT_NOT_READY" || tab.id === geminiTabId) throw error;
+      const { geminiRecoveryFailedTabId } = await chrome.storage.local.get("geminiRecoveryFailedTabId");
+      if (error.code !== "CONTENT_SCRIPT_NOT_READY" || tab.id === geminiRecoveryFailedTabId) throw error;
     }
   }
   const fresh = await openGeminiTab();
+  await chrome.storage.local.set({ geminiRecoveryFailedTabId: fresh.id });
   const remaining = Math.max(1000, deadline - Date.now());
-  return ensureGeminiTabReady(fresh, remaining, remaining);
+  const ready = await ensureGeminiTabReady(fresh, remaining, remaining);
+  await chrome.storage.local.remove("geminiRecoveryFailedTabId");
+  return ready;
 }
 
 async function healthCheck() {
