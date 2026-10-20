@@ -25,7 +25,9 @@ const GeminiSelectors = {
   },
   send: () => GeminiSelectors.buttons().find((node) => {
     const label = buttonText(node);
-    return /\b(send(?:_up)?|gửi)\b/i.test(label) && !/feedback|stop|dừng|ngừng/i.test(label);
+    const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
+    return (/\b(send(?:_up)?|gửi)\b|arrow_upward/i.test(label) || /send-button|submit/i.test(testId))
+      && !/feedback|stop|dừng|ngừng|microphone|mic/i.test(`${label} ${testId}`);
   }),
   responses: () => {
     for (const selector of ["message-content", "model-response", '[data-message-author-role="model"]']) {
@@ -199,8 +201,9 @@ function writePromptToComposer(box, prompt) {
   const inserted = document.execCommand("insertText", false, prompt);
   if (!inserted) {
     box.replaceChildren(document.createTextNode(prompt));
-    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
   }
+  // Some Gemini composer builds update their send-button state only after an input event.
+  box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
 }
 
 async function submitPrompt(prompt, onProgress = () => {}) {
@@ -214,7 +217,12 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   writePromptToComposer(box, prompt);
   await waitForComposerText(box, prompt);
   onProgress("Gemini đã nhận đủ nội dung prompt; đang chuẩn bị gửi.");
-  const send = await waitForUsableSendButton();
+  let send = null;
+  try { send = await waitForUsableSendButton(5000); }
+  catch (error) {
+    if (error.code !== "GEMINI_SEND_BUTTON_NOT_FOUND") throw error;
+    onProgress("Nút Gửi chưa xuất hiện; đang thử gửi prompt bằng Enter trong ô Gemini.");
+  }
 
   return new Promise((resolve, reject) => {
     let sawGenerating = false;
@@ -266,10 +274,15 @@ async function submitPrompt(prompt, onProgress = () => {}) {
     startTimer = setTimeout(() => {
       if (!sawGenerating) finish(Object.assign(new Error("Gemini chưa bắt đầu tạo phản hồi sau khi gửi prompt."), { code: "GENERATION_NOT_STARTED", reason: "transient" }));
     }, 15000);
-    send.click();
+    if (send) send.click();
+    else {
+      box.focus();
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+      box.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    }
     activeJobSubmissions += 1;
-    log("SUBMIT", { code: "SENT", chars: prompt.length, url: location.href });
-    onProgress(`Đã bấm Gửi (${prompt.length} ký tự); đang chờ Gemini bắt đầu phản hồi.`);
+    log("SUBMIT", { code: "SENT", method: send ? "button" : "enter", chars: prompt.length, url: location.href });
+    onProgress(send ? `Đã bấm Gửi (${prompt.length} ký tự); đang chờ Gemini bắt đầu phản hồi.` : `Đã gửi Enter (${prompt.length} ký tự); đang chờ Gemini bắt đầu phản hồi.`);
   });
 }
 

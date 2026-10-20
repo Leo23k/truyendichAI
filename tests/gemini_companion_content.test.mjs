@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.29");
+  assert.equal(manifest.version, "1.0.30");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -141,7 +141,8 @@ test("unrelated Stop controls do not block a Gemini job", () => {
 test("a busy conversation retries in a fresh tab only before submitting this job", () => {
   assert.match(serviceWorker, /result\?\.code === "GENERATION_IN_PROGRESS" && result\.submittedPrompts === 0/);
   assert.match(serviceWorker, /const fresh = await openGeminiTab\(\)/);
-  assert.match(contentScript, /send\.click\(\);\s*activeJobSubmissions \+= 1;/);
+  assert.match(contentScript, /if \(send\) send\.click\(\)/);
+  assert.match(contentScript, /new KeyboardEvent\("keydown", \{ key: "Enter"/);
 });
 
 test("Gemini waits briefly for an old response, then retries in a fresh tab", async () => {
@@ -190,9 +191,16 @@ test("Gemini prompt verification tolerates editor whitespace but rejects missing
   assert.equal(context.globalThis.__matchesPrompt({ innerText: "Dịch tự nhiên\n第一章" }, "Dịch tự nhiên\n\n第一章　黎明"), false);
 });
 
+test("Gemini send detection supports send-button test IDs and synchronizes composer input", () => {
+  assert.match(contentScript, /send-button\|submit/);
+  assert.match(contentScript, /box\.dispatchEvent\(new InputEvent\("input"/);
+  assert.match(contentScript, /Nút Gửi chưa xuất hiện; đang thử gửi prompt bằng Enter/);
+  assert.match(contentScript, /if \(send\) send\.click\(\)/);
+});
+
 test("Gemini contenteditable receives the complete prompt through native insertion", () => {
   const prompt = "Dịch tự nhiên\n\n第一章 …";
-  const box = { innerText: "old content", focus() {} };
+  const box = { innerText: "old content", focus() {}, dispatchEvent() {} };
   const selection = { removeAllRanges() {}, addRange() {} };
   const document = {
     querySelectorAll: () => [], querySelector: () => null, body: { innerText: "Gemini" },
