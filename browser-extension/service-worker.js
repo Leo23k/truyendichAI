@@ -152,7 +152,10 @@ async function openGeminiTab() {
 
 async function pingGemini(tabId) {
   try {
-    const reply = await chrome.tabs.sendMessage(tabId, { type: "ping" });
+    const reply = await withTimeout(
+      chrome.tabs.sendMessage(tabId, { type: "ping" }),
+      1000, "GEMINI_PING_TIMEOUT", "Tab Gemini không phản hồi ping.",
+    );
     return reply?.ready === true;
   } catch {
     return false;
@@ -185,7 +188,7 @@ async function ensureGeminiTabReady(tab, timeoutMs = 30000) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   if (!tab.url?.startsWith("https://gemini.google.com/")) {
-    throw companionError("TAB_LOAD_TIMEOUT", "Gemini Web chưa mở được trong 30 giây.", { tabId: tab.id, url: tab.url });
+    throw companionError("TAB_LOAD_TIMEOUT", `Gemini Web chưa mở được trong ${Math.ceil(timeoutMs / 1000)} giây.`, { tabId: tab.id, url: tab.url });
   }
   const permissionDiagnostics = await geminiPermissionState(tab.id, tab.url);
   permissionDiagnostics.runtimeCheck = await hasGeminiHostPermission(tab.id, tab.url, permissionDiagnostics);
@@ -195,7 +198,7 @@ async function ensureGeminiTabReady(tab, timeoutMs = 30000) {
   }
   log("INJECT", { code: "START", tabId: tab.id, url: tab.url });
   let injectionSucceeded = false;
-  while (Date.now() < deadline) {
+  for (let attempt = 0; attempt < 2 && Date.now() < deadline; attempt += 1) {
     try {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
       injectionSucceeded = true;
@@ -209,12 +212,20 @@ async function ensureGeminiTabReady(tab, timeoutMs = 30000) {
       if (mapped) throw mapped;
       lastError = error;
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (injectionSucceeded) break;
+    if (!injectionSucceeded && attempt === 0) await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  while (Date.now() < deadline) {
+    if (await pingGemini(tab.id)) {
+      log("INJECT", { code: "READY", tabId: tab.id, url: tab.url });
+      return { tab, injected: true, permissionDiagnostics };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   const code = injectionSucceeded ? "CONTENT_SCRIPT_UNAVAILABLE" : "TAB_LOAD_TIMEOUT";
   const message = injectionSucceeded
     ? "Đã inject content.js nhưng tab không phản hồi ping. Hãy kiểm tra log của Gemini Companion."
-    : "Không thể inject content.js vào Gemini trong 30 giây.";
+    : "Gemini chưa sẵn sàng trong thời hạn kiểm tra.";
   throw companionError(code, message, { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics, rawError: String(lastError?.message || lastError || ""), cause: lastError });
 }
 
@@ -230,26 +241,39 @@ async function healthCheck() {
     browser: { ok: false, code: "HOST_PERMISSION_MISSING", host: GEMINI_PERMISSION },
     gemini: { ok: false, code: "TAB_NOT_FOUND", checks: {} },
   };
-  try {
-    const appTab = await activeAppTab();
-    await pageRequest(appTab.id, "/api/gemini-extension/status", "GET", undefined, 4000);
-    result.backend = { ok: true, code: "CONNECTED", url: new URL(appTab.url).origin };
-  } catch (error) {
-    result.backend = { ok: false, code: error.code || "BACKEND_UNAVAILABLE", message: error.message };
-  }
-  try {
-    const { tab, injected, permissionDiagnostics } = await ensureGeminiTab(7500);
-    const dom = await withTimeout(
-      chrome.tabs.sendMessage(tab.id, { type: "health-check" }),
-      1500, "GEMINI_CHECK_TIMEOUT", "Tab Gemini không phản hồi kiểm tra trong 1,5 giây.",
-    );
-    result.browser = { ok: true, code: "CONNECTED", host: GEMINI_PERMISSION, injected, diagnostics: permissionDiagnostics };
-    result.gemini = { ...dom, tabId: tab.id, url: tab.url };
-  } catch (error) {
-    const code = error.code || "CONTENT_SCRIPT_UNAVAILABLE";
-    result.browser = { ok: !["HOST_PERMISSION_MISSING", "HOST_PERMISSION_REQUIRED"].includes(code), code, host: GEMINI_PERMISSION, diagnostics: error.diagnostics };
-    result.gemini = { ok: false, code, message: error.message, rawError: error.rawError, tabId: error.tabId, url: error.url };
-  }
+  const backendCheck = (async () => {
+    try {
+      const appTab = await activeAppTab();
+      await pageRequest(appTab.id, "/api/gemini-extension/status", "GET", undefined, 4000);
+      result.backend = { ok: true, code: "CONNECTED", url: new URL(appTab.url).origin };
+    } catch (error) {
+      result.backend = { ok: false, code: error.code || "BACKEND_UNAVAILABLE", message: error.message };
+    }
+  })();
+  const geminiCheck = (async () => {
+    try {
+      const { tab, injected, permissionDiagnostics } = await ensureGeminiTab(6500);
+      const dom = await withTimeout(
+        chrome.tabs.sendMessage(tab.id, { type: "health-check" }),
+        1500, "GEMINI_CHECK_TIMEOUT", "Tab Gemini không phản hồi kiểm tra trong 1,5 giây.",
+      );
+      result.browser = { ok: true, code: "CONNECTED", host: GEMINI_PERMISSION, injected, diagnostics: permissionDiagnostics };
+      result.gemini = { ...dom, tabId: tab.id, url: tab.url };
+    } catch (error) {
+      const code = error.code || "CONTENT_SCRIPT_UNAVAILABLE";
+      result.browser = { ok: !["HOST_PERMISSION_MISSING", "HOST_PERMISSION_REQUIRED"].includes(code), code, host: GEMINI_PERMISSION, diagnostics: error.diagnostics };
+      result.gemini = { ok: false, code, message: error.message, rawError: error.rawError, tabId: error.tabId, url: error.url, checks: {} };
+    }
+  })();
+  await Promise.all([
+    withTimeout(backendCheck, 5000, "BACKEND_CHECK_TIMEOUT", "Backend không phản hồi trong 5 giây.").catch((error) => {
+      result.backend = { ok: false, code: error.code, message: error.message };
+    }),
+    withTimeout(geminiCheck, 8500, "GEMINI_CHECK_TIMEOUT", "Tab Gemini không phản hồi trong 8,5 giây.").catch((error) => {
+      result.browser = { ok: false, code: error.code, host: GEMINI_PERMISSION };
+      result.gemini = { ok: false, code: error.code, message: error.message, checks: {} };
+    }),
+  ]);
   result.ok = result.backend.ok && result.browser.ok && result.gemini.ok;
   if (!result.ok) result.code = [result.backend, result.browser, result.gemini].find((item) => !item.ok)?.code || "UI_CHANGED";
   log("HEALTH", { code: result.code, ok: result.ok, tabId: result.gemini.tabId, url: result.gemini.url, result });
