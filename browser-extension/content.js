@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.33";
+const CONTENT_SCRIPT_VERSION = "1.0.34";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -27,7 +27,7 @@ const GeminiSelectors = {
   },
   send: () => {
     const buttons = GeminiSelectors.buttons();
-    const isExcluded = (node) => /feedback|stop|dừng|ngừng|microphone|mic|attach|upload|menu|share|voice/i.test(buttonText(node));
+    const isExcluded = (node) => /feedback|stop|dừng|ngừng|microphone|mic|attach|upload|menu|share|voice|model|flash|thinking|reasoning/i.test(buttonText(node));
     const labelled = buttons.find((node) => {
     const label = buttonText(node);
     const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
@@ -46,7 +46,7 @@ const GeminiSelectors = {
         const rect = node.getBoundingClientRect?.();
         if (!rect) return false;
         const verticalGap = Math.max(0, rect.top - boxRect.bottom, boxRect.top - rect.bottom);
-        return verticalGap <= 120 && rect.right >= boxRect.left + boxRect.width * 0.5;
+        return verticalGap <= 32 && rect.left >= boxRect.left + boxRect.width * 0.6 && rect.right <= boxRect.right + 24;
       });
       if (related.length) return related.sort((left, right) => right.getBoundingClientRect().right - left.getBoundingClientRect().right)[0];
     }
@@ -253,10 +253,23 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   await waitForComposerText(box, prompt);
   onProgress("Gemini đã nhận đủ nội dung prompt; đang chuẩn bị gửi.");
   let send = null;
-  try { send = await waitForUsableSendButton(5000); }
+  try { send = await waitForUsableSendButton(2000); }
   catch (error) {
     if (error.code !== "GEMINI_SEND_BUTTON_NOT_FOUND") throw error;
     onProgress("Nút Gửi chưa xuất hiện; đang thử gửi prompt bằng Enter trong ô Gemini.");
+  }
+  // Gemini can rerender its editor while the send control appears. Never submit an
+  // empty/stale editor: restore the exact prompt once and re-resolve the control.
+  if (!composerTextMatches(box, prompt)) {
+    log("PROMPT_RESTORED", { code: "EDITOR_CONTENT_LOST", chars: prompt.length, url: location.href });
+    onProgress("Ô nhập Gemini vừa làm mất prompt; đang nhập lại đầy đủ trước khi gửi.");
+    writePromptToComposer(box, prompt);
+    await waitForComposerText(box, prompt);
+    try { send = await waitForUsableSendButton(2000); }
+    catch (error) {
+      if (error.code !== "GEMINI_SEND_BUTTON_NOT_FOUND") throw error;
+      send = null;
+    }
   }
 
   return new Promise((resolve, reject) => {
@@ -321,7 +334,16 @@ async function submitPrompt(prompt, onProgress = () => {}) {
     };
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
     startTimer = setTimeout(() => {
-      if (!sawAccepted) finish(Object.assign(new Error("Gemini chưa xác nhận đã nhận prompt. Kiểm tra cuộc trò chuyện Gemini trước khi thử lại."), { code: "PROMPT_NOT_ACCEPTED", reason: "transient" }));
+      if (!sawAccepted) {
+        const currentComposer = composer();
+        const retained = !!currentComposer && composerTextMatches(currentComposer, prompt);
+        const details = { code: "PROMPT_NOT_ACCEPTED", method: send ? "button" : "enter", composerChars: composerText(currentComposer || {}).length, retained, userMessageCount: GeminiSelectors.userMessages().length, responseCount: responseNodes().length, generating: stopVisible(), url: location.href };
+        log("SUBMIT_NOT_ACCEPTED", details);
+        const message = retained
+          ? "Gemini vẫn giữ prompt trong ô nhập nhưng chưa nhận được; chưa tạo cuộc trò chuyện. Hãy kiểm tra tab Gemini trước khi thử lại."
+          : "Gemini chưa tạo tin nhắn/cuộc trò chuyện sau khi gửi; prompt không còn trong ô nhập. Hãy kiểm tra tab Gemini trước khi thử lại.";
+        finish(Object.assign(new Error(message), { code: "PROMPT_NOT_ACCEPTED", reason: "transient" }));
+      }
     }, 15000);
     if (send) send.click();
     else {
