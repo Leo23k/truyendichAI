@@ -157,7 +157,7 @@ def cancel_translation_job_route(job_id: str, request: Request) -> RedirectRespo
 @router.post("/jobs/translations/batches/{batch_id}/{action}")
 def control_translation_batch(batch_id: str, action: str, request: Request) -> dict:
     require_admin(request)
-    if action not in {"pause", "resume", "retry"}:
+    if action not in {"pause", "resume", "retry", "cancel"}:
         raise HTTPException(status_code=404, detail="Thao tác batch không hợp lệ.")
     remote = SupabaseSync()
     batches = remote.rows("batch_translation_jobs", {"select": "id", "id": f"eq.{batch_id}", "limit": "1"})
@@ -167,7 +167,30 @@ def control_translation_batch(batch_id: str, action: str, request: Request) -> d
         updated = remote.patch_rows("translation_queue", {"batch_job_id": f"eq.{batch_id}", "status": "eq.queued"}, {"status": "paused", "updated_at": datetime.now(timezone.utc).isoformat()})
     elif action == "resume":
         updated = remote.patch_rows("translation_queue", {"batch_job_id": f"eq.{batch_id}", "status": "in.(paused,paused_quota,paused_manual,backoff)"}, {"status": "queued", "error_code": None, "error_message": None, "updated_at": datetime.now(timezone.utc).isoformat()})
-    else:
+    elif action == "retry":
         updated = remote.patch_rows("translation_queue", {"batch_job_id": f"eq.{batch_id}", "status": "eq.failed"}, {"status": "queued", "error_code": None, "error_message": None, "updated_at": datetime.now(timezone.utc).isoformat()})
+    else:
+        updated = remote.patch_rows("translation_queue", {
+            "batch_job_id": f"eq.{batch_id}",
+            "status": "in.(queued,translating,paused,paused_quota,paused_manual,backoff,review_required,failed)",
+        }, {"status": "cancelled", "error_code": None, "error_message": None, "updated_at": datetime.now(timezone.utc).isoformat()})
+        remote.patch_rows("batch_translation_jobs", {"id": f"eq.{batch_id}"}, {"status": "cancelled", "updated_at": datetime.now(timezone.utc).isoformat()})
+        return {"updated": len(updated), "status": action}
     refresh_batch_progress(remote, batch_id)
     return {"updated": len(updated), "status": action}
+
+
+@router.post("/jobs/translations/clear-all")
+def clear_translation_queue(request: Request) -> dict:
+    require_admin(request)
+    remote = SupabaseSync()
+    now = datetime.now(timezone.utc).isoformat()
+    active_statuses = "in.(queued,translating,paused,paused_quota,paused_manual,backoff,review_required,failed)"
+    jobs = remote.all_rows("translation_queue", {"select": "id,batch_job_id", "status": active_statuses})
+    updated = remote.patch_rows("translation_queue", {"status": active_statuses}, {
+        "status": "cancelled", "error_code": None, "error_message": None, "updated_at": now,
+    })
+    batch_ids = {str(job["batch_job_id"]) for job in jobs if job.get("batch_job_id")}
+    for batch_id in batch_ids:
+        remote.patch_rows("batch_translation_jobs", {"id": f"eq.{batch_id}"}, {"status": "cancelled", "updated_at": now})
+    return {"jobs_cancelled": len(updated), "batches_cancelled": len(batch_ids)}

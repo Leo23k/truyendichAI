@@ -897,7 +897,7 @@ def _translation_queue_cards() -> list[dict]:
 
 def _translation_batch_cards() -> list[dict]:
     remote = SupabaseSync()
-    batches = remote.rows("batch_translation_jobs", {"select": "id,novel_id,from_chapter,to_chapter,total,completed,failed,status,created_at,updated_at", "order": "created_at.desc", "limit": "20"})
+    batches = remote.rows("batch_translation_jobs", {"select": "id,novel_id,from_chapter,to_chapter,total,completed,failed,status,created_at,updated_at", "status": "not.eq.cancelled", "order": "created_at.desc", "limit": "20"})
     if not batches:
         return []
     novel_ids = sorted({int(batch["novel_id"]) for batch in batches})
