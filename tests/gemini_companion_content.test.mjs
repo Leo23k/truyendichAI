@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.27");
+  assert.equal(manifest.version, "1.0.28");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -98,6 +98,7 @@ test("Gemini health check does not require send or new-chat buttons before a job
     runtime: {
       sendMessage: () => Promise.resolve(),
       onMessage: { addListener: (listener) => { onMessage = listener; } },
+      onConnect: { addListener() {} },
     },
   };
   const context = {
@@ -130,7 +131,7 @@ test("unrelated Stop controls do not block a Gemini job", () => {
     querySelectorAll: (selector) => selector.startsWith('[role="textbox"]') ? [composer] : selector.startsWith("button") ? [stopSharing] : [],
     querySelector: () => ({}),
   };
-  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: (listener) => { onMessage = listener; } } } };
+  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: (listener) => { onMessage = listener; } }, onConnect: { addListener() {} } } };
   vm.runInNewContext(contentScript, { globalThis: {}, document, chrome, location: { href: "https://gemini.google.com/app" }, console: { info() {} }, MutationObserver: class {}, setTimeout, clearTimeout });
   let result;
   onMessage({ type: "health-check" }, {}, (value) => { result = value; });
@@ -140,10 +141,10 @@ test("unrelated Stop controls do not block a Gemini job", () => {
 test("a busy conversation retries in a fresh tab only before submitting this job", () => {
   assert.match(serviceWorker, /result\?\.code === "GENERATION_IN_PROGRESS" && result\.submittedPrompts === 0/);
   assert.match(serviceWorker, /const fresh = await openGeminiTab\(\)/);
-  assert.match(contentScript, /activeJobSubmissions \+= 1;\s*send\.click\(\)/);
+  assert.match(contentScript, /send\.click\(\);\s*activeJobSubmissions \+= 1;/);
 });
 
-test("Gemini waits for an active previous response to finish before submitting", async () => {
+test("Gemini waits briefly for an old response, then retries in a fresh tab", async () => {
   let stopVisible = true;
   let onMutation;
   const stopButton = {
@@ -154,7 +155,7 @@ test("Gemini waits for an active previous response to finish before submitting",
     body: { innerText: "Gemini" }, querySelector: () => null,
     querySelectorAll: (selector) => selector.startsWith("button") ? (stopVisible ? [stopButton] : []) : [],
   };
-  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} } } };
+  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } };
   const context = {
     globalThis: {}, document, chrome, location: { href: "https://gemini.google.com/app" },
     console: { info() {} }, setTimeout, clearTimeout,
@@ -166,7 +167,11 @@ test("Gemini waits for an active previous response to finish before submitting",
   stopVisible = false;
   onMutation();
   await waiting;
-  assert.match(contentScript, /await waitForGenerationIdle\(\)/);
+  stopVisible = true;
+  await assert.rejects(context.globalThis.__waitIdle(0), (error) => error.code === "GENERATION_IN_PROGRESS" && error.reason === "transient");
+  assert.match(contentScript, /PRIOR_GENERATION_TIMEOUT_MS = 10000/);
+  assert.match(serviceWorker, /result\?\.code === "GENERATION_IN_PROGRESS" && result\.submittedPrompts === 0/);
+  assert.match(contentScript, /await waitForGenerationIdle\(undefined, onProgress\)/);
 });
 
 test("Gemini contenteditable input uses the native edit command and waits for the full prompt", () => {
@@ -184,7 +189,7 @@ test("Gemini contenteditable receives the complete prompt through native inserti
     querySelectorAll: () => [], querySelector: () => null, body: { innerText: "Gemini" },
     createRange: () => ({ selectNodeContents() {} }), execCommand: (_command, _ui, value) => { box.innerText = value; return true; },
   };
-  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} } } };
+  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } };
   const context = {
     globalThis: {}, document, chrome, window: { getSelection: () => selection }, location: { href: "https://gemini.google.com/app" },
     HTMLTextAreaElement: class {}, HTMLInputElement: class {}, InputEvent: class {}, MutationObserver: class {},
@@ -198,7 +203,7 @@ test("Gemini contenteditable receives the complete prompt through native inserti
 
 test("an accessible page with no composer is not mislabeled as logged out", () => {
   let onMessage;
-  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: (listener) => { onMessage = listener; } } } };
+  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: (listener) => { onMessage = listener; } }, onConnect: { addListener() {} } } };
   const document = { body: { innerText: "Gemini", getClientRects: () => [{}] }, querySelectorAll: () => [], querySelector: () => null };
   const context = { globalThis: {}, document, chrome, location: { href: "https://gemini.google.com/app" }, console: { info() {} }, MutationObserver: class {}, setTimeout, clearTimeout };
   vm.runInNewContext(contentScript, context);
@@ -213,7 +218,7 @@ test("an accessible page with no composer is not mislabeled as logged out", () =
 
 test("login is required only when the page shows a login prompt", () => {
   let onMessage;
-  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: (listener) => { onMessage = listener; } } } };
+  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: (listener) => { onMessage = listener; } }, onConnect: { addListener() {} } } };
   const document = { body: { innerText: "Sign in to continue", getClientRects: () => [{}] }, querySelectorAll: () => [], querySelector: () => null };
   const context = { globalThis: {}, document, chrome, location: { href: "https://gemini.google.com/app" }, console: { info() {} }, MutationObserver: class {}, setTimeout, clearTimeout };
   vm.runInNewContext(contentScript, context);

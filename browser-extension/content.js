@@ -13,6 +13,7 @@ const buttonText = (button) => [
 ].filter(Boolean).join(" ").toLowerCase();
 const visible = (node) => node?.getClientRects().length > 0;
 const MAX_CHAPTERS_PER_CONVERSATION = 10;
+const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
 const GeminiSelectors = {
   composer: () => [...document.querySelectorAll('[role="textbox"], textarea, [contenteditable="true"]')].filter(visible).at(-1),
@@ -65,8 +66,9 @@ function stopVisible() {
   return GeminiSelectors.stop();
 }
 
-function waitForGenerationIdle(timeoutMs = 240000) {
+function waitForGenerationIdle(timeoutMs = PRIOR_GENERATION_TIMEOUT_MS, onProgress = () => {}) {
   if (!stopVisible()) return Promise.resolve();
+  onProgress("Gemini còn đang tạo phản hồi trước. Đang chờ tối đa 10 giây; nếu chưa xong sẽ chuyển sang tab mới.");
   return new Promise((resolve, reject) => {
     let timer;
     const observer = new MutationObserver(check);
@@ -81,7 +83,7 @@ function waitForGenerationIdle(timeoutMs = 240000) {
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
     timer = setTimeout(() => finish(Object.assign(
       new Error("Gemini vẫn đang tạo phản hồi trước đó. Hãy chờ phản hồi hoàn tất rồi tiếp tục job."),
-      { code: "GENERATION_BUSY_TIMEOUT", reason: "manual" },
+      { code: "GENERATION_IN_PROGRESS", reason: "transient" },
     )), timeoutMs);
     check();
   });
@@ -192,21 +194,23 @@ function writePromptToComposer(box, prompt) {
   }
 }
 
-async function submitPrompt(prompt) {
+async function submitPrompt(prompt, onProgress = () => {}) {
   const blocked = classifyPage();
   if (blocked) throw Object.assign(new Error(blocked.message), blocked);
   const box = composer();
   if (!box) throw Object.assign(new Error("Không nhận diện được ô nhập Gemini; có thể UI đã thay đổi."), { code: "GEMINI_COMPOSER_NOT_FOUND", reason: "ui_changed" });
-  await waitForGenerationIdle();
+  await waitForGenerationIdle(undefined, onProgress);
   const before = responseNodes().length;
   const previousOutput = responseNodes().at(-1)?.innerText?.trim() || "";
   writePromptToComposer(box, prompt);
   await waitForComposerText(box, prompt);
+  onProgress("Gemini đã nhận đủ nội dung prompt; đang chuẩn bị gửi.");
   const send = await waitForUsableSendButton();
 
   return new Promise((resolve, reject) => {
     let sawGenerating = false;
     let sawStopButton = false;
+    let reportedGenerating = false;
     let quietTimer;
     let readTimer;
     let startTimer;
@@ -214,6 +218,7 @@ async function submitPrompt(prompt) {
     const finishStable = (output) => {
       if (output === previousOutput) return finish(Object.assign(new Error("Gemini trả lại đúng phản hồi cũ; job đã pause để tránh lưu trùng."), { code: "DUPLICATE_RESPONSE", reason: "manual" }));
       log("RESPONSE", { code: "EXTRACTED", chars: output.length, url: location.href });
+      onProgress(`Gemini đã trả phản hồi (${output.length} ký tự); đang kiểm tra nội dung.`);
       finish(null, output);
     };
     const observer = new MutationObserver(() => {
@@ -225,6 +230,10 @@ async function submitPrompt(prompt) {
       if (generating || nodes.length > before) {
         sawGenerating = true;
         clearTimeout(startTimer);
+        if (!reportedGenerating) {
+          reportedGenerating = true;
+          onProgress("Gemini đã nhận prompt và đang tạo phản hồi.");
+        }
       }
       if (generating) sawStopButton = true;
       const composerNode = composer();
@@ -248,9 +257,10 @@ async function submitPrompt(prompt) {
     startTimer = setTimeout(() => {
       if (!sawGenerating) finish(Object.assign(new Error("Gemini chưa bắt đầu tạo phản hồi sau khi gửi prompt."), { code: "GENERATION_NOT_STARTED", reason: "transient" }));
     }, 15000);
-    log("SUBMIT", { code: "SENT", chars: prompt.length, url: location.href });
-    activeJobSubmissions += 1;
     send.click();
+    activeJobSubmissions += 1;
+    log("SUBMIT", { code: "SENT", chars: prompt.length, url: location.href });
+    onProgress(`Đã bấm Gửi (${prompt.length} ký tự); đang chờ Gemini bắt đầu phản hồi.`);
   });
 }
 
@@ -291,11 +301,12 @@ function fallbackChunks(text, maxSize = 1800) {
   return { chunks, joiners };
 }
 
-async function translateWholeChapter(job) {
+async function translateWholeChapter(job, onProgress = () => {}) {
   let whole = "";
   let issue = null;
   try {
-    whole = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.content)));
+    onProgress(`Đang gửi toàn chương (${job.content.length} ký tự) lên Gemini.`, 0, 0);
+    whole = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.content), onProgress));
     issue = translationIssue(job.content, whole, job.prompt_snapshot);
   } catch (error) {
     if (error.reason !== "too_long") throw error;
@@ -305,12 +316,15 @@ async function translateWholeChapter(job) {
 
   const { chunks, joiners } = fallbackChunks(job.content);
   if (chunks.length < 2) throw Object.assign(new Error(`Phản hồi Gemini không đạt kiểm tra (${issue}); không thể chia chương an toàn.`), { reason: "manual" });
+  onProgress(`Phản hồi toàn chương chưa đạt kiểm tra; chuyển sang ${chunks.length} đoạn.`, 0, chunks.length);
   const translated = [];
-  for (const chunk of chunks) {
-    const result = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", chunk)));
+  for (const [index, chunk] of chunks.entries()) {
+    onProgress(`Đang gửi đoạn ${index + 1}/${chunks.length} (${chunk.length} ký tự) lên Gemini.`, index, chunks.length);
+    const result = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", chunk), onProgress));
     const chunkIssue = translationIssue(chunk, result, job.prompt_snapshot);
     if (chunkIssue) throw Object.assign(new Error(`Gemini trả chunk không hợp lệ (${chunkIssue}); job đã pause để kiểm tra.`), { reason: "manual" });
     translated.push(result);
+    onProgress(`Đã nhận và kiểm tra đoạn ${index + 1}/${chunks.length}.`, index + 1, chunks.length);
   }
   const result = translated.map((part, index) => index ? `${joiners[index - 1] || " "}${part}` : part).join("");
   const finalIssue = translationIssue(job.content, result, job.prompt_snapshot);
@@ -318,26 +332,31 @@ async function translateWholeChapter(job) {
   return result;
 }
 
-async function runTranslationJob(job, tabId) {
+async function runTranslationJob(job, tabId, onProgress = () => {}) {
   activeJobSubmissions = 0;
+  onProgress("Đang chuẩn bị cuộc trò chuyện Gemini.", 0, 0);
   await startNewConversation(tabId);
-  const translatedContent = await translateWholeChapter(job);
+  const translatedContent = await translateWholeChapter(job, onProgress);
   const titlePrompt = job.prompt_snapshot.replace("{{text}}", job.title);
-  const translatedTitle = cleanResult(await submitPrompt(titlePrompt));
+  onProgress("Đang dịch tiêu đề chương.", 0, 0);
+  const translatedTitle = cleanResult(await submitPrompt(titlePrompt, onProgress));
   if (!translatedTitle || translatedTitle === job.title) {
     throw Object.assign(new Error("Tên chương chưa được dịch; job đã pause để kiểm tra."), { reason: "manual" });
   }
   const translation = { translated_title: translatedTitle, translated_content: translatedContent };
   if (job.metadata) {
-    translation.translated_novel_title = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.title)));
+    onProgress("Đang dịch tên truyện.", 0, 0);
+    translation.translated_novel_title = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.title), onProgress));
     if (!translation.translated_novel_title || translation.translated_novel_title === job.metadata.title) throw Object.assign(new Error("Tên truyện chưa được dịch."), { reason: "manual" });
     if (job.metadata.author) {
-      translation.translated_author = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.author)));
+      onProgress("Đang dịch tên tác giả.", 0, 0);
+      translation.translated_author = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.metadata.author), onProgress));
       if (!translation.translated_author || translation.translated_author === job.metadata.author) throw Object.assign(new Error("Tên tác giả chưa được dịch."), { reason: "manual" });
     }
-    if (job.metadata.description) translation.translated_description = await translateWholeChapter({ content: job.metadata.description, prompt_snapshot: job.prompt_snapshot });
+    if (job.metadata.description) translation.translated_description = await translateWholeChapter({ content: job.metadata.description, prompt_snapshot: job.prompt_snapshot }, onProgress);
   }
   if (tabId != null) await recordConversationChapter(tabId);
+  onProgress("Đã nhận đủ bản dịch từ Gemini; đang gửi về website để lưu.");
   return translation;
 }
 
@@ -353,7 +372,9 @@ chrome.runtime.onConnect.addListener((port) => {
     started = true;
     const tabId = message.tabId ?? port.sender?.tab?.id;
     // Port messages keep the MV3 worker alive while Gemini handles long prompts.
-    runTranslationJob(message.job, tabId).then((translation) => {
+    runTranslationJob(message.job, tabId, (text, currentChunk = 0, totalChunks = 0) => {
+      try { port.postMessage({ type: "progress", message: text, currentChunk, totalChunks }); } catch {}
+    }).then((translation) => {
       try { port.postMessage({ type: "result", result: { ok: true, translation } }); } catch {}
     }).catch((error) => {
       log("ERROR", { code: error.code || "TRANSLATION_ERROR", message: String(error.message || error), url: location.href });
