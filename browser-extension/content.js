@@ -1,4 +1,6 @@
 (() => {
+if (globalThis.__leoGeminiCompanionLoaded) return;
+globalThis.__leoGeminiCompanionLoaded = true;
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => `${button.getAttribute("aria-label") || ""} ${button.innerText || ""} ${button.title || ""}`.toLowerCase();
 const visible = (node) => node?.getClientRects().length > 0;
