@@ -18,7 +18,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.15");
+  assert.equal(manifest.version, "1.0.16");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 12000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -26,8 +26,8 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
   assert.match(serviceWorker, /GEMINI_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /ensureGeminiTab\(9500\)/);
   assert.match(serviceWorker, /geminiCheck, 11000, "GEMINI_CHECK_TIMEOUT"/);
-  assert.match(serviceWorker, /status", "GET", undefined, 5000/);
-  assert.match(serviceWorker, /BACKEND_CONNECT_TIMEOUT/);
+  assert.match(serviceWorker, /status", "GET", undefined, 4000/);
+  assert.doesNotMatch(serviceWorker.slice(serviceWorker.indexOf('if (message.type === "connect-app")'), serviceWorker.indexOf('if (message.type === "disconnect-app")')), /\/api\/gemini-extension\/status/);
   assert.match(serviceWorker, /CONNECTION_STATUS_TIMEOUT/);
   assert.ok(serviceWorker.indexOf('sendResponse({ ok: true, origin: appOrigin })') < serviceWorker.indexOf('setSiteConnection(tab.id, "Companion đã kết nối với website này.", true)'));
   assert.match(popupScript, /MESSAGE_TIMEOUT_MS = 14000/);
@@ -117,13 +117,15 @@ test("login is required only when the page shows a login prompt", () => {
 function loadServiceWorker({ runtimeGranted = true, injectError = null, backendTimeout = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null } = {}) {
   let contentScriptReady = false;
   let injections = 0;
+  const apiRequests = [];
+  const storageState = { appTabId: 2 };
   const geminiTab = { id: 1, url: tabUrl, status: tabStatus };
   const appTab = { id: 2, url: "https://leotruyen.vercel.app/truyen/test" };
   const listeners = {};
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.15", host_permissions: ["https://leotruyen.vercel.app/*"], optional_host_permissions: manifestDeclared ? ["https://gemini.google.com/*"] : [] }),
+      getManifest: () => ({ version: "1.0.16", host_permissions: ["https://leotruyen.vercel.app/*"], optional_host_permissions: manifestDeclared ? ["https://gemini.google.com/*"] : [] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -131,7 +133,7 @@ function loadServiceWorker({ runtimeGranted = true, injectError = null, backendT
     },
     alarms: { get: async () => ({ name: "gemini-companion-poll" }), create: async () => {}, onAlarm: { addListener: () => {} } },
     sidePanel: { setPanelBehavior: async () => {} },
-    storage: { local: { get: async (key) => key === "appTabId" ? { appTabId: 2 } : {}, set: async () => {}, remove: async () => {} } },
+    storage: { local: { get: async (key) => key === "appTabId" ? { appTabId: storageState.appTabId } : {}, set: async (value) => Object.assign(storageState, value), remove: async () => {} } },
     tabs: {
       get: async (id) => id === 1 ? geminiTab : appTab,
       query: async () => [geminiTab],
@@ -152,13 +154,14 @@ function loadServiceWorker({ runtimeGranted = true, injectError = null, backendT
       getAll: async () => ({ origins: runtimeGranted ? ["https://gemini.google.com/*"] : [] }),
     },
     scripting: {
-      executeScript: async ({ target, files }) => {
+      executeScript: async ({ target, files, args }) => {
         if (files?.includes("content.js")) {
           injections += 1;
           if (injectError) throw injectError;
           contentScriptReady = true;
           return [];
         }
+        if (args?.[0]?.path) apiRequests.push(args[0].path);
         if (target.tabId === 2 && backendTimeout) return new Promise(() => {});
         return [{ result: { ok: true } }];
       },
@@ -166,8 +169,19 @@ function loadServiceWorker({ runtimeGranted = true, injectError = null, backendT
   };
   const context = { chrome, console: { info() {} }, URL, Date, Promise, Error, Object, String, Array, Math, JSON, setTimeout, clearTimeout };
   vm.runInNewContext(`${serviceWorker}\nglobalThis.__test = { ensureGeminiTabReady, healthCheck };`, context);
-  return { api: context.__test, geminiTab, get injections() { return injections; } };
+  return { api: context.__test, geminiTab, listeners, apiRequests, storageState, get injections() { return injections; } };
 }
+
+test("connecting the website tab does not wait for the remote queue status API", async () => {
+  const worker = loadServiceWorker();
+  const response = await new Promise((resolve) => {
+    worker.listeners.message({ type: "connect-app", tab: { id: 2, url: "https://leotruyen.vercel.app/truyen/test" } }, {}, resolve);
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(worker.storageState.appTabId, 2);
+  assert.ok(!worker.apiRequests.includes("/api/gemini-extension/status"));
+});
 
 test("missing runtime permission stops before ping or injection", async () => {
   const worker = loadServiceWorker({ runtimeGranted: false });

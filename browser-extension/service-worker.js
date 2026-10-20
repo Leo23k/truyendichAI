@@ -346,10 +346,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!tab?.id || !tab.url?.startsWith("http")) throw new Error("Mở website Leo Truyện trước khi kết nối.");
       const appOrigin = new URL(tab.url).origin;
       if (!["https://leotruyen.vercel.app", "http://127.0.0.1:8000", "http://localhost:8000"].includes(appOrigin)) throw companionError("UNSUPPORTED_APP_HOST", "Chỉ hỗ trợ Leo Truyện production hoặc localhost:8000.", { tabId: tab.id, url: tab.url });
-      await withTimeout(
-        pageRequest(tab.id, "/api/gemini-extension/status", "GET", undefined, 5000),
-        6000, "BACKEND_CONNECT_TIMEOUT", "Website không phản hồi trong 6 giây. Hãy tải lại Leo Truyện rồi thử lại.",
-      );
       await chrome.storage.local.set({ appTabId: tab.id, appOrigin, lastError: "" });
       sendResponse({ ok: true, origin: appOrigin });
       void withTimeout(
