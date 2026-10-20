@@ -148,6 +148,18 @@ class GeminiWebProvider:
         subprocess.Popen([str(chrome), f"--user-data-dir={profile}", "https://gemini.google.com/app"])
         return profile.name
 
+    @classmethod
+    def logout(cls, name: str) -> None:
+        profile = cls.profile_dir(name)
+        profile.mkdir(parents=True, exist_ok=True)
+        chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+        if not chrome.exists():
+            raise ProviderUnavailableError("Không tìm thấy Google Chrome trên máy này.")
+        subprocess.Popen([
+            str(chrome), f"--user-data-dir={profile}",
+            "https://accounts.google.com/Logout?continue=https%3A%2F%2Fgemini.google.com%2Fapp",
+        ])
+
     def translate_batch(
         self,
         texts: list[str],

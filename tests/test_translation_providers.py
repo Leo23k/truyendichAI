@@ -120,7 +120,8 @@ def test_gemini_web_login_route_opens_profile_and_returns_feedback(monkeypatch) 
     )
 
     assert response.status_code == 200
-    assert "Đã mở Chrome profile default" in response.text
+    assert "Đã mở Gemini Web trong Chrome" in response.text
+    assert "đăng nhập tài khoản Google" in response.text
     assert opened == ["default"]
 
 
@@ -140,6 +141,26 @@ def test_gemini_web_login_route_returns_actionable_error(monkeypatch) -> None:
 
     assert response.status_code == 400
     assert "Không tìm thấy Google Chrome." in response.text
+
+
+def test_gemini_web_logout_route_opens_google_logout(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+    from app import main
+
+    logged_out: list[str] = []
+    monkeypatch.setattr(main, "user_from_token", lambda token: SimpleNamespace(role="admin") if token else None)
+    monkeypatch.setattr(main.GeminiWebProvider, "logout", classmethod(lambda _cls, name: logged_out.append(name)))
+
+    response = TestClient(main.app).post(
+        "/translation/providers/gemini-web/logout", data={"name": "default"},
+        cookies={"sb-access-token": "test"},
+    )
+
+    assert response.status_code == 200
+    assert "đăng xuất khỏi Gemini Web" in response.text
+    assert logged_out == ["default"]
 
 
 @pytest.mark.parametrize(("title", "expected"), [

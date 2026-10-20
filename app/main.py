@@ -1241,15 +1241,31 @@ def translation_provider_status():
 
 @app.post("/translation/providers/gemini-web/open")
 def open_gemini_web_profile(request: Request, name: str = Form(...)):
+    require_admin(request)
     try:
-        profile_name = GeminiWebProvider.open_profile(name)
+        GeminiWebProvider.open_profile(name)
     except (ValueError, RuntimeError) as exc:
         return templates.TemplateResponse(
             request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400,
         )
     return templates.TemplateResponse(
         request=request, name="partials/message.html",
-        context={"message": f"Đã mở Chrome profile {profile_name}. Đăng nhập Google thủ công rồi đóng cửa sổ để worker sử dụng phiên.", "error": False},
+        context={"message": "Đã mở Gemini Web trong Chrome. Hãy đăng nhập tài khoản Google trong cửa sổ này nếu được yêu cầu; phiên sẽ được lưu để dùng lần sau.", "error": False},
+    )
+
+
+@app.post("/translation/providers/gemini-web/logout")
+def logout_gemini_web(request: Request, name: str = Form(...)):
+    require_admin(request)
+    try:
+        GeminiWebProvider.logout(name)
+    except (ValueError, RuntimeError) as exc:
+        return templates.TemplateResponse(
+            request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400,
+        )
+    return templates.TemplateResponse(
+        request=request, name="partials/message.html",
+        context={"message": "Đã mở Google để đăng xuất khỏi Gemini Web. Hoàn tất trong cửa sổ Chrome nếu Google yêu cầu.", "error": False},
     )
 
 
