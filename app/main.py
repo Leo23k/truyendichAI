@@ -951,9 +951,10 @@ def _translation_prompt_choice(remote, provider: str, prompt_id: str) -> dict[st
     if provider == "hachimi":
         return {
             "prompt_id": None, "prompt_name": "Hachimi mặc định",
-            "prompt_template": DEFAULT_PROMPT, "is_default": False,
+            "prompt_template": DEFAULT_PROMPT,
         }
-    return resolve_prompt(remote, prompt_id)
+    prompt = resolve_prompt(remote, prompt_id)
+    return {key: prompt[key] for key in ("prompt_id", "prompt_name", "prompt_template")}
 
 
 def _save_gemini_api_key(api_key: str) -> None:

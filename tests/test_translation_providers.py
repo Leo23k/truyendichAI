@@ -122,6 +122,7 @@ def test_hachimi_does_not_require_a_saved_prompt() -> None:
     assert choice["prompt_id"] is None
     assert choice["prompt_name"] == "Hachimi mặc định"
     assert choice["prompt_template"] == providers.DEFAULT_PROMPT
+    assert "is_default" not in choice
 
 
 def test_update_synced_book_accepts_hachimi_without_prompt(monkeypatch) -> None:

@@ -730,5 +730,5 @@ def test_update_synced_book_forwards_selected_provider_and_prompt(monkeypatch) -
     assert captured == {
         "url": "https://example.com/novel", "provider": "gemini_web", "model": "gemini-web",
         "web_profile": "personal", "prompt_id": "prompt-1", "prompt_name": "Style",
-        "prompt_template": "{{text}}", "is_default": False,
+        "prompt_template": "{{text}}",
     }
