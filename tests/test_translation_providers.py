@@ -184,6 +184,28 @@ def test_gemini_web_login_route_returns_actionable_error(monkeypatch) -> None:
     assert "Không tìm thấy Google Chrome." in response.text
 
 
+def test_gemini_web_login_ui_has_direct_link_fallback() -> None:
+    from types import SimpleNamespace
+
+    from app import main
+
+    html = main.templates.get_template("partials/translation_options.html").render(
+        default_provider="hachimi",
+        default_model="hachimi-local",
+        translation_providers=SimpleNamespace(
+            gemini_api_configured=False,
+            gemini_web_default_browser="edge",
+            gemini_web_available=True,
+        ),
+        translation_prompts=[],
+        option_id="test-provider",
+    )
+
+    assert 'id="test-provider-direct-fallback"' in html
+    assert 'href="https://gemini.google.com/app"' in html
+    assert "fallback.hidden=response.ok" in html
+
+
 def test_gemini_web_logout_route_opens_google_logout(monkeypatch) -> None:
     from types import SimpleNamespace
 
