@@ -218,13 +218,20 @@ async function ensureGeminiTabReady(tab, timeoutMs = 30000) {
   }
   log("INJECT", { code: "START", tabId: tab.id, url: tab.url });
   try {
-    const injectTimeoutMs = Math.max(1, Math.min(5000, deadline - Date.now() - 1000));
+    const injectTimeoutMs = Math.max(1, Math.min(7000, deadline - Date.now() - 1000));
     await withTimeout(
       chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] }),
       injectTimeoutMs, "INJECT_TIMEOUT", "Edge mất quá lâu khi nạp content script vào tab Gemini.",
     );
   } catch (error) {
-    if (error.code === "INJECT_TIMEOUT") throw companionError(error.code, error.message, { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics });
+    if (error.code === "INJECT_TIMEOUT") {
+      if (await pingGemini(tab.id)) {
+        permissionDiagnostics.actualAccess = true;
+        log("INJECT", { code: "READY_AFTER_TIMEOUT", tabId: tab.id, url: tab.url });
+        return { tab, injected: true, permissionDiagnostics };
+      }
+      throw companionError(error.code, error.message, { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics });
+    }
     const mapped = await geminiHostAccessError(error, tab.id, tab.url);
     if (mapped) throw mapped;
     const missingFile = /could not load file|file.*not found|cannot find.*content\.js/i.test(String(error?.message || error));

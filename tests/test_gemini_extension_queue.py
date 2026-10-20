@@ -10,6 +10,28 @@ from app.translator import extension_api
 from app.translator.extension_queue import cancel_translation_job, claim_next_extension_job, pause_extension_job, refresh_batch_progress
 
 
+def test_extension_status_probes_one_row_instead_of_scanning_queue(monkeypatch) -> None:
+    class StatusRemote:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, str]]] = []
+
+        def rows(self, table: str, params: dict[str, str]) -> list[dict]:
+            self.calls.append((table, params))
+            return []
+
+        def all_rows(self, *_args, **_kwargs):
+            raise AssertionError("status must not scan the translation queue")
+
+    remote = StatusRemote()
+    monkeypatch.setattr(extension_api, "require_admin", lambda _request: None)
+    monkeypatch.setattr(extension_api, "SupabaseSync", lambda: remote)
+
+    result = extension_api.extension_status(None)
+
+    assert result == {"connected": True, "provider": "gemini_web", "counts": {}}
+    assert remote.calls == [("translation_queue", {"select": "id", "limit": "1"})]
+
+
 class FakeRemote:
     def __init__(self) -> None:
         self.job = {

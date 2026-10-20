@@ -34,14 +34,8 @@ class PauseRequest(BaseModel):
 def extension_status(request: Request) -> dict:
     require_admin(request)
     remote = SupabaseSync()
-    rows = remote.all_rows("translation_queue", {
-        "select": "status", "provider": "eq.gemini_web", "status": "in.(queued,translating,backoff,paused,paused_quota,paused_manual,review_required,completed,failed,cancelled)",
-    })
-    counts: dict[str, int] = {}
-    for row in rows:
-        status = str(row.get("status") or "unknown")
-        counts[status] = counts.get(status, 0) + 1
-    return {"connected": True, "provider": "gemini_web", "counts": counts}
+    remote.rows("translation_queue", {"select": "id", "limit": "1"})
+    return {"connected": True, "provider": "gemini_web", "counts": {}}
 
 
 @router.get("/api/gemini-extension/jobs/next")
