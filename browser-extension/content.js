@@ -148,7 +148,16 @@ function waitForUsableSendButton(timeoutMs = 10000) {
 }
 
 function composerText(box) {
-  return String(box.value ?? box.innerText ?? box.textContent ?? "").replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").trim();
+  return String(box.value ?? box.innerText ?? box.textContent ?? "");
+}
+
+function composerTextMatches(box, prompt) {
+  const normalize = (value) => String(value)
+    .replace(/[\u200b\u200c\u200d\ufeff]/g, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalize(composerText(box)) === normalize(prompt);
 }
 
 function waitForComposerText(box, prompt, timeoutMs = 15000) {
@@ -162,7 +171,7 @@ function waitForComposerText(box, prompt, timeoutMs = 15000) {
       if (error) reject(error); else resolve();
     };
     function check() {
-      if (composerText(box) === prompt.replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").trim()) finish();
+      if (composerTextMatches(box, prompt)) finish();
     }
     observer.observe(box, { subtree: true, childList: true, characterData: true, attributes: true });
     box.addEventListener("input", check);

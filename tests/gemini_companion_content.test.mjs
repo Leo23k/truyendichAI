@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.28");
+  assert.equal(manifest.version, "1.0.29");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -179,6 +179,15 @@ test("Gemini contenteditable input uses the native edit command and waits for th
   assert.match(contentScript, /await waitForComposerText\(box, prompt\)/);
   assert.match(contentScript, /PROMPT_INPUT_MISMATCH/);
   assert.match(contentScript, /box\.replaceChildren\(document\.createTextNode\(prompt\)\)/);
+});
+
+test("Gemini prompt verification tolerates editor whitespace but rejects missing content", () => {
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__matchesPrompt = composerTextMatches;\n})();");
+  const context = { globalThis: {}, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  vm.runInNewContext(instrumented, context);
+
+  assert.equal(context.globalThis.__matchesPrompt({ innerText: "Dịch tự nhiên\n第一章　黎明" }, "Dịch tự nhiên\n\n第一章　黎明"), true);
+  assert.equal(context.globalThis.__matchesPrompt({ innerText: "Dịch tự nhiên\n第一章" }, "Dịch tự nhiên\n\n第一章　黎明"), false);
 });
 
 test("Gemini contenteditable receives the complete prompt through native insertion", () => {
