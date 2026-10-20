@@ -31,6 +31,27 @@ function stopVisible() {
   return [...document.querySelectorAll("button")].some((button) => /stop|dừng|ngừng/.test(buttonText(button)) && button.getClientRects().length);
 }
 
+async function startNewConversation() {
+  if (!responseNodes().length) return;
+  const button = [...document.querySelectorAll("button")]
+    .find((node) => /new chat|new conversation|cuộc trò chuyện mới|tạo cuộc trò chuyện mới/i.test(buttonText(node)) && node.getClientRects().length);
+  if (!button) throw Object.assign(new Error("Không tìm thấy nút tạo cuộc trò chuyện mới trong Gemini."), { reason: "ui_changed" });
+  button.click();
+  await new Promise((resolve, reject) => {
+    const deadline = setTimeout(() => finish(new Error("Gemini không mở được cuộc trò chuyện mới.")), 10000);
+    const observer = new MutationObserver(() => {
+      if (composer() && !responseNodes().length) finish();
+    });
+    const finish = (error) => {
+      clearTimeout(deadline);
+      observer.disconnect();
+      if (error) reject(error); else resolve();
+    };
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    if (composer() && !responseNodes().length) finish();
+  });
+}
+
 async function submitPrompt(prompt) {
   const blocked = classifyPage();
   if (blocked) throw Object.assign(new Error(blocked.message), blocked);
@@ -156,6 +177,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== "translate-chapter") return;
   (async () => {
     const { job } = message;
+    await startNewConversation();
     const translatedContent = await translateWholeChapter(job);
     const titlePrompt = job.prompt_snapshot.replace("{{text}}", job.title);
     const translatedTitle = cleanResult(await submitPrompt(titlePrompt));

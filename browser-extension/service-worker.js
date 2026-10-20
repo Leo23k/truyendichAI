@@ -101,23 +101,28 @@ async function processOneJob() {
   if (busy) return;
   busy = true;
   let appTab;
+  let job;
   try {
     appTab = await activeAppTab();
     const response = await pageRequest(appTab.id, "/api/gemini-extension/jobs/next");
     if (!response?.job) return;
-    const job = response.job;
+    job = response.job;
     await chrome.storage.local.set({ currentJob: `${job.chapter_number}` });
     const tab = await geminiTab();
     const result = await chrome.tabs.sendMessage(tab.id, { type: "translate-chapter", job });
     if (!result?.ok) {
-      await pauseJob(appTab.id, job.id, result?.reason || "manual", result?.message || "Gemini Web cần thao tác thủ công.");
+      const message = result?.message || "Gemini Web cần thao tác thủ công.";
+      await pauseJob(appTab.id, job.id, result?.reason || "manual", message);
+      await chrome.storage.local.set({ lastError: message });
       return;
     }
     await pageRequest(appTab.id, `/api/gemini-extension/jobs/${encodeURIComponent(job.id)}/complete`, "POST", result.translation);
   } catch (error) {
     const message = String(error?.message || error);
-    if (appTab && message.includes("HTTP")) await chrome.storage.local.set({ lastError: message });
-    else await chrome.storage.local.set({ lastError: message });
+    if (job && appTab) {
+      await pauseJob(appTab.id, job.id, "transient", `Companion gặp lỗi sau khi nhận job: ${message}`).catch(() => {});
+    }
+    await chrome.storage.local.set({ lastError: message });
   } finally {
     await chrome.storage.local.remove("currentJob");
     busy = false;
