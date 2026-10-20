@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.24");
+  assert.equal(manifest.version, "1.0.25");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -57,11 +57,14 @@ test("Gemini content script loads with the page using a required host permission
 test("website app bridge keeps queue requests in the logged-in page origin", async () => {
   let onMessage;
   let requested;
+  let fetchAttempts = 0;
   const chrome = { runtime: { onMessage: { addListener: (listener) => { onMessage = listener; } } } };
   const context = {
     globalThis: {}, chrome, location: { origin: "https://leotruyen.vercel.app" }, URL,
     AbortController, setTimeout, clearTimeout,
     fetch: async (url, options) => {
+      fetchAttempts += 1;
+      if (fetchAttempts === 1) throw new TypeError("Failed to fetch");
       requested = { url: String(url), options };
       return { ok: true, json: async () => ({ job: null }) };
     },
@@ -72,6 +75,7 @@ test("website app bridge keeps queue requests in the logged-in page origin", asy
   assert.deepEqual(JSON.parse(JSON.stringify(result.payload)), { job: null });
   assert.equal(requested.url, "https://leotruyen.vercel.app/api/gemini-extension/jobs/next");
   assert.equal(requested.options.credentials, "same-origin");
+  assert.equal(fetchAttempts, 2);
 });
 
 test("Gemini health check does not require send or new-chat buttons before a job", () => {
@@ -135,6 +139,32 @@ test("a busy conversation retries in a fresh tab only before submitting this job
   assert.match(serviceWorker, /result\?\.code === "GENERATION_IN_PROGRESS" && result\.submittedPrompts === 0/);
   assert.match(serviceWorker, /const fresh = await openGeminiTab\(\)/);
   assert.match(contentScript, /activeJobSubmissions \+= 1;\s*send\.click\(\)/);
+});
+
+test("Gemini waits for an active previous response to finish before submitting", async () => {
+  let stopVisible = true;
+  let onMutation;
+  const stopButton = {
+    getClientRects: () => [{}], getAttribute: (name) => name === "aria-label" ? "Stop response" : null,
+    innerText: "", title: "", querySelector: () => null, querySelectorAll: () => [],
+  };
+  const document = {
+    body: { innerText: "Gemini" }, querySelector: () => null,
+    querySelectorAll: (selector) => selector.startsWith("button") ? (stopVisible ? [stopButton] : []) : [],
+  };
+  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} } } };
+  const context = {
+    globalThis: {}, document, chrome, location: { href: "https://gemini.google.com/app" },
+    console: { info() {} }, setTimeout, clearTimeout,
+    MutationObserver: class { constructor(callback) { onMutation = callback; } observe() {} disconnect() {} },
+  };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__waitIdle = waitForGenerationIdle;\n})();");
+  vm.runInNewContext(instrumented, context);
+  const waiting = context.globalThis.__waitIdle(1000);
+  stopVisible = false;
+  onMutation();
+  await waiting;
+  assert.match(contentScript, /await waitForGenerationIdle\(\)/);
 });
 
 test("Gemini contenteditable input uses the native edit command and waits for the full prompt", () => {

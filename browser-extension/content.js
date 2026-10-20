@@ -65,6 +65,28 @@ function stopVisible() {
   return GeminiSelectors.stop();
 }
 
+function waitForGenerationIdle(timeoutMs = 240000) {
+  if (!stopVisible()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let timer;
+    const observer = new MutationObserver(check);
+    const finish = (error) => {
+      clearTimeout(timer);
+      observer.disconnect();
+      if (error) reject(error); else resolve();
+    };
+    function check() {
+      if (!stopVisible()) finish();
+    }
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    timer = setTimeout(() => finish(Object.assign(
+      new Error("Gemini vẫn đang tạo phản hồi trước đó. Hãy chờ phản hồi hoàn tất rồi tiếp tục job."),
+      { code: "GENERATION_BUSY_TIMEOUT", reason: "manual" },
+    )), timeoutMs);
+    check();
+  });
+}
+
 async function startNewConversation(tabId) {
   const key = `geminiConversationStats:${tabId}`;
   const stored = await chrome.storage.local.get(key);
@@ -175,7 +197,7 @@ async function submitPrompt(prompt) {
   if (blocked) throw Object.assign(new Error(blocked.message), blocked);
   const box = composer();
   if (!box) throw Object.assign(new Error("Không nhận diện được ô nhập Gemini; có thể UI đã thay đổi."), { code: "GEMINI_COMPOSER_NOT_FOUND", reason: "ui_changed" });
-  if (stopVisible()) throw Object.assign(new Error("Gemini vẫn đang tạo phản hồi trước đó."), { code: "GENERATION_IN_PROGRESS", reason: "transient" });
+  await waitForGenerationIdle();
   const before = responseNodes().length;
   const previousOutput = responseNodes().at(-1)?.innerText?.trim() || "";
   writePromptToComposer(box, prompt);

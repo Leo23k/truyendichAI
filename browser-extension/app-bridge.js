@@ -16,11 +16,20 @@
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const response = await fetch(new URL(path, location.origin), {
-          method, credentials: "same-origin", signal: controller.signal,
-          headers: body ? { "Content-Type": "application/json" } : {},
-          body: body ? JSON.stringify(body) : undefined,
-        });
+        let response;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            response = await fetch(new URL(path, location.origin), {
+              method, credentials: "same-origin", signal: controller.signal,
+              headers: body ? { "Content-Type": "application/json" } : {},
+              body: body ? JSON.stringify(body) : undefined,
+            });
+            break;
+          } catch (error) {
+            if (error.name !== "TypeError" || attempt === 2 || controller.signal.aborted) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+          }
+        }
         const payload = await response.json().catch(() => ({}));
         sendResponse(response.ok ? { ok: true, payload } : { ok: false, error: payload.detail || `HTTP ${response.status}` });
       } finally {

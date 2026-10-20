@@ -303,6 +303,7 @@ async function processOneJob() {
   try {
     appTab = await activeAppTab();
     const response = await pageRequest(appTab.id, "/api/gemini-extension/jobs/next");
+    await chrome.storage.local.set({ lastError: "" });
     if (!response?.job) return;
     job = response.job;
     await chrome.storage.local.set({ currentJob: `${job.chapter_number}` });
