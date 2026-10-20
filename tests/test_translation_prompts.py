@@ -33,12 +33,9 @@ def test_provider_options_validate_gemini_requirements(monkeypatch) -> None:
         assert "GEMINI_API_KEY" in str(error)
     else:
         raise AssertionError("Gemini API should require a server-side key")
-    try:
-        provider_settings("gemini_web")
-    except ValueError as error:
-        assert "tài khoản" in str(error)
-    else:
-        raise AssertionError("Gemini Web should require a selected profile")
+    assert provider_settings("gemini_web") == {
+        "provider": "gemini_web", "model": "gemini-web", "web_profile": None,
+    }
 
 
 def test_prompt_crud_and_default_snapshot() -> None:

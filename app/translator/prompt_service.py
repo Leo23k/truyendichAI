@@ -33,8 +33,9 @@ def provider_settings(provider: str, model: str = "", web_profile: str = "") -> 
     model = (model or DEFAULT_MODELS[provider]).strip()
     if provider == "gemini_api" and not settings.gemini_api_key:
         raise ValueError("Chưa cấu hình GEMINI_API_KEY trên máy chạy dịch.")
-    if provider == "gemini_web" and not web_profile.strip():
-        raise ValueError("Hãy chọn tài khoản Gemini Web đã đăng nhập.")
+    # Gemini Web authentication belongs to the user's browser extension, not a
+    # server-side Playwright profile. Keep web_profile optional for old queue
+    # rows while new extension jobs do not need it.
     return {"provider": provider, "model": model, "web_profile": web_profile.strip() or None}
 
 
