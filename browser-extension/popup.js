@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const MESSAGE_TIMEOUT_MS = 26000;
+const MESSAGE_TIMEOUT_MS = 38000;
 
 async function send(message, timeoutMs = MESSAGE_TIMEOUT_MS) {
   let timer;

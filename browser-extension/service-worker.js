@@ -1,7 +1,7 @@
 const ALARM = "gemini-companion-poll";
 const GEMINI_URL = "https://gemini.google.com/app";
 const GEMINI_PERMISSION = "https://gemini.google.com/*";
-const HEALTH_CHECK_TIMEOUT_MS = 24000;
+const HEALTH_CHECK_TIMEOUT_MS = 35000;
 let busy = false;
 let geminiTabOpening;
 
@@ -250,7 +250,7 @@ async function healthCheck() {
   const backendCheck = (async () => {
     try {
       const appTab = await activeAppTab();
-      await pageRequest(appTab.id, "/api/gemini-extension/status", "GET", undefined, 12000);
+      await pageRequest(appTab.id, "/health", "GET", undefined, 30000);
       result.backend = { ok: true, code: "CONNECTED", url: new URL(appTab.url).origin };
     } catch (error) {
       result.backend = { ok: false, code: error.code || "BACKEND_UNAVAILABLE", message: error.message };
@@ -273,7 +273,7 @@ async function healthCheck() {
     }
   })();
   await Promise.all([
-    withTimeout(backendCheck, 13000, "BACKEND_CHECK_TIMEOUT", "Backend không phản hồi trong 13 giây.").catch((error) => {
+    withTimeout(backendCheck, 31000, "BACKEND_CHECK_TIMEOUT", "Website không phản hồi trong 31 giây.").catch((error) => {
       result.backend = { ok: false, code: error.code, message: error.message };
     }),
     withTimeout(geminiCheck, 22000, "GEMINI_CHECK_TIMEOUT", "Kiểm tra tab Gemini quá 22 giây. Tải lại tab Gemini rồi thử lại.").catch((error) => {
@@ -389,7 +389,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "health-check") {
     withTimeout(
-      healthCheck(), HEALTH_CHECK_TIMEOUT_MS, "HEALTH_CHECK_TIMEOUT", "Kiểm tra quá 24 giây. Hãy tải lại tab Gemini rồi thử lại.",
+      healthCheck(), HEALTH_CHECK_TIMEOUT_MS, "HEALTH_CHECK_TIMEOUT", "Kiểm tra quá 35 giây. Hãy tải lại tab Gemini rồi thử lại.",
     ).then(sendResponse).catch((error) => sendResponse({
       ok: false,
       code: error.code || "HEALTH_CHECK_FAILED",
