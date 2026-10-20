@@ -36,7 +36,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 async function pageRequest(tabId, path, method = "GET", body) {
   const tab = await chrome.tabs.get(tabId);
   const host = `${new URL(tab.url).origin}/*`;
-  if (!await chrome.permissions.contains({ origins: [host] })) throw companionError("HOST_PERMISSION_MISSING", `Edge chưa cấp quyền truy cập ${host}.`, { tabId, url: tab.url });
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId }, world: "MAIN",
@@ -113,8 +112,6 @@ async function ensureGeminiTabReady(tab) {
   if (!tab.url?.startsWith("https://gemini.google.com/")) {
     throw companionError("TAB_LOAD_TIMEOUT", "Gemini Web chưa mở được trong 30 giây.", { tabId: tab.id, url: tab.url });
   }
-  const hasPermission = await chrome.permissions.contains({ origins: [GEMINI_PERMISSION] });
-  if (!hasPermission) throw companionError("HOST_PERMISSION_MISSING", `Edge chưa cấp quyền cho ${GEMINI_PERMISSION}`, { tabId: tab.id, url: tab.url });
   if (await pingGemini(tab.id)) {
     return { tab, injected: false };
   }
