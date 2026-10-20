@@ -4,6 +4,7 @@ globalThis.__leoGeminiCompanionLoaded = true;
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
+  button.value,
   button.getAttribute("data-tooltip"), button.getAttribute("mattooltip"),
   button.getAttribute("data-mat-icon-name"), button.querySelector("mat-icon")?.textContent,
   ...[...button.querySelectorAll("mat-icon, svg, [data-mat-icon-name]")].flatMap((icon) => [
@@ -17,7 +18,7 @@ const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
 const GeminiSelectors = {
   composer: () => [...document.querySelectorAll('[role="textbox"], textarea, [contenteditable="true"]')].filter(visible).at(-1),
-  buttons: () => [...document.querySelectorAll('button, [role="button"]')].filter(visible),
+  buttons: () => [...document.querySelectorAll('button, [role="button"], input[type="submit"], [data-testid*="send"], [data-test-id*="send"]')].filter(visible),
   newChat: () => {
     const buttons = GeminiSelectors.buttons();
     return buttons.find((node) => /new (chat|conversation)|start (a )?(new )?chat|create (a )?(new )?(chat|conversation)|cuộc trò chuyện mới|tạo (cuộc trò chuyện|đoạn chat) mới/i.test(buttonText(node)))
@@ -26,11 +27,18 @@ const GeminiSelectors = {
   send: () => GeminiSelectors.buttons().find((node) => {
     const label = buttonText(node);
     const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
-    return (/\b(send(?:_up)?|gửi)\b|arrow_upward/i.test(label) || /send-button|submit/i.test(testId))
+    return (/\b(send(?:_up)?|submit|gửi)\b|arrow_upward/i.test(label) || /send|submit/i.test(testId))
       && !/feedback|stop|dừng|ngừng|microphone|mic/i.test(`${label} ${testId}`);
   }),
   responses: () => {
     for (const selector of ["message-content", "model-response", '[data-message-author-role="model"]']) {
+      const nodes = [...document.querySelectorAll(selector)].filter((node) => node.innerText?.trim());
+      if (nodes.length) return nodes;
+    }
+    return [];
+  },
+  userMessages: () => {
+    for (const selector of ["user-query", '[data-message-author-role="user"]', '[data-testid="user-query"]']) {
       const nodes = [...document.querySelectorAll(selector)].filter((node) => node.innerText?.trim());
       if (nodes.length) return nodes;
     }
@@ -162,6 +170,10 @@ function composerTextMatches(box, prompt) {
   return normalize(composerText(box)) === normalize(prompt);
 }
 
+function promptWasAccepted({ composerCleared, generating, responseAdded, userMessageMatches }) {
+  return !!(composerCleared || generating || responseAdded || userMessageMatches);
+}
+
 function waitForComposerText(box, prompt, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     let timer;
@@ -213,6 +225,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   if (!box) throw Object.assign(new Error("Không nhận diện được ô nhập Gemini; có thể UI đã thay đổi."), { code: "GEMINI_COMPOSER_NOT_FOUND", reason: "ui_changed" });
   await waitForGenerationIdle(undefined, onProgress);
   const before = responseNodes().length;
+  const previousUserMessages = GeminiSelectors.userMessages();
   const previousOutput = responseNodes().at(-1)?.innerText?.trim() || "";
   writePromptToComposer(box, prompt);
   await waitForComposerText(box, prompt);
@@ -226,7 +239,9 @@ async function submitPrompt(prompt, onProgress = () => {}) {
 
   return new Promise((resolve, reject) => {
     let sawGenerating = false;
+    let sawAccepted = false;
     let sawStopButton = false;
+    let reportedAccepted = false;
     let reportedGenerating = false;
     let quietTimer;
     let readTimer;
@@ -244,16 +259,28 @@ async function submitPrompt(prompt, onProgress = () => {}) {
       const nodes = responseNodes();
       const output = nodes.at(-1)?.innerText?.trim() || "";
       const generating = stopVisible();
+      const composerNode = composer();
+      const composerCleared = !!composerNode && !composerText(composerNode).trim();
+      const userMessages = GeminiSelectors.userMessages();
+      const newUserMessage = userMessages.find((node) => !previousUserMessages.includes(node));
+      const userMessageMatches = !!newUserMessage && composerTextMatches(newUserMessage, prompt);
+      const accepted = promptWasAccepted({ composerCleared, generating, responseAdded: nodes.length > before, userMessageMatches });
+      if (accepted) {
+        sawAccepted = true;
+        clearTimeout(startTimer);
+        if (!reportedAccepted) {
+          reportedAccepted = true;
+          onProgress("Gemini đã nhận prompt; đang chờ bắt đầu dịch.");
+        }
+      }
       if (generating || nodes.length > before) {
         sawGenerating = true;
-        clearTimeout(startTimer);
         if (!reportedGenerating) {
           reportedGenerating = true;
-          onProgress("Gemini đã nhận prompt và đang tạo phản hồi.");
+          onProgress("Gemini đã bắt đầu tạo phản hồi.");
         }
       }
       if (generating) sawStopButton = true;
-      const composerNode = composer();
       const composerIdle = !!composerNode && !composerNode.disabled && composerNode.getAttribute("aria-disabled") !== "true";
       if (output && nodes.length > before && !stopVisible() && composerIdle) {
         clearTimeout(readTimer);
@@ -272,17 +299,21 @@ async function submitPrompt(prompt, onProgress = () => {}) {
     };
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
     startTimer = setTimeout(() => {
-      if (!sawGenerating) finish(Object.assign(new Error("Gemini chưa bắt đầu tạo phản hồi sau khi gửi prompt."), { code: "GENERATION_NOT_STARTED", reason: "transient" }));
+      if (!sawAccepted) finish(Object.assign(new Error("Gemini chưa xác nhận đã nhận prompt. Kiểm tra cuộc trò chuyện Gemini trước khi thử lại."), { code: "PROMPT_NOT_ACCEPTED", reason: "transient" }));
     }, 15000);
     if (send) send.click();
     else {
-      box.focus();
-      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-      box.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+      const form = box.closest?.("form");
+      if (form?.requestSubmit) form.requestSubmit();
+      else {
+        box.focus();
+        box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        box.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+      }
     }
     activeJobSubmissions += 1;
     log("SUBMIT", { code: "SENT", method: send ? "button" : "enter", chars: prompt.length, url: location.href });
-    onProgress(send ? `Đã bấm Gửi (${prompt.length} ký tự); đang chờ Gemini bắt đầu phản hồi.` : `Đã gửi Enter (${prompt.length} ký tự); đang chờ Gemini bắt đầu phản hồi.`);
+    onProgress(send ? `Đã bấm Gửi (${prompt.length} ký tự); đang chờ Gemini xác nhận đã nhận prompt.` : `Đã gửi bằng biểu mẫu/Enter (${prompt.length} ký tự); đang chờ Gemini xác nhận đã nhận prompt.`);
   });
 }
 

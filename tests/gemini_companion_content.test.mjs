@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.30");
+  assert.equal(manifest.version, "1.0.31");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -192,10 +192,24 @@ test("Gemini prompt verification tolerates editor whitespace but rejects missing
 });
 
 test("Gemini send detection supports send-button test IDs and synchronizes composer input", () => {
-  assert.match(contentScript, /send-button\|submit/);
+  assert.match(contentScript, /data-testid\*="send"/);
+  assert.match(contentScript, /send\|submit/i);
   assert.match(contentScript, /box\.dispatchEvent\(new InputEvent\("input"/);
   assert.match(contentScript, /Nút Gửi chưa xuất hiện; đang thử gửi prompt bằng Enter/);
+  assert.match(contentScript, /form\.requestSubmit\(\)/);
   assert.match(contentScript, /if \(send\) send\.click\(\)/);
+});
+
+test("Gemini acceptance detection recognizes cleared composer, user turn, response, or generation", () => {
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__accepted = promptWasAccepted;\n})();");
+  const context = { globalThis: {}, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  vm.runInNewContext(instrumented, context);
+
+  assert.equal(context.globalThis.__accepted({ composerCleared: true }), true);
+  assert.equal(context.globalThis.__accepted({ userMessageMatches: true }), true);
+  assert.equal(context.globalThis.__accepted({ responseAdded: true }), true);
+  assert.equal(context.globalThis.__accepted({ generating: true }), true);
+  assert.equal(context.globalThis.__accepted({}), false);
 });
 
 test("Gemini contenteditable receives the complete prompt through native insertion", () => {
