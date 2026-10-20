@@ -54,3 +54,10 @@ def test_pause_classifies_quota_and_manual_action() -> None:
     assert pause_extension_job(remote, "job-1", "quota", "usage limit")
     assert remote.job["status"] == "paused_quota"
     assert remote.job["error_code"] == "quota"
+
+
+def test_pause_classifies_transient_errors_for_backoff() -> None:
+    remote = FakeRemote()
+    remote.job["status"] = "translating"
+    assert pause_extension_job(remote, "job-1", "transient", "temporary network error")
+    assert remote.job["status"] == "backoff"

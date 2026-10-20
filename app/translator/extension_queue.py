@@ -67,7 +67,7 @@ def claim_next_extension_job(remote) -> dict | None:
 
 
 def pause_extension_job(remote, job_id: str, reason: str, message: str) -> bool:
-    status = "paused_quota" if reason == "quota" else "paused_manual"
+    status = "paused_quota" if reason == "quota" else "backoff" if reason == "transient" else "paused_manual"
     rows = remote.patch_rows(
         "translation_queue", {"id": f"eq.{job_id}", "provider": "eq.gemini_web", "status": "eq.translating"},
         {"status": status, "error_code": reason, "error_message": message[:1000], "updated_at": datetime.now(timezone.utc).isoformat()},

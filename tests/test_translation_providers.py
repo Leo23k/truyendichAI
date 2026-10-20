@@ -184,7 +184,7 @@ def test_gemini_web_login_route_returns_actionable_error(monkeypatch) -> None:
     assert "Không tìm thấy Google Chrome." in response.text
 
 
-def test_gemini_web_login_ui_has_direct_link_fallback() -> None:
+def test_gemini_web_ui_uses_browser_companion_instead_of_server_login() -> None:
     from types import SimpleNamespace
 
     from app import main
@@ -201,9 +201,10 @@ def test_gemini_web_login_ui_has_direct_link_fallback() -> None:
         option_id="test-provider",
     )
 
-    assert 'id="test-provider-direct-fallback"' in html
-    assert 'href="https://gemini.google.com/app"' in html
-    assert "fallback.hidden=response.ok" in html
+    assert "Gemini Companion" in html
+    assert "Phiên Google không được lưu trong website." in html
+    assert "gemini-web/open" not in html
+    assert "web_profile" not in html
 
 
 def test_gemini_web_logout_route_opens_google_logout(monkeypatch) -> None:

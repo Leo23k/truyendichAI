@@ -69,6 +69,7 @@ from app.models import Chapter
 from app.search import normalize_search_key, search_books as run_search
 from app.services.book_service import BookService
 from app.translator.service import TranslationUnavailableError, translator
+from app.translator.extension_api import router as gemini_extension_router
 from app.translator.prompt_service import (
     DEFAULT_MODELS,
     DEFAULT_PROMPT_NAME,
@@ -107,6 +108,7 @@ from app.chapter_monitor import run_chapter_monitor
 
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(title="My Novel Reader")
+app.include_router(gemini_extension_router)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 logging.basicConfig(level=logging.INFO)
