@@ -18,7 +18,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.20");
+  assert.equal(manifest.version, "1.0.21");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -83,6 +83,34 @@ test("Gemini health check does not require send or new-chat buttons before a job
   assert.equal(result.code, "READY");
   assert.equal(result.checks.sendButton, false);
   assert.equal(result.checks.newChat, false);
+});
+
+test("unrelated Stop controls do not block a Gemini job", () => {
+  let onMessage;
+  const composer = { getClientRects: () => [{}] };
+  const stopSharing = {
+    getClientRects: () => [{}],
+    getAttribute: (name) => name === "aria-label" ? "Stop sharing screen" : null,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    closest: () => null,
+  };
+  const document = {
+    body: { innerText: "Gemini" },
+    querySelectorAll: (selector) => selector.startsWith('[role="textbox"]') ? [composer] : selector.startsWith("button") ? [stopSharing] : [],
+    querySelector: () => ({}),
+  };
+  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: (listener) => { onMessage = listener; } } } };
+  vm.runInNewContext(contentScript, { globalThis: {}, document, chrome, location: { href: "https://gemini.google.com/app" }, console: { info() {} }, MutationObserver: class {}, setTimeout, clearTimeout });
+  let result;
+  onMessage({ type: "health-check" }, {}, (value) => { result = value; });
+  assert.equal(result.checks.generating, false);
+});
+
+test("a busy conversation retries in a fresh tab only before submitting this job", () => {
+  assert.match(serviceWorker, /result\?\.code === "GENERATION_IN_PROGRESS" && result\.submittedPrompts === 0/);
+  assert.match(serviceWorker, /const fresh = await openGeminiTab\(\)/);
+  assert.match(contentScript, /activeJobSubmissions \+= 1;\s*send\.click\(\)/);
 });
 
 test("an accessible page with no composer is not mislabeled as logged out", () => {

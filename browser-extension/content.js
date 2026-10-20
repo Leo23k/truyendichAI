@@ -13,6 +13,7 @@ const buttonText = (button) => [
 ].filter(Boolean).join(" ").toLowerCase();
 const visible = (node) => node?.getClientRects().length > 0;
 const MAX_CHAPTERS_PER_CONVERSATION = 10;
+let activeJobSubmissions = 0;
 const GeminiSelectors = {
   composer: () => [...document.querySelectorAll('[role="textbox"], textarea, [contenteditable="true"]')].filter(visible).at(-1),
   buttons: () => [...document.querySelectorAll('button, [role="button"]')].filter(visible),
@@ -32,7 +33,7 @@ const GeminiSelectors = {
     }
     return [];
   },
-  stop: () => GeminiSelectors.buttons().some((node) => /stop|dừng|ngừng/.test(buttonText(node))),
+  stop: () => GeminiSelectors.buttons().some((node) => /(?:^|\s)(?:stop(?:_response|_generating)?|dừng(?: phản hồi| tạo)?|ngừng(?: phản hồi| tạo)?)(?:$|\s)/i.test(buttonText(node)) && !/sharing|chia sẻ|recording|ghi âm/i.test(buttonText(node))),
 };
 
 function log(stage, data = {}) {
@@ -188,6 +189,7 @@ async function submitPrompt(prompt) {
       if (!sawGenerating) finish(Object.assign(new Error("Gemini chưa bắt đầu tạo phản hồi sau khi gửi prompt."), { code: "GENERATION_NOT_STARTED", reason: "transient" }));
     }, 15000);
     log("SUBMIT", { code: "SENT", chars: prompt.length, url: location.href });
+    activeJobSubmissions += 1;
     send.click();
   });
 }
@@ -268,6 +270,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       loginRequired: blocked?.code === "GEMINI_LOGIN_REQUIRED",
       composer: !!composer(),
       sendButton: !!GeminiSelectors.send(),
+      generating: stopVisible(),
       newChat: !!GeminiSelectors.newChat(),
       responseContainer: !!document.querySelector("main, message-content, model-response, [data-message-author-role='model']"),
       quota: blocked?.code === "QUOTA_PAUSED",
@@ -283,6 +286,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type !== "translate-chapter") return;
   (async () => {
     const { job } = message;
+    activeJobSubmissions = 0;
     const tabId = sender.tab?.id;
     await startNewConversation(tabId);
     const translatedContent = await translateWholeChapter(job);
@@ -305,7 +309,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: true, translation });
   })().catch((error) => {
     log("ERROR", { code: error.code || "TRANSLATION_ERROR", message: String(error.message || error), url: location.href });
-    sendResponse({ ok: false, code: error.code || "TRANSLATION_ERROR", reason: error.reason || "transient", message: String(error.message || error) });
+    sendResponse({ ok: false, code: error.code || "TRANSLATION_ERROR", reason: error.reason || "transient", message: String(error.message || error), submittedPrompts: activeJobSubmissions });
   });
   return true;
 });

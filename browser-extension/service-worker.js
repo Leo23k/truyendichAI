@@ -305,7 +305,13 @@ async function processOneJob() {
     await chrome.storage.local.set({ currentJob: `${job.chapter_number}` });
     const { tab } = await ensureGeminiTab();
     activeGeminiTab = tab;
-    const result = await chrome.tabs.sendMessage(tab.id, { type: "translate-chapter", job });
+    let result = await chrome.tabs.sendMessage(tab.id, { type: "translate-chapter", job });
+    if (result?.code === "GENERATION_IN_PROGRESS" && result.submittedPrompts === 0) {
+      // This job was not submitted. Leave the old conversation alone and retry once in a fresh tab.
+      const fresh = await openGeminiTab();
+      activeGeminiTab = (await ensureGeminiTabReady(fresh, 30000, 30000)).tab;
+      result = await chrome.tabs.sendMessage(activeGeminiTab.id, { type: "translate-chapter", job });
+    }
     if (!result?.ok) {
       const message = result?.message || "Gemini Web cần thao tác thủ công.";
       await pauseJob(appTab.id, job.id, result?.reason || "manual", message);
