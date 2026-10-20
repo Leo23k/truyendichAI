@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.44";
+const CONTENT_SCRIPT_VERSION = "1.0.45";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -34,7 +34,7 @@ const GeminiSelectors = {
   },
   send: () => inspectSendButton().button,
   responses: () => {
-    for (const selector of ["message-content", "model-response", '[data-message-author-role="model"]']) {
+    for (const selector of ["model-response", '[data-message-author-role="model"]', "message-content"]) {
       const nodes = [...document.querySelectorAll(selector)].filter((node) => node.innerText?.trim());
       if (nodes.length) return nodes;
     }
