@@ -1,0 +1,38 @@
+<fieldset x-data="{ provider: '{{ default_provider }}' }" class="grid gap-3 rounded-lg border border-stone-200 bg-white p-4 sm:grid-cols-2">
+  <legend class="px-1 text-sm font-semibold text-stone-800">Chọn cách dịch và prompt</legend>
+  <label class="text-sm font-medium text-stone-700">Provider
+    <select name="provider" x-model="provider" required class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm">
+      <option value="hachimi">HachimiMT local · mặc định</option>
+      <option value="gemini_web">Gemini Web</option>
+      <option value="gemini_api">Gemini API{% if not translation_providers.gemini_api_configured %} · cần API key{% endif %}</option>
+    </select>
+  </label>
+  <label x-show="provider === 'gemini_api'" x-cloak class="text-sm font-medium text-stone-700">Model
+    <select name="model" x-bind:disabled="provider !== 'gemini_api'" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm">
+      <option value="gemini-3.5-flash-lite" {% if default_model == 'gemini-3.5-flash-lite' %}selected{% endif %}>Gemini 3.5 Flash-Lite</option>
+    </select>
+  </label>
+  <input type="hidden" name="model" value="hachimi-local" x-bind:disabled="provider !== 'hachimi'">
+  <input type="hidden" name="model" value="gemini-web" x-bind:disabled="provider !== 'gemini_web'">
+  <label class="text-sm font-medium text-stone-700 sm:col-span-2">Prompt cho truyện này
+    <select name="prompt_id" required class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm">
+      <option value="">Chọn prompt đã lưu</option>
+      {% for prompt in translation_prompts %}<option value="{{ prompt.id }}" {% if prompt.is_default %}selected{% endif %}>{{ prompt.name }}{% if prompt.is_default %} · mặc định{% endif %}</option>{% endfor %}
+    </select>
+    <a href="/translation-prompts" class="mt-1 inline-block text-xs font-medium text-teal-700 hover:underline">Quản lý prompt dịch</a>
+  </label>
+  <div x-show="provider === 'gemini_web'" x-cloak class="sm:col-span-2">
+    <label class="block text-sm font-medium text-stone-700">Tài khoản Google / profile Chrome
+      <input id="{{ option_id }}-web-profile" name="web_profile" list="{{ option_id }}-web-profiles" x-bind:required="provider === 'gemini_web'" placeholder="Chọn profile đã đăng nhập hoặc nhập tên mới" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm">
+      <datalist id="{{ option_id }}-web-profiles">{% for profile in translation_providers.gemini_web_profiles %}<option value="{{ profile.name }}">{{ 'Đã đăng nhập' if profile.ready else 'Cần đăng nhập' }}</option>{% endfor %}</datalist>
+    </label>
+    <div class="mt-2 flex flex-wrap gap-2">
+      <input id="{{ option_id }}-new-profile" placeholder="Tên profile mới nếu chưa có" class="h-10 min-w-0 flex-1 rounded-md border border-stone-300 bg-white px-3 text-sm">
+      <button type="button" hx-post="/translation/providers/gemini-web/open" hx-vals='js:{name: document.getElementById("{{ option_id }}-new-profile").value || document.getElementById("{{ option_id }}-web-profile").value}' hx-target="#{{ option_id }}-login-status" hx-swap="innerHTML" class="site-nav-button">Mở Chrome để đăng nhập</button>
+    </div>
+    <div id="{{ option_id }}-login-status" class="mt-2" role="status" aria-live="polite"></div>
+    <p class="mt-2 text-xs text-stone-500">Chrome mở ở chế độ hiển thị. Đăng nhập Google thủ công rồi đóng cửa sổ để worker dùng profile này.</p>
+    {% if not translation_providers.gemini_web_available %}<p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Gemini Web cần Chrome và Playwright trên máy chạy worker.</p>{% endif %}
+  </div>
+  {% if not translation_providers.gemini_api_configured %}<p x-show="provider === 'gemini_api'" x-cloak class="sm:col-span-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Chưa cấu hình GEMINI_API_KEY trên máy chạy dịch.</p>{% endif %}
+</fieldset>

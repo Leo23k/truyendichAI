@@ -963,7 +963,15 @@ def admin_novels_page(request: Request, query: str = ""):
     return templates.TemplateResponse(
         request=request,
         name="admin_novels.html",
-        context={"novels": novels, "query": query, "toast": request.query_params.get("toast"), "toast_error": request.query_params.get("error") == "1"},
+        context={
+            "novels": novels, "query": query,
+            "toast": request.query_params.get("toast"),
+            "toast_error": request.query_params.get("error") == "1",
+            "translation_prompts": load_prompts(SupabaseSync()),
+            "translation_providers": _translation_provider_context(),
+            "default_provider": settings.translation_provider,
+            "default_model": settings.gemini_model,
+        },
     )
 
 
@@ -1006,7 +1014,14 @@ def update_admin_novel_page(
 
 
 @app.post("/admin/novels/{novel_id}/source", include_in_schema=False)
-def update_admin_novel_source_page(novel_id: int, source_url: str = Form(...)):
+def update_admin_novel_source_page(
+    novel_id: int,
+    source_url: str = Form(...),
+    provider: str = Form(settings.translation_provider),
+    model: str = Form(settings.gemini_model),
+    web_profile: str = Form(""),
+    prompt_id: str = Form(...),
+):
     source_url = source_url.strip()
     try:
         if not source_url:
@@ -1018,13 +1033,17 @@ def update_admin_novel_source_page(novel_id: int, source_url: str = Form(...)):
         source_type = str(novel.get("source_type") or "zh")
         if getattr(crawler, "source_type", "zh") != source_type:
             raise CdnDataError("Loại nguồn không khớp với truyện này.")
+        translation_choice = provider_settings(provider, model, web_profile)
+        prompt_choice = resolve_prompt(SupabaseSync(), prompt_id)
         update_admin_novel_source(novel_id, source_url)
         enqueue_remote_crawl(
             source_url,
             source_type=source_type,
             result={"source_update_novel_id": novel_id, "source_update": True},
+            **translation_choice,
+            **prompt_choice,
         )
-    except (CdnDataError, CrawlerError, SyncError) as exc:
+    except (CdnDataError, CrawlerError, SyncError, ValueError) as exc:
         return RedirectResponse(f"/admin/novels?toast={quote(str(exc))}&error=1", status_code=303)
     return RedirectResponse("/admin/novels?toast=Đã%20cập%20nhật%20nguồn%20và%20đưa%20vào%20hàng%20đợi%20crawl.", status_code=303)
 
@@ -1564,7 +1583,17 @@ def synced_book(slug: str, request: Request, chapter_page: int = 1, chapter_sort
     return templates.TemplateResponse(
         request=request,
         name="synced_book_detail.html",
-        context={"novel": novel, "is_following": bool(novel.get("id") and is_following_novel(request.state.user.id, int(novel["id"]))), **chapter_context},
+        context={
+            "novel": novel,
+            "is_following": bool(novel.get("id") and is_following_novel(request.state.user.id, int(novel["id"]))),
+            **chapter_context,
+            **({
+                "translation_prompts": load_prompts(SupabaseSync()),
+                "translation_providers": _translation_provider_context(),
+                "default_provider": settings.translation_provider,
+                "default_model": settings.gemini_model,
+            } if getattr(request.state.user, "role", None) == "admin" else {}),
+        },
     )
 
 
@@ -1852,18 +1881,28 @@ def read_synced_chapter(slug: str, chapter_number: int, request: Request):
 
 @app.post("/truyen/{slug}/update")
 @app.post("/synced/{slug}/update", include_in_schema=False)
-async def update_synced_book(slug: str):
+async def update_synced_book(
+    slug: str,
+    provider: str = Form(settings.translation_provider),
+    model: str = Form(settings.gemini_model),
+    web_profile: str = Form(""),
+    prompt_id: str = Form(...),
+):
     try:
         novel = get_synced_novel_for_management(slug)
         source_url = novel.get("source_url")
         if not source_url:
             raise CdnDataError("Truyện chưa có URL nguồn để cập nhật. Hãy đồng bộ lại từ máy local.")
-        enqueue_remote_crawl(str(source_url))
+        translation_choice = provider_settings(provider, model, web_profile)
+        prompt_choice = resolve_prompt(SupabaseSync(), prompt_id)
+        enqueue_remote_crawl(str(source_url), **translation_choice, **prompt_choice)
         return RedirectResponse(f"/truyen/{slug}", status_code=303)
-    except CrawlerError as exc:
+    except (CrawlerError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except CdnDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except SyncError as exc:
+        raise HTTPException(status_code=503, detail=f"Không thể đưa truyện vào hàng đợi: {exc}") from exc
 
 
 @app.post("/truyen/{slug}/delete")

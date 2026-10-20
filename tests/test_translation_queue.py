@@ -613,3 +613,29 @@ def test_enqueue_remote_crawl_recovers_from_concurrent_insert(monkeypatch) -> No
     monkeypatch.setattr(service, "SupabaseSync", CrawlRemote)
 
     assert service.enqueue_remote_crawl("https://example.com/novel") == {"id": "crawl-2", "status": "queued"}
+
+
+def test_update_synced_book_forwards_selected_provider_and_prompt(monkeypatch) -> None:
+    from app import main
+
+    captured: dict = {}
+    monkeypatch.setattr(main, "get_synced_novel_for_management", lambda _slug: {"source_url": "https://example.com/novel"})
+    monkeypatch.setattr(main, "SupabaseSync", lambda: object())
+    monkeypatch.setattr(main, "provider_settings", lambda provider, model, web_profile: {
+        "provider": provider, "model": model, "web_profile": web_profile,
+    })
+    monkeypatch.setattr(main, "resolve_prompt", lambda _remote, prompt_id: {
+        "prompt_id": prompt_id, "prompt_name": "Style", "prompt_template": "{{text}}", "is_default": False,
+    })
+    monkeypatch.setattr(main, "enqueue_remote_crawl", lambda url, **options: captured.update(url=url, **options))
+
+    response = asyncio.run(main.update_synced_book(
+        "novel", provider="gemini_web", model="gemini-web", web_profile="personal", prompt_id="prompt-1",
+    ))
+
+    assert response.status_code == 303
+    assert captured == {
+        "url": "https://example.com/novel", "provider": "gemini_web", "model": "gemini-web",
+        "web_profile": "personal", "prompt_id": "prompt-1", "prompt_name": "Style",
+        "prompt_template": "{{text}}", "is_default": False,
+    }
