@@ -16,6 +16,7 @@ async function send(message, timeoutMs = MESSAGE_TIMEOUT_MS) {
 }
 
 const GEMINI_PERMISSION = "https://gemini.google.com/*";
+const APP_HOSTS = new Set(["https://leotruyen.vercel.app", "http://127.0.0.1:8000", "http://localhost:8000"]);
 
 function log(code, message, tabId, url) {
   console.info("[GEMINI_COMPANION][POPUP]", JSON.stringify({ code, message, tabId: tabId ?? null, url: url ?? null, timestamp: new Date().toISOString() }));
@@ -66,6 +67,11 @@ $("connect").addEventListener("click", async () => {
   $("message").textContent = "Đang kết nối với website…";
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const origin = tab?.url ? new URL(tab.url).origin : "";
+    if (!APP_HOSTS.has(origin)) throw new Error("Mở Leo Truyện trước khi kết nối extension.");
+    const appUrl = new URL(tab.url);
+    const granted = await chrome.permissions.request({ origins: [`${appUrl.protocol}//${appUrl.hostname}/*`] });
+    if (!granted) throw new Error("Chưa cấp quyền truy cập website. Chấp nhận yêu cầu của trình duyệt rồi bấm Kết nối lại.");
     const result = await send({ type: "connect-app", tab }, 8000);
     if (!result?.ok) throw new Error(result?.error || "Kết nối thất bại.");
     $("message").textContent = "Đã kết nối. Hàng đợi Gemini Web sẽ chạy tuần tự.";

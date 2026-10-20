@@ -83,13 +83,19 @@ async function ensureAppBridge(tabId) {
   if (await pingAppBridge(tabId)) return;
   if (appBridgeLoading?.tabId === tabId) return appBridgeLoading.promise;
   const promise = (async () => {
-    await chrome.tabs.reload(tabId);
-    const deadline = Date.now() + 30000;
-    while (Date.now() < deadline) {
-      if (await pingAppBridge(tabId)) return;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab?.url) throw companionError("APP_TAB_NOT_FOUND", "Không tìm thấy tab Leo Truyện. Hãy kết nối lại từ website.", { tabId });
+    const appUrl = new URL(tab.url);
+    const originPattern = `${appUrl.protocol}//${appUrl.hostname}/*`;
+    const permissionGranted = await chrome.permissions.contains({ origins: [originPattern] }).catch(() => false);
+    if (!permissionGranted) throw companionError("APP_HOST_PERMISSION_REQUIRED", "Extension chưa được cấp quyền cho tab Leo Truyện. Bấm Kết nối tab Leo Truyện đang mở và chấp nhận quyền truy cập website.", { tabId, url: tab.url });
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ["app-bridge.js"] });
+    } catch (error) {
+      throw companionError("APP_BRIDGE_INJECT_FAILED", `Không nạp được cầu nối trên website (${String(error?.message || error)}). Hãy kết nối lại và cấp quyền truy cập website.`, { tabId, url: tab.url, cause: error });
     }
-    throw companionError("APP_BRIDGE_NOT_READY", "Tab Leo Truyện chưa nạp mã Companion. Hãy tải lại tab website rồi kết nối lại.");
+    if (await pingAppBridge(tabId)) return;
+    throw companionError("APP_BRIDGE_NOT_READY", "Đã nạp cầu nối nhưng tab Leo Truyện chưa phản hồi. Hãy tải lại tab website rồi kết nối lại.", { tabId, url: tab.url });
   })();
   appBridgeLoading = { tabId, promise };
   try { await promise; }
@@ -375,6 +381,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!tab?.id || !tab.url?.startsWith("http")) throw new Error("Mở website Leo Truyện trước khi kết nối.");
       const appOrigin = new URL(tab.url).origin;
       if (!["https://leotruyen.vercel.app", "http://127.0.0.1:8000", "http://localhost:8000"].includes(appOrigin)) throw companionError("UNSUPPORTED_APP_HOST", "Chỉ hỗ trợ Leo Truyện production hoặc localhost:8000.", { tabId: tab.id, url: tab.url });
+      await ensureAppBridge(tab.id);
       await chrome.storage.local.set({ appTabId: tab.id, appOrigin, lastError: "" });
       sendResponse({ ok: true, origin: appOrigin });
       void withTimeout(

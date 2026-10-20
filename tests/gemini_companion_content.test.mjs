@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.25");
+  assert.equal(manifest.version, "1.0.27");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -39,19 +39,21 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
   assert.match(popupScript, /result\?\.backend\?\.message/);
 });
 
-test("Gemini content script loads with the page using a required host permission", async () => {
+test("Gemini content script loads by default and the app bridge is injected after site access is granted", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
   assert.ok(manifest.permissions.includes("scripting"));
   assert.ok(manifest.host_permissions.includes("https://gemini.google.com/*"));
-  assert.equal(manifest.optional_host_permissions, undefined);
+  assert.deepEqual(manifest.optional_host_permissions, ["https://leotruyen.vercel.app/*", "http://127.0.0.1/*", "http://localhost/*"]);
   const geminiScript = manifest.content_scripts.find((script) => script.js.includes("content.js"));
-  const appScript = manifest.content_scripts.find((script) => script.js.includes("app-bridge.js"));
   assert.deepEqual(geminiScript.matches, ["https://gemini.google.com/*"]);
   assert.deepEqual(geminiScript.js, ["content.js"]);
-  assert.ok(appScript.matches.includes("https://leotruyen.vercel.app/*"));
+  assert.equal(manifest.content_scripts.some((script) => script.js.includes("app-bridge.js")), false);
+  assert.match(serviceWorker, /files: \["app-bridge\.js"\]/);
+  assert.match(serviceWorker, /await ensureAppBridge\(tab\.id\)/);
   assert.doesNotMatch(serviceWorker, /files: \["content\.js"\]/);
   assert.match(popupScript, /geminiCode !== "CONTENT_SCRIPT_NOT_READY"/);
+  assert.match(popupScript, /chrome\.permissions\.request\(\{ origins: \[`\$\{appUrl\.protocol\}\/\/\$\{appUrl\.hostname\}\/\*`\] \}\)/);
 });
 
 test("website app bridge keeps queue requests in the logged-in page origin", async () => {
