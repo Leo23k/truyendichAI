@@ -1,7 +1,6 @@
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => `${button.getAttribute("aria-label") || ""} ${button.innerText || ""} ${button.title || ""}`.toLowerCase();
-const MAX_CHAPTERS_PER_CONVERSATION = 5;
-const MAX_SOURCE_CHARS_PER_CONVERSATION = 30000;
+const MAX_CHAPTERS_PER_CONVERSATION = 10;
 
 chrome.runtime.sendMessage({ type: "gemini-ready" }).catch(() => {});
 
@@ -33,15 +32,15 @@ function stopVisible() {
   return [...document.querySelectorAll("button")].some((button) => /stop|dừng|ngừng/.test(buttonText(button)) && button.getClientRects().length);
 }
 
-async function startNewConversation(nextSourceChars, tabId) {
+async function startNewConversation(tabId) {
   const key = `geminiConversationStats:${tabId}`;
   const stored = await chrome.storage.local.get(key);
-  const stats = stored[key] || { chapters: 0, chars: 0 };
+  const stats = stored[key] || { chapters: 0 };
   if (!responseNodes().length) {
-    await chrome.storage.local.set({ [key]: { chapters: 0, chars: 0 } });
+    await chrome.storage.local.set({ [key]: { chapters: 0 } });
     return;
   }
-  if (stats.chapters && stats.chapters < MAX_CHAPTERS_PER_CONVERSATION && stats.chars + nextSourceChars <= MAX_SOURCE_CHARS_PER_CONVERSATION) return;
+  if (stats.chapters && stats.chapters < MAX_CHAPTERS_PER_CONVERSATION) return;
   const button = [...document.querySelectorAll("button")]
     .find((node) => /new chat|new conversation|cuộc trò chuyện mới|tạo cuộc trò chuyện mới/i.test(buttonText(node)) && node.getClientRects().length);
   if (!button) throw Object.assign(new Error("Không tìm thấy nút tạo cuộc trò chuyện mới trong Gemini."), { reason: "ui_changed" });
@@ -59,14 +58,14 @@ async function startNewConversation(nextSourceChars, tabId) {
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
     if (composer() && !responseNodes().length) finish();
   });
-  await chrome.storage.local.set({ [key]: { chapters: 0, chars: 0 } });
+  await chrome.storage.local.set({ [key]: { chapters: 0 } });
 }
 
-async function recordConversationChapter(tabId, sourceChars) {
+async function recordConversationChapter(tabId) {
   const key = `geminiConversationStats:${tabId}`;
   const stored = await chrome.storage.local.get(key);
-  const stats = stored[key] || { chapters: 0, chars: 0 };
-  await chrome.storage.local.set({ [key]: { chapters: stats.chapters + 1, chars: stats.chars + sourceChars } });
+  const stats = stored[key] || { chapters: 0 };
+  await chrome.storage.local.set({ [key]: { chapters: stats.chapters + 1 } });
 }
 
 async function submitPrompt(prompt) {
@@ -195,8 +194,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const { job } = message;
     const tabId = sender.tab?.id;
-    const sourceChars = job.content.length + job.title.length + Object.values(job.metadata || {}).join("").length;
-    await startNewConversation(sourceChars, tabId);
+    await startNewConversation(tabId);
     const translatedContent = await translateWholeChapter(job);
     const titlePrompt = job.prompt_snapshot.replace("{{text}}", job.title);
     const translatedTitle = cleanResult(await submitPrompt(titlePrompt));
@@ -213,7 +211,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       if (job.metadata.description) translation.translated_description = await translateWholeChapter({ content: job.metadata.description, prompt_snapshot: job.prompt_snapshot });
     }
-    if (tabId != null) await recordConversationChapter(tabId, sourceChars);
+    if (tabId != null) await recordConversationChapter(tabId);
     sendResponse({ ok: true, translation });
   })().catch((error) => sendResponse({ ok: false, reason: error.reason || "transient", message: String(error.message || error) }));
   return true;
