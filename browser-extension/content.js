@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.32";
+const CONTENT_SCRIPT_VERSION = "1.0.33";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -25,12 +25,33 @@ const GeminiSelectors = {
     return buttons.find((node) => /new (chat|conversation)|start (a )?(new )?chat|create (a )?(new )?(chat|conversation)|cuộc trò chuyện mới|tạo (cuộc trò chuyện|đoạn chat) mới/i.test(buttonText(node)))
       || buttons.find((node) => node.closest("nav, header") && /\b(edit_square|chat_add_on|add_2)\b/.test(buttonText(node)));
   },
-  send: () => GeminiSelectors.buttons().find((node) => {
+  send: () => {
+    const buttons = GeminiSelectors.buttons();
+    const isExcluded = (node) => /feedback|stop|dừng|ngừng|microphone|mic|attach|upload|menu|share|voice/i.test(buttonText(node));
+    const labelled = buttons.find((node) => {
     const label = buttonText(node);
     const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
     return (/\b(send(?:_up)?|submit|gửi)\b|arrow_upward/i.test(label) || /send|submit/i.test(testId))
-      && !/feedback|stop|dừng|ngừng|microphone|mic/i.test(`${label} ${testId}`);
-  }),
+      && !isExcluded(node);
+    });
+    if (labelled) return labelled;
+
+    const box = GeminiSelectors.composer();
+    const boxRect = box?.getBoundingClientRect?.();
+    if (!boxRect) return null;
+    let root = box.parentElement;
+    for (let depth = 0; root && depth < 6; depth += 1, root = root.parentElement) {
+      const related = buttons.filter((node) => {
+        if (!root.contains?.(node) || node.disabled || node.getAttribute("aria-disabled") === "true" || isExcluded(node)) return false;
+        const rect = node.getBoundingClientRect?.();
+        if (!rect) return false;
+        const verticalGap = Math.max(0, rect.top - boxRect.bottom, boxRect.top - rect.bottom);
+        return verticalGap <= 120 && rect.right >= boxRect.left + boxRect.width * 0.5;
+      });
+      if (related.length) return related.sort((left, right) => right.getBoundingClientRect().right - left.getBoundingClientRect().right)[0];
+    }
+    return null;
+  },
   responses: () => {
     for (const selector of ["message-content", "model-response", '[data-message-author-role="model"]']) {
       const nodes = [...document.querySelectorAll(selector)].filter((node) => node.innerText?.trim());
