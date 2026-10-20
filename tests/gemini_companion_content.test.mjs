@@ -302,6 +302,29 @@ test("Gemini response diagnostics describe DOM metadata without exposing respons
   assert.equal(JSON.stringify(details).includes("PRIVATE TRANSLATION OUTPUT"), false);
 });
 
+test("Gemini translation submits and returns the translated chapter title", async () => {
+  const context = {
+    globalThis: {}, prompts: [], location: { href: "https://gemini.google.com/app" },
+    chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } },
+    console: { info() {} },
+  };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, `
+    startNewConversation = async () => {};
+    translateWholeChapter = async () => "Translated chapter text";
+    submitPrompt = async (prompt) => { prompts.push(prompt); return "Translated chapter title"; };
+    globalThis.__runTranslationJob = runTranslationJob;
+  })();`);
+  vm.runInNewContext(instrumented, context);
+
+  const result = await context.globalThis.__runTranslationJob({
+    title: "第一章 夜无疆", content: "原文", prompt_snapshot: "Translate: {{text}}",
+  }, null);
+
+  assert.deepEqual(context.prompts, ["Translate: 第一章 夜无疆"]);
+  assert.equal(result.translated_title, "Translated chapter title");
+  assert.equal(result.translated_content, "Translated chapter text");
+});
+
 test("Gemini does not choose an unlabeled rightmost control as Send", () => {
   const root = { parentElement: null, contains: (node) => node.parentElement === root, getAttribute: () => null, getBoundingClientRect: () => ({ left: 0, right: 500, width: 500, top: 0, bottom: 140 }) };
   const control = {
