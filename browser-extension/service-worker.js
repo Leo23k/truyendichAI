@@ -49,7 +49,9 @@ async function geminiHostAccessError(error, tabId, url) {
   diagnostics.actualAccess = false;
   const code = diagnostics.manifestDeclared ? "HOST_PERMISSION_REQUIRED" : "HOST_PERMISSION_MISSING";
   const message = diagnostics.manifestDeclared
-    ? "Manifest đã khai báo Gemini nhưng Edge từ chối tab này. Bấm Cấp quyền Gemini; nếu vẫn lỗi, kiểm tra extension đang nạp từ thư mục browser-extension của project."
+    ? diagnostics.runtimeGranted
+      ? "Edge báo đã cấp quyền Gemini nhưng từ chối tài liệu tab đang mở. Nạp lại tab Gemini để content script được tải lại."
+      : "Manifest đã khai báo Gemini nhưng quyền runtime chưa được cấp. Bấm Cấp quyền Gemini rồi kiểm tra lại."
     : `Manifest extension đang chạy thiếu ${GEMINI_PERMISSION}. Hãy nạp đúng thư mục browser-extension của project.`;
   return companionError(code, message, { tabId, url, diagnostics, rawError: String(error?.message || error), cause: error });
 }
@@ -133,6 +135,20 @@ async function pingGemini(tabId) {
   } catch {
     return false;
   }
+}
+
+async function waitForGeminiContentScript(tabId) {
+  const deadline = Date.now() + 30000;
+  let tab;
+  while (Date.now() < deadline) {
+    tab = await chrome.tabs.get(tabId);
+    if (!tab.url?.startsWith("https://gemini.google.com/")) {
+      throw companionError("TAB_NOT_FOUND", "Tab đã rời Gemini Web trong lúc nạp lại.", { tabId, url: tab.url });
+    }
+    if (await pingGemini(tabId)) return tab;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw companionError("CONTENT_SCRIPT_NOT_INJECTED", "Tab đã nạp lại nhưng Edge chưa chạy content.js. Kiểm tra Site access và thư mục extension đang nạp.", { tabId, url: tab?.url });
 }
 
 async function ensureGeminiTabReady(tab) {
@@ -301,6 +317,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.tabs.create({ url: GEMINI_URL, active: true })
       .then((tab) => sendResponse({ ok: true, tabId: tab.id }))
       .catch((error) => sendResponse({ ok: false, code: "TAB_OPEN_FAILED", message: String(error?.message || error) }));
+    return true;
+  }
+  if (message.type === "reload-gemini") {
+    (async () => {
+      const tab = await findGeminiTab();
+      if (!tab) throw companionError("TAB_NOT_FOUND", "Không tìm thấy tab Gemini đang mở.");
+      await chrome.tabs.reload(tab.id);
+      const reloaded = await waitForGeminiContentScript(tab.id);
+      sendResponse({ ok: true, tabId: reloaded.id, url: reloaded.url });
+    })().catch((error) => sendResponse({ ok: false, code: error.code || "TAB_RELOAD_FAILED", message: String(error?.message || error) }));
     return true;
   }
   if (message.type === "health-check") {

@@ -11,7 +11,7 @@
 
 The extension uses the existing Gemini tab session. It never asks for or stores a Google password. Keep the Leo Truyện tab open while Gemini Web jobs are running. The extension handles one chapter at a time and pauses when Gemini asks for a login/verification, shows a usage limit, or changes its interface.
 
-After resolving a manual pause or waiting for a quota window, open the extension and select **Tiếp tục các job đã pause**. After an update, open `edge://extensions` and click **Reload** for Leo Truyện Gemini Companion. If the health check reports a Gemini permission issue, select **Cấp quyền Gemini** in the popup. If Edge still denies access, open **Details → Site access** and allow `https://gemini.google.com/*`.
+After resolving a manual pause or waiting for a quota window, open the extension and select **Tiếp tục các job đã pause**. After an update, open `edge://extensions` and click **Reload** for Leo Truyện Gemini Companion. If runtime access is missing, select **Cấp quyền Gemini**. If runtime access is already granted but Edge refuses injection into an existing Gemini tab, select **Nạp lại tab Gemini hiện tại**; unsent text in that tab can be lost.
 
 Load the unpacked extension directly from this repository's `browser-extension` folder. The folder has its own `manifest.json`; there is no build or `dist` copy. The popup health report shows the active extension version and ID so you can compare it with the extension entry in `edge://extensions`.
 

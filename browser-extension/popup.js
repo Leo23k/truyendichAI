@@ -29,7 +29,9 @@ function showHealthResult(result) {
     `Mã: ${result?.code || "UNKNOWN"}${result?.gemini?.message ? ` — ${result.gemini.message}` : ""}`,
     result?.gemini?.rawError ? `Lỗi gốc: ${result.gemini.rawError}` : "",
   ].filter(Boolean).join("\n");
-  $("grantPermission").hidden = !["HOST_PERMISSION_REQUIRED", "HOST_PERMISSION_MISSING"].includes(result?.code);
+  const permissionIssue = ["HOST_PERMISSION_REQUIRED", "HOST_PERMISSION_MISSING"].includes(result?.code);
+  $("grantPermission").hidden = !permissionIssue || !diagnostics?.manifestDeclared || !!diagnostics?.runtimeGranted;
+  $("reloadGemini").hidden = result?.code !== "HOST_PERMISSION_REQUIRED" || !diagnostics?.runtimeGranted;
   log(result?.code || "UNKNOWN", result?.gemini?.rawError || result?.gemini?.message || "Health check completed", result?.gemini?.tabId, result?.gemini?.url);
 }
 
@@ -87,6 +89,21 @@ $("grantPermission").addEventListener("click", async () => {
     log("PERMISSION_REQUEST_FAILED", $("message").textContent);
   } finally {
     $("grantPermission").disabled = false;
+  }
+});
+$("reloadGemini").addEventListener("click", async () => {
+  $("reloadGemini").disabled = true;
+  $("message").textContent = "Đang nạp lại tab Gemini hiện tại… Nội dung chưa gửi trong tab có thể mất.";
+  try {
+    const reload = await send({ type: "reload-gemini" });
+    if (!reload?.ok) throw new Error(reload?.message || "Không thể nạp lại tab Gemini.");
+    $("message").textContent = "Tab đã nạp lại. Đang kiểm tra quyền và content script…";
+    showHealthResult(await send({ type: "health-check" }));
+  } catch (error) {
+    $("message").textContent = String(error?.message || error);
+    log("TAB_RELOAD_FAILED", $("message").textContent);
+  } finally {
+    $("reloadGemini").disabled = false;
   }
 });
 $("resume").addEventListener("click", async () => {
