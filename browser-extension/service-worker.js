@@ -370,7 +370,7 @@ async function processOneJob() {
     const { tab } = await ensureGeminiTab();
     activeGeminiTab = tab;
     await activateGeminiTab(tab.id);
-    log("TAB", { code: "JOB_TARGET_ACTIVE", tabId: tab.id, url: tab.url });
+    log("GEMINI_TAB_FOUND", { code: "JOB_TARGET_ACTIVE", tabId: tab.id, url: tab.url });
     let result = await translateChapter(tab.id, job, appTab.id);
     if (result?.code === "GENERATION_IN_PROGRESS" && result.submittedPrompts === 0) {
       // This job was not submitted. Leave the old conversation alone and retry once in a fresh tab.
@@ -386,12 +386,19 @@ async function processOneJob() {
       return;
     }
     await updateJobProgress(appTab.id, job.id, "Gemini đã trả đủ bản dịch; website đang kiểm tra và lưu vào truyện.");
-    await pageRequest(appTab.id, `/api/gemini-extension/jobs/${encodeURIComponent(job.id)}/complete`, "POST", result.translation);
+    try {
+      const saved = await pageRequest(appTab.id, `/api/gemini-extension/jobs/${encodeURIComponent(job.id)}/complete`, "POST", result.translation);
+      if (saved?.status !== "completed") throw Object.assign(new Error("Website chưa xác nhận trạng thái completed cho bản dịch."), { code: "BACKEND_SAVE_FAILED" });
+      log("BACKEND_SAVE_CONFIRMED", { code: "JOB_COMPLETED", jobId: job.id, tabId: appTab.id });
+    } catch (error) {
+      log("BACKEND_SAVE_FAILED", { code: error.code || "BACKEND_SAVE_FAILED", message: String(error?.message || error), jobId: job.id, tabId: appTab.id });
+      throw Object.assign(new Error(`Gemini đã dịch xong nhưng website chưa xác nhận lưu: ${String(error?.message || error)}`), { code: "BACKEND_SAVE_FAILED", reason: "manual" });
+    }
   } catch (error) {
     const message = String(error?.message || error);
     log("JOB", { code: error.code || "JOB_ERROR", message, tabId: activeGeminiTab?.id || appTab?.id, url: activeGeminiTab?.url || appTab?.url });
     if (job && appTab) {
-      const reason = error.code === "QUOTA_PAUSED" ? "quota" : ["HOST_PERMISSION_MISSING", "HOST_PERMISSION_REQUIRED", "PERMISSION_CHECK_FAILED", "TAB_NOT_FOUND", "TAB_URL_INVALID", "TAB_LOAD_TIMEOUT", "CONTENT_SCRIPT_NOT_READY", "MANUAL_ACTION_REQUIRED", "GEMINI_LOGIN_REQUIRED", "GEMINI_COMPOSER_NOT_FOUND", "GEMINI_SEND_BUTTON_NOT_FOUND", "GEMINI_RESPONSE_TIMEOUT", "GEMINI_RESPONSE_READ_FAILED", "UI_CHANGED", "NEW_CHAT_SELECTOR_NOT_FOUND"].includes(error.code) ? "manual" : "transient";
+      const reason = error.code === "QUOTA_PAUSED" ? "quota" : ["HOST_PERMISSION_MISSING", "HOST_PERMISSION_REQUIRED", "PERMISSION_CHECK_FAILED", "TAB_NOT_FOUND", "TAB_URL_INVALID", "TAB_LOAD_TIMEOUT", "CONTENT_SCRIPT_NOT_READY", "MANUAL_ACTION_REQUIRED", "GEMINI_LOGIN_REQUIRED", "GEMINI_COMPOSER_NOT_FOUND", "GEMINI_SEND_BUTTON_NOT_FOUND", "SEND_BUTTON_NOT_READY", "SEND_TRIGGER_FAILED", "SEND_NOT_CONFIRMED", "PROMPT_INPUT_FAILED", "CHAT_INITIALIZATION_FAILED", "RESPONSE_TIMEOUT", "GEMINI_RESPONSE_TIMEOUT", "GEMINI_RESPONSE_READ_FAILED", "UI_CHANGED", "NEW_CHAT_SELECTOR_NOT_FOUND", "BACKEND_SAVE_FAILED"].includes(error.code) ? "manual" : "transient";
       await pauseJob(appTab.id, job.id, reason, `Companion gặp lỗi sau khi nhận job: ${message}`).catch(() => {});
     }
     await chrome.storage.local.set({ lastError: message });

@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.35");
+  assert.equal(manifest.version, "1.0.36");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.35"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.36"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -148,8 +148,9 @@ test("unrelated Stop controls do not block a Gemini job", () => {
 test("a busy conversation retries in a fresh tab only before submitting this job", () => {
   assert.match(serviceWorker, /result\?\.code === "GENERATION_IN_PROGRESS" && result\.submittedPrompts === 0/);
   assert.match(serviceWorker, /const fresh = await openGeminiTab\(\)/);
-  assert.match(contentScript, /if \(send\) send\.click\(\)/);
-  assert.match(contentScript, /new KeyboardEvent\("keydown", \{ key: "Enter"/);
+  assert.match(contentScript, /send\.click\(\)/);
+  assert.doesNotMatch(contentScript, /new KeyboardEvent\("keydown", \{ key: "Enter"/);
+  assert.match(contentScript, /SEND_BUTTON_NOT_READY/);
 });
 
 test("Gemini waits briefly for an old response, then retries in a fresh tab", async () => {
@@ -186,7 +187,8 @@ test("Gemini contenteditable input uses the native edit command and waits for th
   assert.match(contentScript, /document\.execCommand\("insertText", false, prompt\)/);
   assert.match(contentScript, /await waitForComposerText\(box, prompt\)/);
   assert.match(contentScript, /PROMPT_INPUT_MISMATCH/);
-  assert.match(contentScript, /box\.replaceChildren\(document\.createTextNode\(prompt\)\)/);
+  assert.match(contentScript, /PROMPT_INPUT_FAILED/);
+  assert.doesNotMatch(contentScript, /box\.replaceChildren\(document\.createTextNode\(prompt\)\)/);
 });
 
 test("Gemini prompt verification tolerates editor whitespace but rejects missing content", () => {
@@ -202,9 +204,10 @@ test("Gemini send detection supports send-button test IDs and synchronizes compo
   assert.match(contentScript, /data-testid\*="send"/);
   assert.match(contentScript, /send\|submit/i);
   assert.match(contentScript, /box\.dispatchEvent\(new InputEvent\("input"/);
-  assert.match(contentScript, /Nút Gửi chưa xuất hiện; đang thử gửi prompt bằng Enter/);
-  assert.match(contentScript, /form\.requestSubmit\(\)/);
-  assert.match(contentScript, /if \(send\) send\.click\(\)/);
+  assert.match(contentScript, /SEND_BUTTON_READY/);
+  assert.match(contentScript, /SEND_TRIGGERED/);
+  assert.doesNotMatch(contentScript, /form\.requestSubmit\(\)/);
+  assert.match(contentScript, /send\.click\(\)/);
 });
 
 test("Gemini send detection finds an unlabeled control beside the composer without clicking the microphone", () => {
@@ -236,11 +239,17 @@ test("Gemini send detection finds an unlabeled control beside the composer witho
   assert.match(contentScript, /model\|flash\|thinking\|reasoning/);
 });
 
-test("Gemini re-enters a prompt lost while the send control appears and reports submit evidence", () => {
-  assert.match(contentScript, /if \(!composerTextMatches\(box, prompt\)\)[\s\S]*?writePromptToComposer\(box, prompt\)/);
-  assert.match(contentScript, /SUBMIT_NOT_ACCEPTED/);
+test("Gemini logs DOM evidence for each submission step without logging prompt text", () => {
+  for (const stage of ["COMPOSER_FOUND", "PROMPT_FILLED", "SEND_BUTTON_READY", "SEND_TRIGGERED", "PROMPT_CLEARED", "PROMPT_SUBMITTED_CONFIRMED", "RESPONSE_STARTED", "RESPONSE_DETECTED", "RESPONSE_COMPLETED", "TRANSLATION_EXTRACTED"]) {
+    assert.match(contentScript, new RegExp(`log\\("${stage}"`));
+  }
+  assert.match(serviceWorker, /log\("GEMINI_TAB_FOUND"/);
+  assert.match(serviceWorker, /saved\?\.status !== "completed"/);
+  assert.match(serviceWorker, /log\("BACKEND_SAVE_CONFIRMED"/);
+  assert.match(serviceWorker, /log\("BACKEND_SAVE_FAILED"/);
   assert.match(contentScript, /composerChars: composerText\(currentComposer \|\| \{\}\)\.length/);
-  assert.match(contentScript, /Gemini đã xóa nội dung khỏi ô nhập|Gemini chưa tạo tin nhắn\/cuộc trò chuyện/);
+  assert.doesNotMatch(contentScript, /log\([^\n]*prompt\s*[,}]/i);
+  assert.doesNotMatch(contentScript, /new KeyboardEvent\("keydown", \{ key: "Enter"/);
 });
 
 test("Gemini acceptance detection recognizes cleared composer, user turn, response, or generation", () => {
@@ -248,7 +257,7 @@ test("Gemini acceptance detection recognizes cleared composer, user turn, respon
   const context = { globalThis: {}, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
   vm.runInNewContext(instrumented, context);
 
-  assert.equal(context.globalThis.__accepted({ composerCleared: true }), true);
+  assert.equal(context.globalThis.__accepted({ composerCleared: true }), false);
   assert.equal(context.globalThis.__accepted({ userMessageMatches: true }), true);
   assert.equal(context.globalThis.__accepted({ responseAdded: true }), true);
   assert.equal(context.globalThis.__accepted({ generating: true }), true);
@@ -257,7 +266,7 @@ test("Gemini acceptance detection recognizes cleared composer, user turn, respon
 
 test("Gemini contenteditable receives the complete prompt through native insertion", () => {
   const prompt = "Dịch tự nhiên\n\n第一章 …";
-  const box = { innerText: "old content", focus() {}, dispatchEvent() {} };
+  const box = { innerText: "old content", isContentEditable: true, focus() {}, dispatchEvent() {}, getAttribute: () => "true" };
   const selection = { removeAllRanges() {}, addRange() {} };
   const document = {
     querySelectorAll: () => [], querySelector: () => null, body: { innerText: "Gemini" },
@@ -273,6 +282,38 @@ test("Gemini contenteditable receives the complete prompt through native inserti
   vm.runInNewContext(instrumented, context);
   context.globalThis.__writePrompt(box, prompt);
   assert.equal(box.innerText, prompt);
+});
+
+test("Gemini does not treat a disabled send control as ready", async () => {
+  let mutation;
+  const disabledSend = {
+    disabled: true,
+    getClientRects: () => [{}],
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ left: 470, right: 500, width: 30, top: 90, bottom: 120 }),
+  };
+  const root = {
+    contains: (node) => node === disabledSend || node === box,
+    getBoundingClientRect: () => ({ left: 0, right: 500, width: 500, top: 0, bottom: 140 }),
+  };
+  const box = {
+    parentElement: root,
+    getClientRects: () => [{}],
+    getBoundingClientRect: () => ({ left: 0, right: 400, width: 400, top: 0, bottom: 80 }),
+  };
+  const document = { body: {}, querySelectorAll: (selector) => selector.startsWith('[role="textbox"]') ? [box] : [disabledSend] };
+  const context = {
+    globalThis: {}, document,
+    chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } },
+    console: { info() {} }, MutationObserver: class { constructor(callback) { mutation = callback; } observe() {} disconnect() {} },
+    setTimeout, clearTimeout,
+  };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__waitSend = waitForUsableSendButton;\n})();");
+  vm.runInNewContext(instrumented, context);
+
+  const waiting = context.globalThis.__waitSend(5);
+  mutation();
+  await assert.rejects(waiting, (error) => error.code === "GEMINI_SEND_BUTTON_NOT_FOUND");
 });
 
 test("an accessible page with no composer is not mislabeled as logged out", () => {
@@ -304,7 +345,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.35", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.36", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -320,7 +361,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.35", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.36", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -344,7 +385,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.35" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.36" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },
