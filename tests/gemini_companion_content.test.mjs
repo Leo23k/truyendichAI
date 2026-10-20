@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.36");
+  assert.equal(manifest.version, "1.0.37");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.36"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.37"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -125,7 +125,7 @@ test("Gemini health check does not require send or new-chat buttons before a job
 
 test("unrelated Stop controls do not block a Gemini job", () => {
   let onMessage;
-  const composer = { getClientRects: () => [{}] };
+  const composer = { tagName: "DIV", getClientRects: () => [{}], getAttribute: () => null };
   const stopSharing = {
     getClientRects: () => [{}],
     getAttribute: (name) => name === "aria-label" ? "Stop sharing screen" : null,
@@ -243,6 +243,7 @@ test("Gemini logs DOM evidence for each submission step without logging prompt t
   for (const stage of ["COMPOSER_FOUND", "PROMPT_FILLED", "SEND_BUTTON_READY", "SEND_TRIGGERED", "PROMPT_CLEARED", "PROMPT_SUBMITTED_CONFIRMED", "RESPONSE_STARTED", "RESPONSE_DETECTED", "RESPONSE_COMPLETED", "TRANSLATION_EXTRACTED"]) {
     assert.match(contentScript, new RegExp(`log\\("${stage}"`));
   }
+  assert.match(contentScript, /Chẩn đoán giao diện \(không gồm nội dung prompt\):.*JSON\.stringify\(details\)/);
   assert.match(serviceWorker, /log\("GEMINI_TAB_FOUND"/);
   assert.match(serviceWorker, /saved\?\.status !== "completed"/);
   assert.match(serviceWorker, /log\("BACKEND_SAVE_CONFIRMED"/);
@@ -286,19 +287,26 @@ test("Gemini contenteditable receives the complete prompt through native inserti
 
 test("Gemini does not treat a disabled send control as ready", async () => {
   let mutation;
+  let ariaDisabled = null;
   const disabledSend = {
+    tagName: "BUTTON", innerText: "", title: "",
     disabled: true,
     getClientRects: () => [{}],
-    getAttribute: () => null,
+    getAttribute: (name) => name === "aria-disabled" ? ariaDisabled : null,
+    hasAttribute: () => false, querySelector: () => null, querySelectorAll: () => [],
     getBoundingClientRect: () => ({ left: 470, right: 500, width: 30, top: 90, bottom: 120 }),
   };
   const root = {
+    tagName: "DIV",
     contains: (node) => node === disabledSend || node === box,
+    getAttribute: () => null,
     getBoundingClientRect: () => ({ left: 0, right: 500, width: 500, top: 0, bottom: 140 }),
   };
   const box = {
+    tagName: "DIV", isContentEditable: true,
     parentElement: root,
     getClientRects: () => [{}],
+    getAttribute: () => "true",
     getBoundingClientRect: () => ({ left: 0, right: 400, width: 400, top: 0, bottom: 80 }),
   };
   const document = { body: {}, querySelectorAll: (selector) => selector.startsWith('[role="textbox"]') ? [box] : [disabledSend] };
@@ -313,7 +321,18 @@ test("Gemini does not treat a disabled send control as ready", async () => {
 
   const waiting = context.globalThis.__waitSend(5);
   mutation();
-  await assert.rejects(waiting, (error) => error.code === "GEMINI_SEND_BUTTON_NOT_FOUND");
+  await assert.rejects(waiting, (error) => error.code === "SEND_BUTTON_DISABLED" && error.diagnostics.buttonCount === 1 && error.diagnostics.buttons[0].reason === "disabled");
+
+  disabledSend.disabled = false;
+  ariaDisabled = "true";
+  const ariaWaiting = context.globalThis.__waitSend(5);
+  mutation();
+  await assert.rejects(ariaWaiting, (error) => error.code === "SEND_BUTTON_DISABLED" && error.diagnostics.buttons[0].reason === "aria_disabled");
+
+  ariaDisabled = null;
+  const becomesReady = context.globalThis.__waitSend(100);
+  mutation();
+  assert.equal(await becomesReady, disabledSend);
 });
 
 test("an accessible page with no composer is not mislabeled as logged out", () => {
@@ -345,7 +364,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.36", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.37", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -361,7 +380,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.36", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.37", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -385,7 +404,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.36" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.37" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },

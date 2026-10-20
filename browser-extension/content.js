@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.36";
+const CONTENT_SCRIPT_VERSION = "1.0.37";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -25,33 +25,7 @@ const GeminiSelectors = {
     return buttons.find((node) => /new (chat|conversation)|start (a )?(new )?chat|create (a )?(new )?(chat|conversation)|cuộc trò chuyện mới|tạo (cuộc trò chuyện|đoạn chat) mới/i.test(buttonText(node)))
       || buttons.find((node) => node.closest("nav, header") && /\b(edit_square|chat_add_on|add_2)\b/.test(buttonText(node)));
   },
-  send: () => {
-    const buttons = GeminiSelectors.buttons();
-    const isExcluded = (node) => /feedback|stop|dừng|ngừng|microphone|mic|attach|upload|menu|share|voice|model|flash|thinking|reasoning/i.test(buttonText(node));
-    const box = GeminiSelectors.composer();
-    const boxRect = box?.getBoundingClientRect?.();
-    if (!boxRect) return null;
-    let root = box.parentElement;
-    for (let depth = 0; root && depth < 6; depth += 1, root = root.parentElement) {
-      const rootRect = root.getBoundingClientRect?.();
-      const related = buttons.filter((node) => {
-        if (!root.contains?.(node) || node.disabled || node.getAttribute("aria-disabled") === "true" || isExcluded(node)) return false;
-        const rect = node.getBoundingClientRect?.();
-        if (!rect || !rootRect) return false;
-        const verticalGap = Math.max(0, rect.top - boxRect.bottom, boxRect.top - rect.bottom);
-        const centerX = rect.left + rect.width / 2;
-        return verticalGap <= 48 && centerX >= rootRect.left + rootRect.width * 0.58 && centerX <= rootRect.right + 8;
-      });
-      const labelled = related.find((node) => {
-        const label = buttonText(node);
-        const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
-        return (/\b(send(?:_up)?|submit|gửi)\b|arrow_upward/i.test(label) || /send|submit/i.test(testId));
-      });
-      if (labelled) return labelled;
-      if (related.length) return related.sort((left, right) => right.getBoundingClientRect().right - left.getBoundingClientRect().right)[0];
-    }
-    return null;
-  },
+  send: () => inspectSendButton().button,
   responses: () => {
     for (const selector of ["message-content", "model-response", '[data-message-author-role="model"]']) {
       const nodes = [...document.querySelectorAll(selector)].filter((node) => node.innerText?.trim());
@@ -67,26 +41,63 @@ const GeminiSelectors = {
     return [];
   },
   stop: () => GeminiSelectors.buttons().some((node) => /(?:^|\s)(?:stop(?:_response|_generating)?|dừng(?: phản hồi| tạo)?|ngừng(?: phản hồi| tạo)?)(?:$|\s)/i.test(buttonText(node)) && !/sharing|chia sẻ|recording|ghi âm/i.test(buttonText(node))),
-  sendCandidates: () => {
-    const box = GeminiSelectors.composer();
-    if (!box) return [];
-    let root = box.parentElement;
-    for (let depth = 0; root && depth < 4; depth += 1, root = root.parentElement) {
-      const candidates = GeminiSelectors.buttons().filter((node) => root.contains?.(node));
-      if (candidates.length) return candidates.slice(0, 8).map((node) => ({
-        tag: node.tagName || "unknown",
-        role: node.getAttribute("role"),
-        ariaLabel: node.getAttribute("aria-label"),
-        title: node.getAttribute("title"),
-        testId: node.getAttribute("data-testid") || node.getAttribute("data-test-id"),
-        disabled: !!node.disabled,
-        ariaDisabled: node.getAttribute("aria-disabled"),
-        visible: visible(node),
-      }));
-    }
-    return [];
-  },
+  sendCandidates: () => inspectSendButton().diagnostics.buttons,
 };
+
+function inspectSendButton() {
+  const box = GeminiSelectors.composer();
+  const boxRect = box?.getBoundingClientRect?.();
+  const diagnostics = { composer: describeComposer(box), scope: [], buttonCount: 0, buttons: [] };
+  if (!boxRect) return { button: null, reason: "not_found", diagnostics };
+  const allButtons = GeminiSelectors.buttons();
+  const isExcluded = (node) => /feedback|stop|dừng|ngừng|microphone|mic|attach|upload|menu|share|voice|model|flash|thinking|reasoning/i.test(buttonText(node));
+  let root = box.parentElement;
+  for (let depth = 0; root && depth < 6; depth += 1, root = root.parentElement) {
+    const rootRect = root.getBoundingClientRect?.();
+    if (!rootRect) continue;
+    const scoped = allButtons.filter((node) => root.contains?.(node));
+    const inspected = scoped.map((node) => {
+      const rect = node.getBoundingClientRect?.();
+      const verticalGap = rect ? Math.max(0, rect.top - boxRect.bottom, boxRect.top - rect.bottom) : Infinity;
+      const centerX = rect ? rect.left + rect.width / 2 : -Infinity;
+      const nearby = !!rect && verticalGap <= 48 && centerX >= rootRect.left + rootRect.width * 0.58 && centerX <= rootRect.right + 8;
+      const label = buttonText(node);
+      const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
+      const semanticSend = /\b(send(?:_up)?|submit|gửi)\b|arrow_upward/i.test(label) || /send|submit/i.test(testId);
+      const disabled = !!node.disabled || node.hasAttribute?.("disabled") || node.getAttribute("aria-disabled") === "true";
+      const excluded = isExcluded(node);
+      const reason = disabled ? (node.getAttribute("aria-disabled") === "true" ? "aria_disabled" : "disabled")
+        : excluded ? "unrelated_control" : !nearby ? "outside_composer_region" : "eligible";
+      return {
+        node,
+        summary: {
+          tagName: node.tagName || "unknown", role: node.getAttribute("role"),
+          ariaLabel: node.getAttribute("aria-label"), testId: node.getAttribute("data-testid") || node.getAttribute("data-test-id"),
+          disabled: !!node.disabled || !!node.hasAttribute?.("disabled"), ariaDisabled: node.getAttribute("aria-disabled"),
+          nearby, semanticSend, reason,
+        },
+        nearby, semanticSend, disabled, excluded,
+      };
+    });
+    const nearby = inspected.filter((candidate) => candidate.nearby);
+    if (nearby.length) {
+      diagnostics.scope = [];
+      for (let node = box, count = 0; node && count < 5; node = node.parentElement, count += 1) {
+        diagnostics.scope.push({ tagName: node.tagName || "unknown", role: node.getAttribute?.("role"), testId: node.getAttribute?.("data-testid") || node.getAttribute?.("data-test-id") });
+        if (node === root) break;
+      }
+      diagnostics.buttonCount = nearby.length;
+      diagnostics.buttons = nearby.slice(0, 12).map((candidate) => candidate.summary);
+      const eligible = nearby.filter((candidate) => !candidate.disabled && !candidate.excluded);
+      const semantic = eligible.find((candidate) => candidate.semanticSend);
+      const chosen = semantic || eligible.sort((left, right) => right.node.getBoundingClientRect().right - left.node.getBoundingClientRect().right)[0];
+      if (chosen) return { button: chosen.node, reason: null, diagnostics };
+      return { button: null, reason: nearby.some((candidate) => candidate.disabled && !candidate.excluded) ? "disabled" : "unknown", diagnostics };
+    }
+    if (!diagnostics.buttons.length) diagnostics.buttons = inspected.slice(0, 12).map((candidate) => candidate.summary);
+  }
+  return { button: null, reason: diagnostics.buttons.length ? "unknown" : "not_found", diagnostics };
+}
 
 function describeComposer(node) {
   if (!node) return null;
@@ -222,10 +233,14 @@ function waitForUsableSendButton(timeoutMs = 10000) {
       if (button && !button.disabled && button.getAttribute("aria-disabled") !== "true") finish(button);
     }
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
-    timer = setTimeout(() => finish(null, Object.assign(
-      new Error("Gemini chưa hiển thị nút Gửi khả dụng sau khi nhập prompt."),
-      { code: "GEMINI_SEND_BUTTON_NOT_FOUND", reason: "ui_changed" },
-    )), timeoutMs);
+    timer = setTimeout(() => {
+      const state = inspectSendButton();
+      const code = state.reason === "disabled" ? "SEND_BUTTON_DISABLED" : state.reason === "not_found" ? "SEND_BUTTON_NOT_FOUND" : "SEND_STATE_UNKNOWN";
+      const message = code === "SEND_BUTTON_DISABLED" ? "Nút gửi trong vùng composer đang bị Gemini khóa sau khi điền prompt."
+        : code === "SEND_BUTTON_NOT_FOUND" ? "Không tìm thấy nút gửi trong vùng composer Gemini."
+          : "Có nút gần composer nhưng không xác định được nút gửi khả dụng.";
+      finish(null, Object.assign(new Error(message), { code, reason: "manual", diagnostics: state.diagnostics }));
+    }, timeoutMs);
     check();
   });
 }
@@ -318,11 +333,15 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   let send;
   try { send = await waitForUsableSendButton(10000); }
   catch (error) {
-    const diagnostics = GeminiSelectors.sendCandidates();
-    log("SEND_BUTTON_NOT_READY", { code: "SEND_BUTTON_NOT_READY", composer: describeComposer(composer()), candidates: diagnostics, url: location.href });
-    throw Object.assign(new Error("Đã điền prompt nhưng không tìm thấy nút Gửi Gemini đang khả dụng; chưa gửi prompt."), { code: "SEND_BUTTON_NOT_READY", reason: "manual" });
+    const details = error.diagnostics || inspectSendButton().diagnostics;
+    log("SEND_BUTTON_NOT_READY", { code: error.code || "SEND_STATE_UNKNOWN", ...details, url: location.href });
+    throw Object.assign(new Error(`${error.message} Chẩn đoán giao diện (không gồm nội dung prompt): ${JSON.stringify(details).slice(0, 700)}`), { code: error.code || "SEND_STATE_UNKNOWN", reason: "manual" });
   }
   log("SEND_BUTTON_READY", { code: "READY", button: describeSendButton(send), url: location.href });
+  const currentComposer = composer();
+  if (!currentComposer || !composerTextMatches(currentComposer, prompt)) {
+    throw Object.assign(new Error("Prompt không còn nguyên trong ô Gemini ngay trước khi gửi; đã dừng để tránh gửi thiếu."), { code: "PROMPT_INPUT_MISMATCH", reason: "manual" });
+  }
 
   return new Promise((resolve, reject) => {
     let sawGenerating = false;
