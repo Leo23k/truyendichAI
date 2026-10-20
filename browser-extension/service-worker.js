@@ -64,6 +64,11 @@ async function startPolling() {
 
 chrome.runtime.onInstalled.addListener(() => void startPolling());
 chrome.runtime.onStartup.addListener(() => void startPolling());
+if (chrome.sidePanel?.setPanelBehavior) {
+  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
+    log("SIDEPANEL", { code: "SETUP_FAILED", message: String(error?.message || error) });
+  });
+}
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) processOneJob();
 });
