@@ -42,13 +42,18 @@ def claim_next_extension_job(remote) -> dict | None:
         return None
     chapter = chapters[0]
     novels = remote.rows("novels", {
-        "select": "id,title,author,description,original_title,original_author,original_description,metadata_translated",
+        "select": "id,slug,title,author,description,original_title,original_author,original_description,metadata_translated",
         "id": f"eq.{chapter['novel_id']}", "limit": "1",
     })
     path = str(chapter.get("content_path") or "")
     if not path.startswith("chapters/"):
-        remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {"status": "failed", "error_code": "source_missing", "error_message": "Chương chưa có nội dung gốc trong kho lưu trữ."})
-        return None
+        slug = str(novels[0].get("slug") or "") if novels else ""
+        number = int(chapter.get("chapter_number") or 0)
+        if not slug or number < 1:
+            remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {"status": "failed", "error_code": "source_missing", "error_message": "Chương chưa có nội dung gốc trong kho lưu trữ."})
+            return None
+        path = f"chapters/{slug}/{number:03d}.json"
+        remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {"content_path": path})
     source = remote.download_json("chapters", path.removeprefix("chapters/"))
     content = str(source.get("original_content") or "").strip()
     title = str(source.get("original_title") or chapter.get("title") or "").strip()

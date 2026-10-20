@@ -9,24 +9,30 @@ class FakeRemote:
             "id": "job-1", "chapter_id": 7, "provider": "gemini_web", "status": "queued", "attempts": 0,
             "prompt_name": "Tiên hiệp", "prompt_template": "Dịch tự nhiên:\n{{text}}", "model": "gemini-web",
         }
+        self.chapter = {"id": 7, "novel_id": 2, "chapter_number": 3, "title": "原题", "content_path": None}
+        self.downloaded_path = None
         self.patches: list[tuple[str, dict, dict]] = []
 
     def rows(self, table: str, params: dict[str, str]) -> list[dict]:
         if table == "translation_queue":
             return [self.job] if self.job["status"] == "queued" else []
         if table == "chapters":
-            return [{"id": 7, "novel_id": 2, "chapter_number": 3, "title": "原题", "content_path": "chapters/novel/003.json"}]
+            return [self.chapter]
         if table == "novels":
-            return [{"id": 2, "title": "原題", "author": "作者", "description": "简介", "original_title": "原題", "original_author": "作者", "original_description": "简介", "metadata_translated": False}]
+            return [{"id": 2, "slug": "novel", "title": "原題", "author": "作者", "description": "简介", "original_title": "原題", "original_author": "作者", "original_description": "简介", "metadata_translated": False}]
         return []
 
-    def download_json(self, _bucket: str, _path: str) -> dict:
+    def download_json(self, _bucket: str, path: str) -> dict:
+        self.downloaded_path = path
         return {"original_title": "原题", "original_content": "第一段。\n\n第二段。"}
 
     def patch_rows(self, table: str, params: dict[str, str], payload: dict) -> list[dict]:
         self.patches.append((table, params, payload))
         if params.get("updated_at", "").startswith("lt."):
             return []
+        if table == "chapters":
+            self.chapter.update(payload)
+            return [self.chapter]
         if table == "translation_queue" and params.get("status") == "eq.queued" and self.job["status"] != "queued":
             return []
         self.job.update(payload)
@@ -43,6 +49,8 @@ def test_claim_extension_job_returns_whole_chapter_and_prompt_snapshot() -> None
     assert job["source_hash"] and job["combined_hash"]
     assert job["metadata"] == {"title": "原題", "author": "作者", "description": "简介"}
     assert remote.job["status"] == "translating"
+    assert remote.downloaded_path == "novel/003.json"
+    assert remote.chapter["content_path"] == "chapters/novel/003.json"
 
 
 def test_claim_is_conditional_and_loses_race_safely() -> None:
