@@ -4,6 +4,8 @@ import test from "node:test";
 import vm from "node:vm";
 
 const contentScript = await readFile(new URL("../browser-extension/content.js", import.meta.url), "utf8");
+const serviceWorker = await readFile(new URL("../browser-extension/service-worker.js", import.meta.url), "utf8");
+const popupScript = await readFile(new URL("../browser-extension/popup.js", import.meta.url), "utf8");
 
 test("extension opens its controls in the browser side panel", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
@@ -11,6 +13,15 @@ test("extension opens its controls in the browser side panel", async () => {
   assert.equal(manifest.side_panel.default_path, "popup.html");
   assert.ok(manifest.permissions.includes("sidePanel"));
   assert.equal(manifest.action.default_popup, undefined);
+});
+
+test("Gemini health check and popup messaging have bounded timeouts", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
+
+  assert.equal(manifest.version, "1.0.10");
+  assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 12000/);
+  assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
+  assert.match(popupScript, /MESSAGE_TIMEOUT_MS = 14000/);
 });
 
 test("Gemini health check does not require send or new-chat buttons before a job", () => {

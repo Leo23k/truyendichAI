@@ -1,7 +1,18 @@
 const ALARM = "gemini-companion-poll";
 const GEMINI_URL = "https://gemini.google.com/app";
 const GEMINI_PERMISSION = "https://gemini.google.com/*";
+const HEALTH_CHECK_TIMEOUT_MS = 12000;
 let busy = false;
+
+function withTimeout(promise, timeoutMs, code, message) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(companionError(code, message)), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 function companionError(code, message, details = {}) {
   return Object.assign(new Error(message), { code, ...details });
@@ -78,22 +89,28 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (appTabId === tabId) await chrome.storage.local.remove(["appTabId", "appOrigin"]);
 });
 
-async function pageRequest(tabId, path, method = "GET", body) {
+async function pageRequest(tabId, path, method = "GET", body, timeoutMs = 60000) {
   const tab = await chrome.tabs.get(tabId);
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId }, world: "MAIN",
-      func: async ({ path, method, body }) => {
-        const response = await fetch(path, {
-          method, credentials: "same-origin",
-          headers: body ? { "Content-Type": "application/json" } : {},
-          body: body ? JSON.stringify(body) : undefined,
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
-        return payload;
+      func: async ({ path, method, body, timeoutMs }) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const response = await fetch(path, {
+            method, credentials: "same-origin", signal: controller.signal,
+            headers: body ? { "Content-Type": "application/json" } : {},
+            body: body ? JSON.stringify(body) : undefined,
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+          return payload;
+        } finally {
+          clearTimeout(timer);
+        }
       },
-      args: [{ path, method, body }],
+      args: [{ path, method, body, timeoutMs }],
     });
     return results[0]?.result;
   } catch (error) {
@@ -156,8 +173,8 @@ async function waitForGeminiContentScript(tabId) {
   throw companionError("CONTENT_SCRIPT_NOT_INJECTED", "Tab đã nạp lại nhưng Edge chưa chạy content.js. Kiểm tra Site access và thư mục extension đang nạp.", { tabId, url: tab?.url });
 }
 
-async function ensureGeminiTabReady(tab) {
-  const deadline = Date.now() + 30000;
+async function ensureGeminiTabReady(tab, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
     tab = await chrome.tabs.get(tab.id);
@@ -201,9 +218,9 @@ async function ensureGeminiTabReady(tab) {
   throw companionError(code, message, { tabId: tab.id, url: tab.url, diagnostics: permissionDiagnostics, rawError: String(lastError?.message || lastError || ""), cause: lastError });
 }
 
-async function ensureGeminiTab() {
+async function ensureGeminiTab(timeoutMs = 30000) {
   const tab = await findGeminiTab() || await openGeminiTab();
-  return ensureGeminiTabReady(tab);
+  return ensureGeminiTabReady(tab, timeoutMs);
 }
 
 async function healthCheck() {
@@ -215,14 +232,17 @@ async function healthCheck() {
   };
   try {
     const appTab = await activeAppTab();
-    await pageRequest(appTab.id, "/api/gemini-extension/status");
+    await pageRequest(appTab.id, "/api/gemini-extension/status", "GET", undefined, 4000);
     result.backend = { ok: true, code: "CONNECTED", url: new URL(appTab.url).origin };
   } catch (error) {
     result.backend = { ok: false, code: error.code || "BACKEND_UNAVAILABLE", message: error.message };
   }
   try {
-    const { tab, injected, permissionDiagnostics } = await ensureGeminiTab();
-    const dom = await chrome.tabs.sendMessage(tab.id, { type: "health-check" });
+    const { tab, injected, permissionDiagnostics } = await ensureGeminiTab(7500);
+    const dom = await withTimeout(
+      chrome.tabs.sendMessage(tab.id, { type: "health-check" }),
+      1500, "GEMINI_CHECK_TIMEOUT", "Tab Gemini không phản hồi kiểm tra trong 1,5 giây.",
+    );
     result.browser = { ok: true, code: "CONNECTED", host: GEMINI_PERMISSION, injected, diagnostics: permissionDiagnostics };
     result.gemini = { ...dom, tabId: tab.id, url: tab.url };
   } catch (error) {
@@ -335,7 +355,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "health-check") {
-    healthCheck().then(sendResponse).catch((error) => sendResponse({ ok: false, code: error.code || "HEALTH_CHECK_FAILED", message: String(error?.message || error) }));
+    withTimeout(
+      healthCheck(), HEALTH_CHECK_TIMEOUT_MS, "HEALTH_CHECK_TIMEOUT", "Kiểm tra quá 12 giây. Hãy tải lại tab Gemini rồi thử lại.",
+    ).then(sendResponse).catch((error) => sendResponse({
+      ok: false,
+      code: error.code || "HEALTH_CHECK_FAILED",
+      message: String(error?.message || error),
+      backend: { ok: false, code: "NOT_CHECKED" },
+      browser: { ok: false, code: "NOT_CHECKED", host: GEMINI_PERMISSION },
+      gemini: { ok: false, code: error.code || "HEALTH_CHECK_FAILED", message: String(error?.message || error), checks: {} },
+    }));
     return true;
   }
 });

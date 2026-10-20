@@ -1,7 +1,18 @@
 const $ = (id) => document.getElementById(id);
+const MESSAGE_TIMEOUT_MS = 14000;
 
 async function send(message) {
-  return chrome.runtime.sendMessage(message);
+  let timer;
+  try {
+    return await Promise.race([
+      chrome.runtime.sendMessage(message),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Extension chưa phản hồi sau 14 giây. Hãy tải lại extension rồi thử lại.")), MESSAGE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const GEMINI_PERMISSION = "https://gemini.google.com/*";
