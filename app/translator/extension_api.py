@@ -191,6 +191,8 @@ def clear_translation_queue(request: Request) -> dict:
         "status": "cancelled", "error_code": None, "error_message": None, "updated_at": now,
     })
     batch_ids = {str(job["batch_job_id"]) for job in jobs if job.get("batch_job_id")}
-    for batch_id in batch_ids:
-        remote.patch_rows("batch_translation_jobs", {"id": f"eq.{batch_id}"}, {"status": "cancelled", "updated_at": now})
+    batches = remote.all_rows("batch_translation_jobs", {"select": "id", "status": "not.in.(completed,cancelled)"})
+    batch_ids.update(str(batch["id"]) for batch in batches)
+    if batch_ids:
+        remote.patch_rows("batch_translation_jobs", {"id": f"in.({','.join(sorted(batch_ids))})"}, {"status": "cancelled", "updated_at": now})
     return {"jobs_cancelled": len(updated), "batches_cancelled": len(batch_ids)}
