@@ -1,9 +1,32 @@
 """Queue operations shared by the Gemini browser companion API."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+
+from app.crawlers.base import clean_chapter_text
+from app.crawlers.bootstrap import registry
+
+
+def _restore_missing_source(remote, chapter: dict, path: str) -> dict:
+    source_url = str(chapter.get("source_url") or "")
+    crawler = registry.get_for_url(source_url)
+    content = clean_chapter_text(asyncio.run(crawler.get_chapter_content(source_url)))
+    if not content:
+        raise ValueError("Website nguồn không trả nội dung chương.")
+    payload = {
+        "number": chapter["chapter_number"], "title": chapter["title"],
+        "original_title": chapter["title"], "original_content": content,
+        "translated_content": None, "content": None, "translated": False,
+    }
+    remote.upload_if_changed(
+        "chapters", path.removeprefix("chapters/"),
+        json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json",
+        check_existing=False,
+    )
+    return remote.download_json("chapters", path.removeprefix("chapters/"))
 
 
 def reclaim_stale_extension_jobs(remote, stale_seconds: int = 900) -> int:
@@ -26,7 +49,7 @@ def claim_next_extension_job(remote) -> dict | None:
         return None
     job = jobs[0]
     chapters = remote.rows(
-        "chapters", {"select": "id,novel_id,chapter_number,title,content_path", "id": f"eq.{job['chapter_id']}", "limit": "1"},
+        "chapters", {"select": "id,novel_id,chapter_number,title,source_url,content_path", "id": f"eq.{job['chapter_id']}", "limit": "1"},
     )
     if not chapters:
         remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"}, {"status": "failed", "error_code": "chapter_missing", "error_message": "Không tìm thấy chương gốc."})
@@ -48,11 +71,16 @@ def claim_next_extension_job(remote) -> dict | None:
     try:
         source = remote.download_json("chapters", path.removeprefix("chapters/"))
     except Exception as exc:
-        remote.patch_rows(
-            "translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"},
-            {"status": "backoff", "error_code": "source_unavailable", "error_message": f"Không thể đọc raw chương từ kho lưu trữ: {str(exc)[:800]}", "updated_at": datetime.now(timezone.utc).isoformat()},
-        )
-        return None
+        try:
+            if "404 Not Found" not in str(exc):
+                raise exc
+            source = _restore_missing_source(remote, chapter, path)
+        except Exception as recovery_exc:
+            remote.patch_rows(
+                "translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"},
+                {"status": "backoff", "error_code": "source_unavailable", "error_message": f"Không thể đọc raw chương từ kho lưu trữ: {str(recovery_exc)[:800]}", "updated_at": datetime.now(timezone.utc).isoformat()},
+            )
+            return None
     content = str(source.get("original_content") or "").strip()
     title = str(source.get("original_title") or chapter.get("title") or "").strip()
     prompt = str(job.get("prompt_template") or "")
@@ -92,6 +120,15 @@ def pause_extension_job(remote, job_id: str, reason: str, message: str) -> bool:
     return bool(rows)
 
 
+def cancel_translation_job(remote, job_id: str) -> dict | None:
+    rows = remote.patch_rows(
+        "translation_queue",
+        {"id": f"eq.{job_id}", "status": "in.(queued,translating,backoff,paused,paused_quota,paused_manual,review_required,failed)"},
+        {"status": "cancelled", "error_code": None, "error_message": None, "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    return rows[0] if rows else None
+
+
 def refresh_batch_progress(remote, batch_id: str | None) -> dict | None:
     if not batch_id:
         return None
@@ -102,7 +139,7 @@ def refresh_batch_progress(remote, batch_id: str | None) -> dict | None:
     completed = sum(row.get("status") == "completed" for row in jobs)
     failed = sum(row.get("status") == "failed" for row in jobs)
     active = sum(row.get("status") in {"queued", "translating", "backoff"} for row in jobs)
-    paused = sum(row.get("status") in {"paused", "paused_quota", "paused_manual", "review_required"} for row in jobs)
+    paused = sum(row.get("status") in {"paused", "paused_quota", "paused_manual", "review_required", "cancelled"} for row in jobs)
     total = int(batches[0].get("total") or 0)
     status = "completed" if total and completed + failed >= total and not failed else "failed" if failed else "running" if active else "paused" if paused else "queued"
     updates = remote.patch_rows("batch_translation_jobs", {"id": f"eq.{batch_id}"}, {

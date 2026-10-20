@@ -5,10 +5,11 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.auth import require_admin
-from app.translator.extension_queue import claim_next_extension_job, pause_extension_job, refresh_batch_progress
+from app.translator.extension_queue import cancel_translation_job, claim_next_extension_job, pause_extension_job, refresh_batch_progress
 from app.translator.validation import translation_issue
 from sync.service import SupabaseSync
 
@@ -146,6 +147,17 @@ def resume_extension_jobs(request: Request) -> dict:
     for batch_id in {str(row["batch_job_id"]) for row in rows if row.get("batch_job_id")}:
         refresh_batch_progress(remote, batch_id)
     return {"resumed": len(rows)}
+
+
+@router.post("/jobs/translations/{job_id}/cancel")
+def cancel_translation_job_route(job_id: str, request: Request) -> RedirectResponse:
+    require_admin(request)
+    remote = SupabaseSync()
+    cancelled = cancel_translation_job(remote, job_id)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="Job dịch không còn ở trạng thái có thể hủy.")
+    refresh_batch_progress(remote, str(cancelled.get("batch_job_id") or "") or None)
+    return RedirectResponse(url="/jobs", status_code=303)
 
 
 @router.post("/jobs/translations/batches/{batch_id}/{action}")

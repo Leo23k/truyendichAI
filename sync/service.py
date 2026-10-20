@@ -895,6 +895,8 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
                 web_profile=str(job.get("web_profile") or "") or None,
                 prompt_template=str(job.get("prompt_template") or DEFAULT_PROMPT),
             )
+            if not remote.rows("translation_queue", {"select": "id", "id": f"eq.{job['id']}", "status": "eq.translating", "limit": "1"}):
+                return False
 
             # Lưu kết quả
             for row, translated in zip(rows, translated_texts):
@@ -910,15 +912,17 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
             next_index = current + len(rows)
             status = "completed" if next_index >= total_chunks else "translating"
 
-            remote.patch_rows(
+            updated = remote.patch_rows(
                 "translation_queue",
-                {"id": f"eq.{job['id']}"},
+                {"id": f"eq.{job['id']}", "status": "eq.translating"},
                 {
                     "current_chunk": next_index,
                     "status": status,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
+            if not updated and not remote.rows("translation_queue", {"select": "id", "id": f"eq.{job['id']}", "status": "eq.translating", "limit": "1"}):
+                return False
 
             logger.info(
                 "Đã dịch chương ID %s: hoàn tất %s/%s đoạn.",
@@ -955,7 +959,7 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
             )
         remote.patch_rows(
             "translation_queue",
-            {"id": f"eq.{job['id']}"},
+            {"id": f"eq.{job['id']}", "status": "eq.translating"},
             {"status": "paused", "updated_at": datetime.now(timezone.utc).isoformat()},
         )
         return False
@@ -968,7 +972,7 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
 
         remote.patch_rows(
             "translation_queue",
-            {"id": f"eq.{job['id']}"},
+            {"id": f"eq.{job['id']}", "status": "eq.translating"},
             {
                 "status": "failed",
                 "updated_at": datetime.now(timezone.utc).isoformat(),

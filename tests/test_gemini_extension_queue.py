@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.translator.extension_queue import claim_next_extension_job, pause_extension_job, refresh_batch_progress
+from app.translator.extension_queue import cancel_translation_job, claim_next_extension_job, pause_extension_job, refresh_batch_progress
 
 
 class FakeRemote:
@@ -64,6 +64,41 @@ def test_raw_download_failure_does_not_leave_job_translating() -> None:
     assert remote.job["error_code"] == "source_unavailable"
     assert "B2 unavailable" in remote.job["error_message"]
     assert remote.job["attempts"] == 0
+
+
+def test_missing_raw_is_restored_from_chapter_source(monkeypatch) -> None:
+    class MissingRawRemote(FakeRemote):
+        def download_json(self, _bucket: str, _path: str) -> dict:
+            if hasattr(self, "uploaded"):
+                import json
+
+                return json.loads(self.uploaded[2])
+            raise RuntimeError("404 Not Found")
+
+        def upload_if_changed(self, bucket, path, content, content_type, **kwargs):
+            self.uploaded = (bucket, path, content, content_type)
+            return True
+
+    class Crawler:
+        async def get_chapter_content(self, _url):
+            return "第一段。\n\n第二段。"
+
+    monkeypatch.setattr("app.translator.extension_queue.registry.get_for_url", lambda _url: Crawler())
+    remote = MissingRawRemote()
+    remote.chapter["source_url"] = "https://example.com/chapter/3"
+    job = claim_next_extension_job(remote)
+    assert job is not None
+    assert job["content"] == "第一段。\n第二段。"
+    assert remote.uploaded[0:2] == ("chapters", "novel/003.json")
+    assert remote.job["status"] == "translating"
+
+
+def test_cancel_active_job_sets_cancelled_status() -> None:
+    remote = FakeRemote()
+    remote.job["status"] = "translating"
+    cancelled = cancel_translation_job(remote, "job-1")
+    assert cancelled is not None
+    assert remote.job["status"] == "cancelled"
 
 
 def test_claim_is_conditional_and_loses_race_safely() -> None:
