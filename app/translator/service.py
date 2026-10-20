@@ -1,7 +1,7 @@
 import logging
 import unicodedata
 
-import httpx
+import httpx  # compatibility: existing tests and callers patch this shared module
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,12 @@ from app.config import settings
 from app.models import TranslationMemory
 from app.translator.glossary import GlossaryEntry, ProtectedText, protect, restore
 from app.translator.preprocess import traditional_to_simplified
+from app.translator.providers import (
+    DEFAULT_PROMPT,
+    ProviderPausedError,
+    ProviderUnavailableError,
+    provider_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,19 +61,48 @@ class TranslationUnavailableError(RuntimeError):
     pass
 
 
+class TranslationPausedError(TranslationUnavailableError):
+    pass
+
+
 class TranslatorService:
     """Client for the separately hosted local HachimiMT model service."""
 
-    def translate(self, text: str, db: Session | None = None) -> str:
+    def translate(
+        self,
+        text: str,
+        db: Session | None = None,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        web_profile: str | None = None,
+        prompt_template: str = DEFAULT_PROMPT,
+    ) -> str:
         if not text or not text.strip():
             return text
         source = normalize_text(traditional_to_simplified(text))
         entries = glossary_entries(db, source) if settings.enable_glossary else []
         protected = protect(source, entries) if entries else ProtectedText(source, ())
-        translated = postprocess_v9(source, self._translate_text(protected), entries)
+        translated = postprocess_v9(
+            source,
+            self._translate_text(
+                protected, provider=provider, model=model, web_profile=web_profile,
+                prompt_template=prompt_template,
+            ),
+            entries,
+        )
         return restore(translated, protected)
 
-    def translate_metadata(self, text: str, db: Session | None = None) -> str:
+    def translate_metadata(
+        self,
+        text: str,
+        db: Session | None = None,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        web_profile: str | None = None,
+        prompt_template: str = DEFAULT_PROMPT,
+    ) -> str:
         """Translate book titles and author names with a formal Hán-Việt bias."""
         if not text or not text.strip():
             return text
@@ -76,10 +111,26 @@ class TranslatorService:
         protected = protect(source, entries)
         # A wider beam is inexpensive for short metadata and favors literal,
         # title-like wording over a fluent paraphrase.
-        translated = postprocess_v9(source, self._translate_text(protected, beam_size=4), entries)
+        translated = postprocess_v9(
+            source,
+            self._translate_text(
+                protected, beam_size=4, provider=provider, model=model,
+                web_profile=web_profile, prompt_template=prompt_template,
+            ),
+            entries,
+        )
         return restore(translated, protected)
 
-    def translate_batch(self, texts: list[str], entries: list[GlossaryEntry] | None = None) -> list[str]:
+    def translate_batch(
+        self,
+        texts: list[str],
+        entries: list[GlossaryEntry] | None = None,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        web_profile: str | None = None,
+        prompt_template: str = DEFAULT_PROMPT,
+    ) -> list[str]:
         if not texts:
             return []
         glossary = entries or [] if settings.enable_glossary else []
@@ -88,30 +139,36 @@ class TranslatorService:
             for text in texts
         ]
         try:
-            response = httpx.post(f"{settings.model_service_url.rstrip('/')}/v1/translate-batch", json={"texts": [item.text for item in protected_texts], "beam_size": settings.model_beam_size}, timeout=settings.model_service_timeout, trust_env=False)
-            response.raise_for_status()
-            translated = response.json()["translated_texts"]
-            if not isinstance(translated, list) or len(translated) != len(texts):
-                raise ValueError("Invalid batch translation response")
-            return [restore(normalize_text(str(value)), protected) for value, protected in zip(translated, protected_texts)]
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
-            raise TranslationUnavailableError("Không thể kết nối tới model service HachimiMT. Hãy kiểm tra service đang chạy.") from exc
-
-    def _translate_text(self, protected: ProtectedText, beam_size: int | None = None) -> str:
-        try:
-            response = httpx.post(
-                f"{settings.model_service_url.rstrip('/')}/v1/translate",
-                json={"text": protected.text, "beam_size": beam_size or settings.model_beam_size},
-                timeout=settings.model_service_timeout,
-                trust_env=False,
+            translated = provider_for(provider or settings.translation_provider).translate_batch(
+                [item.text for item in protected_texts], model=model,
+                web_profile=web_profile, prompt_template=prompt_template,
             )
-            response.raise_for_status()
-            translated = response.json()["translated_text"]
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            return [restore(normalize_text(str(value)), protected) for value, protected in zip(translated, protected_texts)]
+        except ProviderPausedError as exc:
+            raise TranslationPausedError(str(exc)) from exc
+        except (ProviderUnavailableError, ValueError) as exc:
+            raise TranslationUnavailableError(str(exc)) from exc
+
+    def _translate_text(
+        self,
+        protected: ProtectedText,
+        beam_size: int | None = None,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        web_profile: str | None = None,
+        prompt_template: str = DEFAULT_PROMPT,
+    ) -> str:
+        try:
+            translated = provider_for(provider or settings.translation_provider).translate_batch(
+                [protected.text], model=model, web_profile=web_profile,
+                prompt_template=prompt_template, beam_size=beam_size,
+            )[0]
+        except ProviderPausedError as exc:
+            raise TranslationPausedError(str(exc)) from exc
+        except (ProviderUnavailableError, IndexError, ValueError) as exc:
             logger.warning("Model service translation failed: %s", exc)
-            raise TranslationUnavailableError(
-                "Không thể kết nối tới model service HachimiMT. Hãy kiểm tra service đang chạy."
-            ) from exc
+            raise TranslationUnavailableError(str(exc)) from exc
         return normalize_text(translated)
 
 

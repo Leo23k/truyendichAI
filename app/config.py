@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     tts_api_url: str | None = Field(default=None, validation_alias=AliasChoices("TTS_API_URL"))
     model_service_timeout: int = 300
     model_beam_size: int = 4
+    translation_provider: str = "hachimi"
+    gemini_api_key: str | None = Field(default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"))
+    gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_web_cooldown_seconds: float = 3.0
     enable_glossary: bool = False
     pc_worker_url: str | None = Field(default=None, validation_alias=AliasChoices("PC_WORKER_URL"))
     pc_worker_token: str | None = Field(default=None, validation_alias=AliasChoices("PC_WORKER_TOKEN"))
@@ -57,6 +61,10 @@ class Settings(BaseSettings):
         if os.getenv("VERCEL"):
             return self.data_path / "audio"
         return PROJECT_ROOT / path
+
+    @property
+    def gemini_profile_path(self) -> Path:
+        return self.data_path / "gemini-web-profiles"
 
 
 settings = Settings()
