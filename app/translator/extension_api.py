@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import require_admin
 from app.translator.extension_queue import claim_next_extension_job, pause_extension_job
+from app.translator.validation import translation_issue
 from sync.service import SupabaseSync
 
 
@@ -79,6 +80,9 @@ def complete_extension_job(job_id: str, payload: GeminiResult, request: Request)
     original_content = str(stored.get("original_content") or "")
     if not original_content:
         raise HTTPException(status_code=409, detail="Nội dung gốc của chương đang trống.")
+    issue = translation_issue(original_content, payload.translated_content, str(job.get("prompt_template") or ""))
+    if issue:
+        raise HTTPException(status_code=422, detail=f"Bản dịch chưa đạt kiểm tra ({issue}); hãy thử lại hoặc dịch theo chunk.")
 
     history = remote.rows("translation_versions", {
         "select": "version_number", "chapter_id": f"eq.{chapter['id']}", "order": "version_number.desc", "limit": "1",

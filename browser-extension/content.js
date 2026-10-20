@@ -4,10 +4,11 @@ const buttonText = (button) => `${button.getAttribute("aria-label") || ""} ${but
 chrome.runtime.sendMessage({ type: "gemini-ready" }).catch(() => {});
 
 function classifyPage() {
-  const body = readBody();
+  const body = readBody().slice(-2000);
   if (/captcha|verify it's you|xác minh bạn|verification/.test(body)) return { reason: "manual", message: "Gemini yêu cầu xác minh/CAPTCHA. Hãy xử lý trong tab Gemini rồi resume." };
   if (/sign in|đăng nhập/.test(body) && !document.querySelector('[role="textbox"], textarea, [contenteditable="true"]')) return { reason: "manual", message: "Gemini chưa đăng nhập. Hãy đăng nhập trong tab Gemini rồi resume." };
   if (/usage limit|you've reached your limit|đã đạt giới hạn|vượt quá giới hạn|try again later/.test(body)) return { reason: "quota", message: "Gemini báo giới hạn sử dụng. Job đã pause để bạn resume sau." };
+  if (/prompt is too long|input is too long|message is too long|exceeds (the )?(context|token) limit/.test(body)) return { reason: "too_long", message: "Chương vượt giới hạn một lần gửi; sẽ thử dịch theo đoạn." };
   return null;
 }
 
@@ -80,6 +81,66 @@ function cleanResult(value) {
   return value.replace(/^```(?:text|markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
+function translationIssue(source, output, prompt) {
+  if (!output.trim()) return "empty";
+  if (/\[(?:response )?truncated\]|output was cut off|response was truncated|输出已截断/i.test(output)) return "truncated";
+  if (output === source || (source.length >= 100 && output.includes(source.slice(0, 100)))) return "source_echo";
+  const prefix = prompt.split("{{text}}", 1)[0].trim();
+  if (prefix.length >= 40 && output.startsWith(prefix.slice(0, 100))) return "prompt_echo";
+  if (source.length >= 80 && output.length < Math.min(500, Math.max(30, Math.floor(source.length * 0.08)))) return "too_short";
+  const paragraphs = output.split(/\n\s*\n/).map((part) => part.replace(/\s/g, "").toLowerCase()).filter(Boolean);
+  if (paragraphs.length >= 4 && new Set(paragraphs).size <= Math.floor(paragraphs.length / 2)) return "duplicate_output";
+  return null;
+}
+
+function fallbackChunks(text, maxSize = 1800) {
+  const paragraphs = text.replace(/\r\n?/g, "\n").split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+  const chunks = [];
+  const joiners = [];
+  let current = "";
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    const sentences = paragraph.match(/[^。！？!?；;]+[。！？!?；;]?/gu) || [paragraph];
+    sentences.forEach((sentence, sentenceIndex) => {
+      const separator = sentenceIndex === 0 && paragraphIndex > 0 ? "\n\n" : "";
+      const candidate = current + separator + sentence;
+      if (current && candidate.length > maxSize) {
+        chunks.push(current);
+        joiners.push(separator || " ");
+        current = sentence;
+      } else current = candidate;
+    });
+  });
+  if (current) chunks.push(current);
+  return { chunks, joiners };
+}
+
+async function translateWholeChapter(job) {
+  let whole = "";
+  let issue = null;
+  try {
+    whole = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", job.content)));
+    issue = translationIssue(job.content, whole, job.prompt_snapshot);
+  } catch (error) {
+    if (error.reason !== "too_long") throw error;
+    issue = "truncated";
+  }
+  if (!issue) return whole;
+
+  const { chunks, joiners } = fallbackChunks(job.content);
+  if (chunks.length < 2) throw Object.assign(new Error(`Phản hồi Gemini không đạt kiểm tra (${issue}); không thể chia chương an toàn.`), { reason: "manual" });
+  const translated = [];
+  for (const chunk of chunks) {
+    const result = cleanResult(await submitPrompt(job.prompt_snapshot.replace("{{text}}", chunk)));
+    const chunkIssue = translationIssue(chunk, result, job.prompt_snapshot);
+    if (chunkIssue) throw Object.assign(new Error(`Gemini trả chunk không hợp lệ (${chunkIssue}); job đã pause để kiểm tra.`), { reason: "manual" });
+    translated.push(result);
+  }
+  const result = translated.map((part, index) => index ? `${joiners[index - 1] || " "}${part}` : part).join("");
+  const finalIssue = translationIssue(job.content, result, job.prompt_snapshot);
+  if (finalIssue) throw Object.assign(new Error(`Bản ghép chunk không đạt kiểm tra (${finalIssue}).`), { reason: "manual" });
+  return result;
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "ping") {
     sendResponse({ ready: true });
@@ -88,13 +149,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== "translate-chapter") return;
   (async () => {
     const { job } = message;
-    const chapterPrompt = job.prompt_snapshot.replace("{{text}}", job.content);
-    const translatedContent = cleanResult(await submitPrompt(chapterPrompt));
-    if (translatedContent.length < Math.min(80, job.content.length * 0.15)) {
-      throw Object.assign(new Error("Phản hồi quá ngắn, cần kiểm tra hoặc dịch lại."), { reason: "manual" });
-    }
+    const translatedContent = await translateWholeChapter(job);
     const titlePrompt = job.prompt_snapshot.replace("{{text}}", job.title);
     const translatedTitle = cleanResult(await submitPrompt(titlePrompt));
+    if (!translatedTitle || translatedTitle === job.title) {
+      throw Object.assign(new Error("Tên chương chưa được dịch; job đã pause để kiểm tra."), { reason: "manual" });
+    }
     sendResponse({ ok: true, translation: { translated_title: translatedTitle, translated_content: translatedContent } });
   })().catch((error) => sendResponse({ ok: false, reason: error.reason || "transient", message: String(error.message || error) }));
   return true;
