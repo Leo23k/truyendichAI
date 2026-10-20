@@ -4,9 +4,8 @@ async function send(message) {
   return chrome.runtime.sendMessage(message);
 }
 
-async function requestHostAccess(origins) {
-  const granted = await chrome.permissions.request({ origins });
-  if (!granted) throw new Error("Edge chưa cấp quyền truy cập website. Hãy chấp nhận yêu cầu quyền rồi thử lại.");
+function log(code, message, tabId, url) {
+  console.info("[GEMINI_COMPANION][POPUP]", JSON.stringify({ code, message, tabId: tabId ?? null, url: url ?? null, timestamp: new Date().toISOString() }));
 }
 
 async function refresh() {
@@ -15,57 +14,60 @@ async function refresh() {
   $("dot").classList.toggle("online", connected);
   $("state").textContent = state?.currentJob ? `Đang dịch chương ${state.currentJob}` : connected ? "Đã kết nối" : "Chưa kết nối";
   $("detail").textContent = state?.lastError || state?.appOrigin || "Mở Leo Truyện, rồi kết nối tab hiện tại.";
-  $("message").textContent = "";
 }
 
 $("connect").addEventListener("click", async () => {
   $("connect").disabled = true;
   $("message").textContent = "Đang kết nối với website…";
   try {
-    await requestHostAccess([
-      "https://leotruyen.vercel.app/*",
-      "http://127.0.0.1/*",
-      "http://localhost/*",
-    ]);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const result = await send({ type: "connect-app", tab });
     if (!result?.ok) throw new Error(result?.error || "Kết nối thất bại.");
     $("message").textContent = "Đã kết nối. Hàng đợi Gemini Web sẽ chạy tuần tự.";
   } catch (error) {
     $("message").textContent = String(error?.message || error);
+    log("CONNECT_FAILED", $("message").textContent);
   } finally {
     $("connect").disabled = false;
     await refresh();
   }
 });
 
-$("openGemini").addEventListener("click", () => send({ type: "open-gemini" }));
+$("openGemini").addEventListener("click", async () => {
+  const result = await send({ type: "open-gemini" });
+  if (!result?.ok) $("message").textContent = result?.message || "Không mở được Gemini Web.";
+});
 $("healthCheck").addEventListener("click", async () => {
   $("healthCheck").disabled = true;
   $("message").textContent = "Đang kiểm tra tab Gemini…";
   try {
-    await requestHostAccess(["https://gemini.google.com/*"]);
     const result = await send({ type: "health-check" });
-    if (!result?.ok) throw new Error(result?.error || "Gemini chưa sẵn sàng.");
-    $("message").textContent = "Gemini đã đăng nhập và ô nhập sẵn sàng.";
+    const check = (item) => item?.ok ? "OK" : item?.code || "FAILED";
+    const dom = result?.gemini?.checks || {};
+    $("message").textContent = [
+      `Backend: ${check(result?.backend)}`,
+      `Quyền Gemini: ${check(result?.browser)} (${result?.browser?.host || "https://gemini.google.com/*"})`,
+      `Tab / content script: ${result?.gemini?.tabId ? `tab ${result.gemini.tabId}` : "không sẵn sàng"} / ${result?.browser?.injected ? "đã inject" : check(result?.browser)}`,
+      `Đăng nhập: ${dom.loggedIn ? "OK" : "không"} · Composer: ${dom.composer ? "OK" : "không"} · Nút gửi: ${dom.sendButton ? "OK" : "không"}`,
+      `Chat mới: ${dom.newChat ? "OK" : "không"} · Vùng phản hồi: ${dom.responseContainer ? "OK" : "không"}`,
+      `Mã: ${result?.code || "UNKNOWN"}${result?.gemini?.message ? ` — ${result.gemini.message}` : ""}`,
+    ].join("\n");
+    log(result?.code || "UNKNOWN", result?.gemini?.message || "Health check completed", result?.gemini?.tabId, result?.gemini?.url);
   } catch (error) {
     $("message").textContent = String(error?.message || error);
+    log("HEALTH_CHECK_FAILED", $("message").textContent);
   } finally {
     $("healthCheck").disabled = false;
   }
 });
 $("resume").addEventListener("click", async () => {
   try {
-    await requestHostAccess([
-      "https://leotruyen.vercel.app/*",
-      "http://127.0.0.1/*",
-      "http://localhost/*",
-    ]);
     const result = await send({ type: "resume-jobs" });
     if (!result?.ok) throw new Error(result?.error || "Không thể resume.");
     $("message").textContent = `Đã đưa ${result.resumed} job vào hàng đợi.`;
   } catch (error) {
     $("message").textContent = String(error?.message || error);
+    log("RESUME_FAILED", $("message").textContent);
   }
   await refresh();
 });
