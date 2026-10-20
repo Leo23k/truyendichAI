@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gemini Companion</title>
+  <style>
+    :root { color-scheme: light; font: 14px/1.45 system-ui, sans-serif; color: #292724; background: #f7f5f0; }
+    body { box-sizing: border-box; width: 320px; margin: 0; padding: 16px; }
+    header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .mark { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:#d6a84f; color:#292724; font-weight:800; }
+    h1 { margin: 0; font-size: 15px; } .sub { margin:2px 0 0; color:#77736b; font-size:12px; }
+    .card { border:1px solid #ddd8cf; border-radius:10px; background:white; padding:12px; margin-bottom:10px; }
+    .state { display:flex; align-items:center; gap:8px; font-weight:650; }
+    .dot { width:9px; height:9px; border-radius:50%; background:#b7b1a6; }
+    .dot.online { background:#36845a; } .detail { margin:7px 0 0; color:#77736b; font-size:12px; overflow-wrap:anywhere; }
+    button { width:100%; min-height:38px; border:1px solid #cfc8bb; border-radius:8px; background:white; color:inherit; font:inherit; font-weight:600; cursor:pointer; margin:0 0 8px; }
+    button.primary { border-color:#d6a84f; background:#d6a84f; } button:hover { filter:brightness(.97); } button:disabled { opacity:.6; cursor:wait; }
+    #message { min-height:18px; color:#9a4d12; font-size:12px; }
+    footer { color:#89847b; font-size:11px; }
+  </style>
+</head>
+<body>
+  <header><div class="mark">LT</div><div><h1>Gemini Companion</h1><p class="sub">Dịch an toàn qua tab Gemini đã đăng nhập</p></div></header>
+  <section class="card"><div class="state"><span id="dot" class="dot"></span><span id="state">Chưa kết nối</span></div><p id="detail" class="detail">Mở Leo Truyện, rồi kết nối tab hiện tại.</p></section>
+  <button id="connect" class="primary">Kết nối tab Leo Truyện đang mở</button>
+  <button id="openGemini">Mở Gemini Web</button>
+  <button id="resume">Tiếp tục các job đã pause</button>
+  <p id="message" role="status" aria-live="polite"></p>
+  <footer>Chạy tuần tự một chương. Xác minh/quota/UI lỗi sẽ pause để bạn xử lý.</footer>
+  <script src="popup.js"></script>
+</body>
+</html>
