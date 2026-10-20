@@ -4,6 +4,11 @@ async function send(message) {
   return chrome.runtime.sendMessage(message);
 }
 
+async function requestHostAccess(origins) {
+  const granted = await chrome.permissions.request({ origins });
+  if (!granted) throw new Error("Edge chưa cấp quyền truy cập website. Hãy chấp nhận yêu cầu quyền rồi thử lại.");
+}
+
 async function refresh() {
   const state = await send({ type: "get-state" });
   const connected = Number.isInteger(state?.appTabId);
@@ -17,6 +22,11 @@ $("connect").addEventListener("click", async () => {
   $("connect").disabled = true;
   $("message").textContent = "Đang kết nối với website…";
   try {
+    await requestHostAccess([
+      "https://leotruyen.vercel.app/*",
+      "http://127.0.0.1/*",
+      "http://localhost/*",
+    ]);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const result = await send({ type: "connect-app", tab });
     if (!result?.ok) throw new Error(result?.error || "Kết nối thất bại.");
@@ -34,6 +44,7 @@ $("healthCheck").addEventListener("click", async () => {
   $("healthCheck").disabled = true;
   $("message").textContent = "Đang kiểm tra tab Gemini…";
   try {
+    await requestHostAccess(["https://gemini.google.com/*"]);
     const result = await send({ type: "health-check" });
     if (!result?.ok) throw new Error(result?.error || "Gemini chưa sẵn sàng.");
     $("message").textContent = "Gemini đã đăng nhập và ô nhập sẵn sàng.";
@@ -45,6 +56,11 @@ $("healthCheck").addEventListener("click", async () => {
 });
 $("resume").addEventListener("click", async () => {
   try {
+    await requestHostAccess([
+      "https://leotruyen.vercel.app/*",
+      "http://127.0.0.1/*",
+      "http://localhost/*",
+    ]);
     const result = await send({ type: "resume-jobs" });
     if (!result?.ok) throw new Error(result?.error || "Không thể resume.");
     $("message").textContent = `Đã đưa ${result.resumed} job vào hàng đợi.`;

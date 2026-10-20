@@ -11,6 +11,6 @@
 
 The extension uses the existing Gemini tab session. It never asks for or stores a Google password. Keep the Leo Truyện tab open while Gemini Web jobs are running. The extension handles one chapter at a time and pauses when Gemini asks for a login/verification, shows a usage limit, or changes its interface.
 
-After resolving a manual pause or waiting for a quota window, open the extension and select **Tiếp tục các job đã pause**. After an update, open `edge://extensions`, click **Reload** for Leo Truyện Gemini Companion, approve its requested access to `leotruyen.vercel.app` if Edge asks, then reconnect from the Leo Truyện tab.
+After resolving a manual pause or waiting for a quota window, open the extension and select **Tiếp tục các job đã pause**. After an update, open `edge://extensions` and click **Reload** for Leo Truyện Gemini Companion. The first time you connect or check Gemini, Edge asks for the relevant site access; choose **Allow** and retry the action if needed.
 
 For local development, use the site at `http://127.0.0.1:8000`, sign in as an administrator, and connect from that tab.

@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Leo Truyện Gemini Companion",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Dịch tuần tự các chương đã xếp hàng bằng tab Gemini bạn đang đăng nhập.",
   "permissions": ["activeTab", "alarms", "scripting", "storage", "tabs"],
-  "host_permissions": [
+  "optional_host_permissions": [
     "https://gemini.google.com/*",
     "https://leotruyen.vercel.app/*",
     "http://127.0.0.1/*",
