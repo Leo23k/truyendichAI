@@ -2,11 +2,18 @@ const ALARM = "gemini-companion-poll";
 let busy = false;
 const readyGeminiTabs = new Set();
 
-chrome.runtime.onInstalled.addListener(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
-chrome.runtime.onStartup.addListener(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
+async function startPolling() {
+  if (!await chrome.alarms.get(ALARM)) await chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+  const { appTabId } = await chrome.storage.local.get("appTabId");
+  if (appTabId) void processOneJob();
+}
+
+chrome.runtime.onInstalled.addListener(() => void startPolling());
+chrome.runtime.onStartup.addListener(() => void startPolling());
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) processOneJob();
 });
+void startPolling().catch(() => {});
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   readyGeminiTabs.delete(tabId);
   const { appTabId } = await chrome.storage.local.get("appTabId");
@@ -74,22 +81,33 @@ async function geminiTab() {
 function waitForGeminiContent(tabId) {
   if (readyGeminiTabs.has(tabId)) return Promise.resolve();
   return new Promise((resolve, reject) => {
+    const ready = () => {
+      readyGeminiTabs.add(tabId);
+      clearTimeout(timer);
+      chrome.runtime.onMessage.removeListener(listener);
+      resolve();
+    };
     const timer = setTimeout(() => {
       chrome.runtime.onMessage.removeListener(listener);
       reject(new Error("Gemini tab chưa sẵn sàng để nhận job."));
     }, 30000);
     const listener = (message, sender) => {
-      if (message.type === "gemini-ready" && sender.tab?.id === tabId) {
-        readyGeminiTabs.add(tabId);
-        clearTimeout(timer); chrome.runtime.onMessage.removeListener(listener); resolve();
-      }
+      if (message.type === "gemini-ready" && sender.tab?.id === tabId) ready();
     };
     chrome.runtime.onMessage.addListener(listener);
     chrome.tabs.sendMessage(tabId, { type: "ping" }).then((reply) => {
-      if (!reply?.ready || readyGeminiTabs.has(tabId)) return;
-      readyGeminiTabs.add(tabId);
-      clearTimeout(timer); chrome.runtime.onMessage.removeListener(listener); resolve();
-    }).catch(() => {});
+      if (reply?.ready) ready();
+    }).catch(async () => {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+        const reply = await chrome.tabs.sendMessage(tabId, { type: "ping" });
+        if (reply?.ready) ready();
+      } catch (error) {
+        clearTimeout(timer);
+        chrome.runtime.onMessage.removeListener(listener);
+        reject(error);
+      }
+    });
   });
 }
 

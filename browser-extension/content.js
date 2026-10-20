@@ -41,7 +41,7 @@ async function startNewConversation(nextSourceChars, tabId) {
     await chrome.storage.local.set({ [key]: { chapters: 0, chars: 0 } });
     return;
   }
-  if (!stats.chapters || (stats.chapters < MAX_CHAPTERS_PER_CONVERSATION && stats.chars + nextSourceChars <= MAX_SOURCE_CHARS_PER_CONVERSATION)) return;
+  if (stats.chapters && stats.chapters < MAX_CHAPTERS_PER_CONVERSATION && stats.chars + nextSourceChars <= MAX_SOURCE_CHARS_PER_CONVERSATION) return;
   const button = [...document.querySelectorAll("button")]
     .find((node) => /new chat|new conversation|cuộc trò chuyện mới|tạo cuộc trò chuyện mới/i.test(buttonText(node)) && node.getClientRects().length);
   if (!button) throw Object.assign(new Error("Không tìm thấy nút tạo cuộc trò chuyện mới trong Gemini."), { reason: "ui_changed" });
