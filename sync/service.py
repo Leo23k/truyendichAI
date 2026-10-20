@@ -33,6 +33,7 @@ if str(ROOT) not in sys.path:
 from app.config import PROJECT_ROOT, settings
 from app.storage import cdn_object_url, configured as b2_configured, download as b2_download, upload as b2_upload
 from app.translator.chunking import chunk_text
+from app.translator.extension_queue import refresh_batch_progress
 from app.translator.glossary import GlossaryEntry
 from app.translator.preprocess import traditional_to_simplified
 from app.translator.providers import DEFAULT_PROMPT
@@ -663,6 +664,9 @@ def publish_completed_translation(
     model: str | None = None,
     web_profile: str | None = None,
     prompt_template: str = DEFAULT_PROMPT,
+    batch_job_id: str | None = None,
+    prompt_id: str | None = None,
+    prompt_name: str = "Tiên hiệp tự nhiên",
 ) -> None:
     """Publish a fully translated queue item and expose it to the reader."""
     logger.info("Đang xuất bản bản dịch của chương ID %s...", chapter_id)
@@ -701,6 +705,23 @@ def publish_completed_translation(
         original_title, provider=provider, model=model, web_profile=web_profile,
         prompt_template=prompt_template,
     )
+    source_hash = hashlib.sha256(original_content.encode("utf-8")).hexdigest()
+    combined_hash = hashlib.sha256(
+        json.dumps([original_content, prompt_template], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    versions = remote.rows(
+        "translation_versions",
+        {"select": "version_number", "chapter_id": f"eq.{chapter_id}", "order": "version_number.desc", "limit": "1"},
+    )
+    version_number = int(versions[0]["version_number"]) + 1 if versions else 1
+    remote.patch_rows("translation_versions", {"chapter_id": f"eq.{chapter_id}", "is_active": "eq.true"}, {"is_active": False})
+    remote.insert("translation_versions", {
+        "chapter_id": chapter_id, "batch_job_id": batch_job_id, "version_number": version_number,
+        "provider": provider or settings.translation_provider, "model": model or settings.gemini_model,
+        "prompt_id": prompt_id, "prompt_name": prompt_name, "prompt_snapshot": prompt_template,
+        "source_hash": source_hash, "combined_hash": combined_hash,
+        "translated_title": translated_title, "translated_content": translated_content, "is_active": True,
+    })
     key = chapter_key(int(chapter["chapter_number"]))
     json_path = f"{novel['slug']}/{key}.json"
     payload = json.dumps(
@@ -761,6 +782,7 @@ def publish_completed_translation(
             {"latest_chapter": chapter["chapter_number"], "updated_at": datetime.now(timezone.utc).isoformat()},
         )
     _learn_auto_glossary(remote, int(novel["id"]), original_content)
+    refresh_batch_progress(remote, batch_job_id)
     # The published chapter JSON is the durable raw/translated source. Chunks
     # are temporary worker state and can be recreated from that JSON later.
     remote.delete_rows("chapter_chunks", {"chapter_id": f"eq.{chapter_id}"})
@@ -914,6 +936,9 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
             model=str(job.get("model") or settings.gemini_model),
             web_profile=str(job.get("web_profile") or "") or None,
             prompt_template=str(job.get("prompt_template") or DEFAULT_PROMPT),
+            batch_job_id=str(job.get("batch_job_id") or "") or None,
+            prompt_id=str(job.get("prompt_id") or "") or None,
+            prompt_name=str(job.get("prompt_name") or "Tiên hiệp tự nhiên"),
         )
         if job.get("crawl_job_id"):
             complete_crawl_job_when_translation_finishes(remote, str(job["crawl_job_id"]))
@@ -949,6 +974,7 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
         )
+        refresh_batch_progress(remote, str(job.get("batch_job_id") or "") or None)
 
         return False
 
@@ -1248,7 +1274,7 @@ def _existing_novel_refresh_patch(info, source_type: str) -> dict:
 
 def _translate_new_novel_metadata(info, source_type: str, translation_options: dict) -> tuple[str, str | None, str | None]:
     """Translate all reader-facing metadata when a novel is first crawled."""
-    if source_type == "vi":
+    if source_type == "vi" or translation_options.get("provider") == "gemini_web":
         return info.title, info.author, info.description
     title = translator.translate_metadata(info.title, **translation_options)
     author = translator.translate_metadata(info.author, **translation_options) if info.author else None
@@ -1334,7 +1360,7 @@ async def _crawl_and_translate_url(
             )
             existing_slugs = {str(item["slug"]) for item in remote.all_rows("novels", {"select": "slug", "order": "slug.asc"}) if item.get("slug")}
             novel_slug = unique_slug(translated_title, existing_slugs)
-            novel = remote.insert("novels", {"slug": novel_slug, "title": translated_title, "author": translated_author, "description": translated_description, "cover_url": info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
+            novel = remote.insert("novels", {"slug": novel_slug, "title": translated_title, "author": translated_author, "description": translated_description, "original_title": info.title, "original_author": info.author, "original_description": info.description, "metadata_translated": source_type == "vi" or provider != "gemini_web", "cover_url": info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
 
         update_status(book_id=novel["id"], title=translated_title)
 

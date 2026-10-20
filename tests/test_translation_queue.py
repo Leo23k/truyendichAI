@@ -90,7 +90,7 @@ def test_crawl_job_returns_while_its_translation_is_queued(monkeypatch) -> None:
 
 def test_new_crawl_translates_title_author_and_description_with_selected_provider(monkeypatch) -> None:
     info = BookInfo("https://source.example/novel", "example", "book", "原題", "作者", "简介", None)
-    options = {"provider": "gemini_web", "model": "gemini-web", "web_profile": "reader", "prompt_template": "Dịch {{text}}"}
+    options = {"provider": "gemini_api", "model": "gemini-3.5-flash-lite", "web_profile": None, "prompt_template": "Dịch {{text}}"}
     calls: list[tuple[str, str, dict]] = []
 
     def translate_metadata(text: str, **kwargs) -> str:
@@ -109,6 +109,13 @@ def test_new_crawl_translates_title_author_and_description_with_selected_provide
     assert translated == ("VI:原題", "VI:作者", "VI:简介")
     assert [call[0] for call in calls] == ["metadata", "metadata", "description"]
     assert all(call[2] == options for call in calls)
+
+
+def test_gemini_web_metadata_is_deferred_to_browser_extension(monkeypatch) -> None:
+    info = BookInfo("https://source.example/novel", "example", "book", "原題", "作者", "简介", None)
+    monkeypatch.setattr(service.translator, "translate_metadata", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must use browser extension")))
+    monkeypatch.setattr(service.translator, "translate", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must use browser extension")))
+    assert service._translate_new_novel_metadata(info, "zh", {"provider": "gemini_web"}) == ("原題", "作者", "简介")
 
 
 def test_new_b2_chapter_upload_trusts_successful_put_without_head(monkeypatch) -> None:
@@ -421,8 +428,67 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
     assert remote.patches[-1][2]["status"] == "completed"
     assert published == [(7, {
         "provider": "gemini_web", "model": "gemini-web", "web_profile": "personal",
-        "prompt_template": "Dịch {{text}}",
+        "prompt_template": "Dịch {{text}}", "batch_job_id": None, "prompt_id": None,
+        "prompt_name": "Fantasy",
     })]
+
+
+def test_publish_completed_translation_creates_active_version(monkeypatch) -> None:
+    class VersionRemote:
+        def __init__(self) -> None:
+            self.inserted: list[tuple[str, dict]] = []
+            self.patches: list[tuple[str, dict, dict]] = []
+
+        def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
+            if table == "chapters":
+                return [{"id": 7, "novel_id": 2, "chapter_number": 3, "title": "原题", "source_url": "https://source.test/ch3"}]
+            if table == "novels":
+                return [{"id": 2, "slug": "book", "title": "书", "latest_chapter": 0}]
+            if table == "chapter_chunks":
+                return [{"chunk_index": 0, "original_text": "原文。", "translated_text": "译文。", "status": "completed"}]
+            if table == "translation_versions":
+                return []
+            if table == "batch_translation_jobs":
+                return [{"id": "batch-1", "total": 1}]
+            if table == "translation_queue":
+                return [{"status": "completed"}]
+            if table == "chapter_discoveries":
+                return []
+            raise AssertionError(table)
+
+        def patch_rows(self, table: str, params: dict, payload: dict) -> list[dict]:
+            self.patches.append((table, params, payload))
+            return []
+
+        def insert(self, table: str, payload: dict) -> dict:
+            self.inserted.append((table, payload))
+            return payload
+
+        def upload_if_changed(self, *_args, **_kwargs) -> bool:
+            return True
+
+        def delete_rows(self, *_args, **_kwargs) -> list[dict]:
+            return []
+
+        def all_rows(self, *_args, **_kwargs) -> list[dict]:
+            return [{"status": "completed"}]
+
+    remote = VersionRemote()
+    monkeypatch.setattr(service.translator, "translate", lambda *_args, **_kwargs: "译题")
+    monkeypatch.setattr(service, "_learn_auto_glossary", lambda *_args: None)
+
+    service.publish_completed_translation(
+        remote, 7, provider="gemini_api", model="gemini-3.5-flash-lite",
+        prompt_template="Dịch {{text}}", prompt_name="Fantasy", prompt_id="prompt-1", batch_job_id="batch-1",
+    )
+
+    version = next(payload for table, payload in remote.inserted if table == "translation_versions")
+    assert version["version_number"] == 1
+    assert version["is_active"] is True
+    assert version["provider"] == "gemini_api"
+    assert version["translated_title"] == "译题"
+    assert version["translated_content"] == "译文。"
+    assert version["prompt_id"] == "prompt-1"
 
 
 def test_worker_rebuilds_chunks_from_stored_raw_when_retranslation_has_none(monkeypatch) -> None:
