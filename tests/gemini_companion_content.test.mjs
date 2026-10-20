@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.23");
+  assert.equal(manifest.version, "1.0.24");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -135,6 +135,33 @@ test("a busy conversation retries in a fresh tab only before submitting this job
   assert.match(serviceWorker, /result\?\.code === "GENERATION_IN_PROGRESS" && result\.submittedPrompts === 0/);
   assert.match(serviceWorker, /const fresh = await openGeminiTab\(\)/);
   assert.match(contentScript, /activeJobSubmissions \+= 1;\s*send\.click\(\)/);
+});
+
+test("Gemini contenteditable input uses the native edit command and waits for the full prompt", () => {
+  assert.match(contentScript, /document\.execCommand\("insertText", false, prompt\)/);
+  assert.match(contentScript, /await waitForComposerText\(box, prompt\)/);
+  assert.match(contentScript, /PROMPT_INPUT_MISMATCH/);
+  assert.match(contentScript, /box\.replaceChildren\(document\.createTextNode\(prompt\)\)/);
+});
+
+test("Gemini contenteditable receives the complete prompt through native insertion", () => {
+  const prompt = "Dịch tự nhiên\n\n第一章 …";
+  const box = { innerText: "old content", focus() {} };
+  const selection = { removeAllRanges() {}, addRange() {} };
+  const document = {
+    querySelectorAll: () => [], querySelector: () => null, body: { innerText: "Gemini" },
+    createRange: () => ({ selectNodeContents() {} }), execCommand: (_command, _ui, value) => { box.innerText = value; return true; },
+  };
+  const chrome = { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} } } };
+  const context = {
+    globalThis: {}, document, chrome, window: { getSelection: () => selection }, location: { href: "https://gemini.google.com/app" },
+    HTMLTextAreaElement: class {}, HTMLInputElement: class {}, InputEvent: class {}, MutationObserver: class {},
+    console: { info() {} }, setTimeout, clearTimeout,
+  };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__writePrompt = writePromptToComposer;\n})();");
+  vm.runInNewContext(instrumented, context);
+  context.globalThis.__writePrompt(box, prompt);
+  assert.equal(box.innerText, prompt);
 });
 
 test("an accessible page with no composer is not mislabeled as logged out", () => {

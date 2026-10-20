@@ -123,6 +123,53 @@ function waitForUsableSendButton(timeoutMs = 10000) {
   });
 }
 
+function composerText(box) {
+  return String(box.value ?? box.innerText ?? box.textContent ?? "").replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").trim();
+}
+
+function waitForComposerText(box, prompt, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    let timer;
+    const observer = new MutationObserver(check);
+    const finish = (error) => {
+      clearTimeout(timer);
+      observer.disconnect();
+      box.removeEventListener("input", check);
+      if (error) reject(error); else resolve();
+    };
+    function check() {
+      if (composerText(box) === prompt.replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").trim()) finish();
+    }
+    observer.observe(box, { subtree: true, childList: true, characterData: true, attributes: true });
+    box.addEventListener("input", check);
+    timer = setTimeout(() => finish(Object.assign(
+      new Error("Gemini không nhận đủ nội dung prompt; chưa gửi để tránh dịch thiếu."),
+      { code: "PROMPT_INPUT_MISMATCH", reason: "transient" },
+    )), timeoutMs);
+    check();
+  });
+}
+
+function writePromptToComposer(box, prompt) {
+  box.focus();
+  if (box instanceof HTMLTextAreaElement || box instanceof HTMLInputElement) {
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), "value")?.set;
+    setter?.call(box, prompt);
+    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
+    return;
+  }
+  const range = document.createRange();
+  range.selectNodeContents(box);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  const inserted = document.execCommand("insertText", false, prompt);
+  if (!inserted) {
+    box.replaceChildren(document.createTextNode(prompt));
+    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
+  }
+}
+
 async function submitPrompt(prompt) {
   const blocked = classifyPage();
   if (blocked) throw Object.assign(new Error(blocked.message), blocked);
@@ -131,17 +178,8 @@ async function submitPrompt(prompt) {
   if (stopVisible()) throw Object.assign(new Error("Gemini vẫn đang tạo phản hồi trước đó."), { code: "GENERATION_IN_PROGRESS", reason: "transient" });
   const before = responseNodes().length;
   const previousOutput = responseNodes().at(-1)?.innerText?.trim() || "";
-  box.focus();
-  if (box instanceof HTMLTextAreaElement || box instanceof HTMLInputElement) {
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), "value")?.set;
-    setter?.call(box, prompt);
-    box.dispatchEvent(new Event("input", { bubbles: true }));
-  } else {
-    box.replaceChildren(document.createTextNode(prompt));
-    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
-  }
-  const entered = (box.value ?? box.innerText ?? box.textContent ?? "").trim();
-  if (entered !== prompt.trim()) throw Object.assign(new Error("Gemini không nhận đủ nội dung prompt; không gửi để tránh dịch thiếu."), { code: "PROMPT_INPUT_MISMATCH", reason: "transient" });
+  writePromptToComposer(box, prompt);
+  await waitForComposerText(box, prompt);
   const send = await waitForUsableSendButton();
 
   return new Promise((resolve, reject) => {
