@@ -417,7 +417,7 @@ def restore_stored_chapters(
 
 
 def claim_translation_job(remote: SupabaseSync) -> dict | None:
-    rows = remote.rows("translation_queue", {"select": "*", "status": "eq.queued", "order": "priority.desc,created_at.asc", "limit": "1"})
+    rows = remote.rows("translation_queue", {"select": "*", "status": "eq.queued", "provider": "neq.gemini_web", "order": "priority.desc,created_at.asc", "limit": "1"})
     if not rows:
         return None
     job = rows[0]
