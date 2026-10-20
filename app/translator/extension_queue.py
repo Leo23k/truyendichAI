@@ -25,20 +25,11 @@ def claim_next_extension_job(remote) -> dict | None:
     if not jobs:
         return None
     job = jobs[0]
-    now = datetime.now(timezone.utc).isoformat()
-    claimed = remote.patch_rows(
-        "translation_queue",
-        {"id": f"eq.{job['id']}", "provider": "eq.gemini_web", "status": "eq.queued"},
-        {"status": "translating", "attempts": int(job.get("attempts") or 0) + 1, "started_at": now, "updated_at": now, "error_code": None, "error_message": None},
-    )
-    if not claimed:
-        return None
-    job = claimed[0]
     chapters = remote.rows(
         "chapters", {"select": "id,novel_id,chapter_number,title,content_path", "id": f"eq.{job['chapter_id']}", "limit": "1"},
     )
     if not chapters:
-        remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {"status": "failed", "error_code": "chapter_missing", "error_message": "Không tìm thấy chương gốc."})
+        remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"}, {"status": "failed", "error_code": "chapter_missing", "error_message": "Không tìm thấy chương gốc."})
         return None
     chapter = chapters[0]
     novels = remote.rows("novels", {
@@ -50,23 +41,35 @@ def claim_next_extension_job(remote) -> dict | None:
         slug = str(novels[0].get("slug") or "") if novels else ""
         number = int(chapter.get("chapter_number") or 0)
         if not slug or number < 1:
-            remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {"status": "failed", "error_code": "source_missing", "error_message": "Chương chưa có nội dung gốc trong kho lưu trữ."})
+            remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"}, {"status": "failed", "error_code": "source_missing", "error_message": "Chương chưa có nội dung gốc trong kho lưu trữ."})
             return None
         path = f"chapters/{slug}/{number:03d}.json"
         remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {"content_path": path})
-    source = remote.download_json("chapters", path.removeprefix("chapters/"))
+    try:
+        source = remote.download_json("chapters", path.removeprefix("chapters/"))
+    except Exception as exc:
+        remote.patch_rows(
+            "translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"},
+            {"status": "backoff", "error_code": "source_unavailable", "error_message": f"Không thể đọc raw chương từ kho lưu trữ: {str(exc)[:800]}", "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
+        return None
     content = str(source.get("original_content") or "").strip()
     title = str(source.get("original_title") or chapter.get("title") or "").strip()
     prompt = str(job.get("prompt_template") or "")
     if not content or "{{text}}" not in prompt:
-        remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"}, {"status": "failed", "error_code": "invalid_job", "error_message": "Thiếu nội dung chương hoặc prompt snapshot."})
+        remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"}, {"status": "failed", "error_code": "invalid_job", "error_message": "Thiếu nội dung chương hoặc prompt snapshot."})
         return None
     source_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
     combined_hash = hashlib.sha256(json.dumps([content, prompt], ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
-    remote.patch_rows(
-        "translation_queue", {"id": f"eq.{job['id']}", "status": "eq.translating"},
-        {"source_hash": source_hash, "combined_hash": combined_hash, "input_chars": len(content), "updated_at": datetime.now(timezone.utc).isoformat()},
+    now = datetime.now(timezone.utc).isoformat()
+    claimed = remote.patch_rows(
+        "translation_queue", {"id": f"eq.{job['id']}", "provider": "eq.gemini_web", "status": "eq.queued"},
+        {"status": "translating", "attempts": int(job.get("attempts") or 0) + 1, "started_at": now, "updated_at": now,
+         "error_code": None, "error_message": None, "source_hash": source_hash, "combined_hash": combined_hash, "input_chars": len(content)},
     )
+    if not claimed:
+        return None
+    job = claimed[0]
     return {
         "id": str(job["id"]), "chapter_id": int(chapter["id"]), "chapter_number": int(chapter.get("chapter_number") or 0),
         "title": title, "content": content, "prompt_name": str(job.get("prompt_name") or ""), "prompt_snapshot": prompt,

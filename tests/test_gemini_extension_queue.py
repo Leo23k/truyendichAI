@@ -53,6 +53,19 @@ def test_claim_extension_job_returns_whole_chapter_and_prompt_snapshot() -> None
     assert remote.chapter["content_path"] == "chapters/novel/003.json"
 
 
+def test_raw_download_failure_does_not_leave_job_translating() -> None:
+    class BrokenRawRemote(FakeRemote):
+        def download_json(self, _bucket: str, _path: str) -> dict:
+            raise RuntimeError("B2 unavailable")
+
+    remote = BrokenRawRemote()
+    assert claim_next_extension_job(remote) is None
+    assert remote.job["status"] == "backoff"
+    assert remote.job["error_code"] == "source_unavailable"
+    assert "B2 unavailable" in remote.job["error_message"]
+    assert remote.job["attempts"] == 0
+
+
 def test_claim_is_conditional_and_loses_race_safely() -> None:
     remote = FakeRemote()
     remote.job["status"] = "translating"
