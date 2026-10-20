@@ -70,6 +70,7 @@ from app.search import normalize_search_key, search_books as run_search
 from app.services.book_service import BookService
 from app.translator.service import TranslationUnavailableError, translator
 from app.translator.extension_api import router as gemini_extension_router
+from app.translator.extension_queue import refresh_batch_progress
 from app.translator.prompt_service import (
     DEFAULT_MODELS,
     DEFAULT_PROMPT_NAME,
@@ -806,7 +807,7 @@ def _crawl_job_cards() -> list[dict]:
         {
             "select": "crawl_job_id,status,chapter_id",
             "crawl_job_id": f"in.({','.join(job_ids)})",
-            "status": "in.(queued,translating,paused,failed)",
+            "status": "in.(queued,translating,paused,paused_quota,paused_manual,backoff,review_required,failed)",
             "limit": "1000",
         },
     ) if job_ids else []
@@ -834,8 +835,10 @@ def _crawl_job_cards() -> list[dict]:
         novel = novel_by_id.get(int(book_id)) if str(book_id or "").isdigit() else {}
         queues = queues_by_job.get(str(job["id"]), [])
         states = {state: sum(1 for row in queues if row.get("status") == state) for state in ("queued", "translating", "completed", "failed", "paused")}
+        states["paused"] += sum(row.get("status") in {"paused_quota", "paused_manual", "backoff"} for row in queues)
+        states["review"] = sum(row.get("status") == "review_required" for row in queues)
         states["completed"] = int(result.get("translated") or 0)
-        has_pending_translation = bool(states["queued"] or states["translating"])
+        has_pending_translation = bool(states["queued"] or states["translating"] or states["paused"] or states["failed"] or states["review"])
         if job.get("status") == "completed" and not has_pending_translation:
             continue
         current = [
@@ -856,8 +859,8 @@ def _translation_queue_cards() -> list[dict]:
     queue = remote.rows(
         "translation_queue",
         {
-            "select": "id,chapter_id,status,current_chunk,total_chunks,updated_at,provider,model,web_profile,prompt_name",
-            "status": "in.(queued,translating,paused,failed)",
+            "select": "id,chapter_id,batch_job_id,status,current_chunk,total_chunks,input_chars,output_chars,attempts,error_code,error_message,updated_at,provider,model,prompt_name",
+            "status": "in.(queued,translating,paused,paused_quota,paused_manual,backoff,review_required,failed)",
             "order": "updated_at.desc",
             "limit": "50",
         },
@@ -886,15 +889,31 @@ def _translation_queue_cards() -> list[dict]:
             "novel_title": novel.get("title") or "Truyện không xác định",
             "novel_slug": novel.get("slug"),
             "updated_display": _gmt7(item.get("updated_at")),
+            "display_status": "paused" if item.get("status") in {"paused", "paused_quota", "paused_manual", "backoff"} else "review" if item.get("status") == "review_required" else item.get("status"),
         })
         cards.append(item)
     return cards
+
+
+def _translation_batch_cards() -> list[dict]:
+    remote = SupabaseSync()
+    batches = remote.rows("batch_translation_jobs", {"select": "id,novel_id,from_chapter,to_chapter,total,completed,failed,status,created_at,updated_at", "order": "created_at.desc", "limit": "20"})
+    if not batches:
+        return []
+    novel_ids = sorted({int(batch["novel_id"]) for batch in batches})
+    novels = remote.all_rows("novels", {"select": "id,title", "id": f"in.({','.join(map(str, novel_ids))})"})
+    titles = {int(novel["id"]): novel.get("title") or "Truyện" for novel in novels}
+    for batch in batches:
+        batch["novel_title"] = titles.get(int(batch["novel_id"]), "Truyện")
+        batch["updated_display"] = _gmt7(batch.get("updated_at") or batch.get("created_at"))
+    return batches
 
 
 def _jobs_page_context(**extra: object) -> dict[str, object]:
     return {
         "jobs": _crawl_job_cards(),
         "translation_queue": _translation_queue_cards(),
+        "translation_batches": _translation_batch_cards(),
         "workers": _worker_statuses(),
         "worker_controls_available": worker_manager.can_control_locally,
         "job_refresh_interval_ms": 15000 if os.getenv("VERCEL") else 3000,
@@ -1347,7 +1366,32 @@ def retranslate_novel(
             context=_retranslate_page_context(toast="Có chương đang được translator xử lý. Hãy đợi xong hoặc dừng worker rồi thử lại để tránh ghi đè bản dịch.", toast_error=True),
         )
 
+    batch_id = None
+    try:
+        chapter_filters = {"select": "id,chapter_number", "novel_id": f"eq.{novel_id}"}
+        if selected_ids:
+            chapter_filters["id"] = f"in.({','.join(map(str, selected_ids))})"
+        batch_chapters = remote.all_rows("chapters", chapter_filters)
+        if batch_chapters:
+            batch = remote.insert("batch_translation_jobs", {
+                "novel_id": novel_id,
+                "from_chapter": min(int(row["chapter_number"]) for row in batch_chapters),
+                "to_chapter": max(int(row["chapter_number"]) for row in batch_chapters),
+                "total": chapter_count,
+                "completed": 0,
+                "failed": 0,
+                "status": "queued",
+            })
+            batch_id = str(batch["id"])
+            ids = ",".join(str(row["id"]) for row in batch_chapters)
+            remote.patch_rows("translation_queue", {"chapter_id": f"in.({ids})", "status": "eq.queued"}, {"batch_job_id": batch_id})
+            refresh_batch_progress(remote, batch_id)
+    except Exception:
+        logger.exception("Could not create translation batch for novel %s", novel_id)
+
     message = f"Đã xóa bản dịch cũ và đưa {chapter_count} chương vào hàng đợi dịch lại từ raw gốc."
+    if batch_id:
+        message += f" Batch: {batch_id[:8]}."
     response = templates.TemplateResponse(request=request, name="retranslate.html", context=_retranslate_page_context(toast=message))
     response.headers["HX-Trigger"] = "jobsChanged"
     return response
@@ -1469,7 +1513,7 @@ def retry_failed_translation(queue_id: str, request: Request):
     remote = SupabaseSync()
     rows = remote.rows(
         "translation_queue",
-        {"select": "id,chapter_id", "id": f"eq.{queue_id}", "status": "eq.failed", "limit": "1"},
+        {"select": "id,chapter_id,batch_job_id", "id": f"eq.{queue_id}", "status": "eq.failed", "limit": "1"},
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Không tìm thấy chương dịch bị lỗi.")
@@ -1478,8 +1522,9 @@ def retry_failed_translation(queue_id: str, request: Request):
     remote.patch_rows(
         "translation_queue",
         {"id": f"eq.{queue_id}", "status": "eq.failed"},
-        {"status": "queued", "updated_at": now},
+        {"status": "queued", "error_code": None, "error_message": None, "updated_at": now},
     )
+    refresh_batch_progress(remote, str(queue.get("batch_job_id") or "") or None)
     response = templates.TemplateResponse(
         request=request,
         name="jobs.html",
@@ -1494,11 +1539,12 @@ def resume_paused_translation(queue_id: str, request: Request):
     remote = SupabaseSync()
     rows = remote.patch_rows(
         "translation_queue",
-        {"id": f"eq.{queue_id}", "status": "eq.paused"},
-        {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()},
+        {"id": f"eq.{queue_id}", "status": "in.(paused,paused_quota,paused_manual,backoff)"},
+        {"status": "queued", "error_code": None, "error_message": None, "updated_at": datetime.now(timezone.utc).isoformat()},
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Không tìm thấy chương đang tạm dừng.")
+    refresh_batch_progress(remote, str(rows[0].get("batch_job_id") or "") or None)
     response = templates.TemplateResponse(
         request=request,
         name="jobs.html",
@@ -1511,15 +1557,17 @@ def resume_paused_translation(queue_id: str, request: Request):
 @app.post("/jobs/translations/retry-failed")
 def retry_all_failed_translations(request: Request):
     remote = SupabaseSync()
-    failed = remote.all_rows("translation_queue", {"select": "chapter_id", "status": "eq.failed"})
+    failed = remote.all_rows("translation_queue", {"select": "chapter_id,batch_job_id", "status": "eq.failed"})
     chapter_ids = sorted({int(row["chapter_id"]) for row in failed})
     if not chapter_ids:
         raise HTTPException(status_code=404, detail="Không có chương dịch lỗi để thử lại.")
-    remote.patch_rows(
+    updated = remote.patch_rows(
         "translation_queue",
         {"status": "eq.failed"},
-        {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()},
+        {"status": "queued", "error_code": None, "error_message": None, "updated_at": datetime.now(timezone.utc).isoformat()},
     )
+    for batch_id in {str(row["batch_job_id"]) for row in updated if row.get("batch_job_id")}:
+        refresh_batch_progress(remote, batch_id)
     response = templates.TemplateResponse(
         request=request,
         name="jobs.html",
