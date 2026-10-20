@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.40");
+  assert.equal(manifest.version, "1.0.41");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.40"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.41"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -283,6 +283,25 @@ test("Gemini never clicks a send-button-container DIV instead of its interactive
   assert.equal(context.globalThis.__send(), button);
 });
 
+test("Gemini response diagnostics describe DOM metadata without exposing response text", () => {
+  const response = {
+    tagName: "MODEL-RESPONSE", innerText: "PRIVATE TRANSLATION OUTPUT", children: [{ tagName: "DIV" }, { tagName: "P" }],
+    getClientRects: () => [{}],
+    getAttribute: (name) => ({ "data-testid": "model-response", role: "article", "data-message-author-role": "model" })[name] ?? null,
+  };
+  const document = {
+    querySelectorAll: (selector) => selector === "model-response" || selector === "[data-testid], [data-test-id], [data-message-author-role], [role]" ? [response] : [],
+  };
+  const context = { globalThis: {}, document, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__inspectResponses = inspectResponseDom;\n})();");
+  vm.runInNewContext(instrumented, context);
+  const details = context.globalThis.__inspectResponses();
+
+  assert.equal(details.bySelector.find((item) => item.selector === "model-response").nonEmpty, 1);
+  assert.equal(details.semanticCandidates[0].textChars, "PRIVATE TRANSLATION OUTPUT".length);
+  assert.equal(JSON.stringify(details).includes("PRIVATE TRANSLATION OUTPUT"), false);
+});
+
 test("Gemini does not choose an unlabeled rightmost control as Send", () => {
   const root = { parentElement: null, contains: (node) => node.parentElement === root, getAttribute: () => null, getBoundingClientRect: () => ({ left: 0, right: 500, width: 500, top: 0, bottom: 140 }) };
   const control = {
@@ -503,7 +522,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.40", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.41", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -519,7 +538,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.40", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.41", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -543,7 +562,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.40" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.41" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },

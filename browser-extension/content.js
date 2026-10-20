@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.40";
+const CONTENT_SCRIPT_VERSION = "1.0.41";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -156,6 +156,39 @@ function composer() {
 
 function responseNodes() {
   return GeminiSelectors.responses();
+}
+
+function inspectResponseDom() {
+  const selectors = ["message-content", "model-response", '[data-message-author-role="model"]'];
+  const describe = (node) => ({
+    tag: node.tagName || "unknown",
+    role: node.getAttribute?.("role") || null,
+    testId: node.getAttribute?.("data-testid") || node.getAttribute?.("data-test-id") || null,
+    authorRole: node.getAttribute?.("data-message-author-role") || null,
+    ariaLabel: node.getAttribute?.("aria-label") || null,
+    textChars: String(node.innerText || "").trim().length,
+    visible: visible(node),
+    childTags: [...(node.children || [])].slice(0, 8).map((child) => child.tagName || "unknown"),
+  });
+  const bySelector = selectors.map((selector) => {
+    try {
+      const nodes = [...document.querySelectorAll(selector)];
+      return { selector, count: nodes.length, nonEmpty: nodes.filter((node) => node.innerText?.trim()).length, last: nodes.length ? describe(nodes.at(-1)) : null };
+    } catch {
+      return { selector, count: 0, nonEmpty: 0, last: null };
+    }
+  });
+  let semanticCandidates = [];
+  try {
+    semanticCandidates = [...document.querySelectorAll("[data-testid], [data-test-id], [data-message-author-role], [role]")]
+      .filter((node) => /model|response|message|turn|answer/i.test([
+        node.getAttribute("data-testid"), node.getAttribute("data-test-id"),
+        node.getAttribute("data-message-author-role"), node.getAttribute("role"),
+      ].filter(Boolean).join(" ")))
+      .slice(-12)
+      .map(describe);
+  } catch {}
+  return { bySelector, semanticCandidateCount: semanticCandidates.length, semanticCandidates };
 }
 
 function stopVisible() {
@@ -413,7 +446,17 @@ async function submitPrompt(prompt, onProgress = () => {}) {
         quietTimer = setTimeout(() => finishStable(output), 1200);
       } else if (sawGenerating && sawStopButton && !generating && composerIdle) {
         clearTimeout(readTimer);
-        readTimer = setTimeout(() => finish(Object.assign(new Error("Gemini đã hoàn tất nhưng không đọc được nội dung phản hồi."), { code: "GEMINI_RESPONSE_READ_FAILED", reason: "manual" })), 1500);
+        readTimer = setTimeout(() => {
+          const finalNodes = responseNodes();
+          const finalOutput = finalNodes.at(-1)?.innerText?.trim() || "";
+          if (finalNodes.length > before && finalOutput) {
+            if (!reportedResponseDetected) log("RESPONSE_DETECTED", { code: "FINAL_DOM_READ", chars: finalOutput.length, url: location.href });
+            return finishStable(finalOutput);
+          }
+          const diagnostics = inspectResponseDom();
+          log("RESPONSE_READ_FAILED", { code: "GEMINI_RESPONSE_READ_FAILED", priorResponseCount: before, responseCount: finalNodes.length, generating: stopVisible(), diagnostics, url: location.href });
+          finish(Object.assign(new Error(`Gemini đã hoàn tất nhưng không đọc được nội dung phản hồi. Chẩn đoán DOM (không gồm nội dung phản hồi): ${JSON.stringify({ priorResponseCount: before, responseCount: finalNodes.length, diagnostics }).slice(0, 1800)}`), { code: "GEMINI_RESPONSE_READ_FAILED", reason: "manual" }));
+        }, 5000);
       } else {
         clearTimeout(readTimer);
       }
