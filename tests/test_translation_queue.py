@@ -88,6 +88,29 @@ def test_crawl_job_returns_while_its_translation_is_queued(monkeypatch) -> None:
     assert not any(status.get("status") == "completed" for status in statuses)
 
 
+def test_new_crawl_translates_title_author_and_description_with_selected_provider(monkeypatch) -> None:
+    info = BookInfo("https://source.example/novel", "example", "book", "原題", "作者", "简介", None)
+    options = {"provider": "gemini_web", "model": "gemini-web", "web_profile": "reader", "prompt_template": "Dịch {{text}}"}
+    calls: list[tuple[str, str, dict]] = []
+
+    def translate_metadata(text: str, **kwargs) -> str:
+        calls.append(("metadata", text, kwargs))
+        return f"VI:{text}"
+
+    def translate(text: str, **kwargs) -> str:
+        calls.append(("description", text, kwargs))
+        return f"VI:{text}"
+
+    monkeypatch.setattr(service.translator, "translate_metadata", translate_metadata)
+    monkeypatch.setattr(service.translator, "translate", translate)
+
+    translated = service._translate_new_novel_metadata(info, "zh", options)
+
+    assert translated == ("VI:原題", "VI:作者", "VI:简介")
+    assert [call[0] for call in calls] == ["metadata", "metadata", "description"]
+    assert all(call[2] == options for call in calls)
+
+
 def test_new_b2_chapter_upload_trusts_successful_put_without_head(monkeypatch) -> None:
     calls = []
     monkeypatch.setattr(service, "b2_configured", lambda: True)
@@ -385,8 +408,8 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
         lambda texts, _glossary, **options: translation_options.append(options) or [f"Dịch {text}" for text in texts],
     )
 
-    published: list[int] = []
-    monkeypatch.setattr(service, "publish_completed_translation", lambda _remote, chapter_id: published.append(chapter_id))
+    published: list[tuple[int, dict]] = []
+    monkeypatch.setattr(service, "publish_completed_translation", lambda _remote, chapter_id, **options: published.append((chapter_id, options)))
 
     assert service.run_translation_worker_once(remote) is True
     assert translation_options[0]["provider"] == "gemini_web"
@@ -396,7 +419,10 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
     updates = [index for index, patch in enumerate(remote.patches) if patch[0] == "translation_queue" and patch[2].get("status") in {"translating", "completed"}]
     assert [index for index, patch in enumerate(remote.patches) if patch[0] == "chapter_chunks"][0] < updates[1]
     assert remote.patches[-1][2]["status"] == "completed"
-    assert published == [7]
+    assert published == [(7, {
+        "provider": "gemini_web", "model": "gemini-web", "web_profile": "personal",
+        "prompt_template": "Dịch {{text}}",
+    })]
 
 
 def test_worker_rebuilds_chunks_from_stored_raw_when_retranslation_has_none(monkeypatch) -> None:
@@ -432,7 +458,7 @@ def test_worker_rebuilds_chunks_from_stored_raw_when_retranslation_has_none(monk
     remote = WorkerRemote()
     monkeypatch.setattr(service, "claim_translation_job", lambda _remote: remote.job)
     monkeypatch.setattr(service.translator, "translate_batch", lambda texts, _glossary, **_options: [f"Dịch {text}" for text in texts])
-    monkeypatch.setattr(service, "publish_completed_translation", lambda *_args: None)
+    monkeypatch.setattr(service, "publish_completed_translation", lambda *_args, **_kwargs: None)
 
     assert service.run_translation_worker_once(remote) is True
     assert remote.inserted[0][0] == "chapter_chunks"
@@ -631,6 +657,7 @@ def test_update_synced_book_forwards_selected_provider_and_prompt(monkeypatch) -
 
     response = asyncio.run(main.update_synced_book(
         "novel", provider="gemini_web", model="gemini-web", web_profile="personal", prompt_id="prompt-1",
+        gemini_api_key="",
     ))
 
     assert response.status_code == 303

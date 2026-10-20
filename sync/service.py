@@ -655,7 +655,15 @@ def _learn_auto_glossary(remote: SupabaseSync, novel_id: int, original_content: 
         logger.exception("Auto glossary observation failed for novel %s; translation output was kept unchanged.", novel_id)
 
 
-def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None:
+def publish_completed_translation(
+    remote: SupabaseSync,
+    chapter_id: int,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    web_profile: str | None = None,
+    prompt_template: str = DEFAULT_PROMPT,
+) -> None:
     """Publish a fully translated queue item and expose it to the reader."""
     logger.info("Đang xuất bản bản dịch của chương ID %s...", chapter_id)
     chapters = remote.rows(
@@ -689,7 +697,10 @@ def publish_completed_translation(remote: SupabaseSync, chapter_id: int) -> None
     original_content = "\n\n".join(str(row["original_text"]) for row in chunks)
     translated_content = "\n\n".join(str(row["translated_text"]) for row in chunks)
     original_title = str(chapter["title"])
-    translated_title = translator.translate(original_title)
+    translated_title = translator.translate(
+        original_title, provider=provider, model=model, web_profile=web_profile,
+        prompt_template=prompt_template,
+    )
     key = chapter_key(int(chapter["chapter_number"]))
     json_path = f"{novel['slug']}/{key}.json"
     payload = json.dumps(
@@ -896,7 +907,14 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
 
             job["current_chunk"] = next_index
 
-        publish_completed_translation(remote, int(job["chapter_id"]))
+        publish_completed_translation(
+            remote,
+            int(job["chapter_id"]),
+            provider=str(job.get("provider") or settings.translation_provider),
+            model=str(job.get("model") or settings.gemini_model),
+            web_profile=str(job.get("web_profile") or "") or None,
+            prompt_template=str(job.get("prompt_template") or DEFAULT_PROMPT),
+        )
         if job.get("crawl_job_id"):
             complete_crawl_job_when_translation_finishes(remote, str(job["crawl_job_id"]))
         logger.info("Hoàn tất toàn bộ chương ID %s.", job["chapter_id"])
@@ -1228,6 +1246,16 @@ def _existing_novel_refresh_patch(info, source_type: str) -> dict:
     }
 
 
+def _translate_new_novel_metadata(info, source_type: str, translation_options: dict) -> tuple[str, str | None, str | None]:
+    """Translate all reader-facing metadata when a novel is first crawled."""
+    if source_type == "vi":
+        return info.title, info.author, info.description
+    title = translator.translate_metadata(info.title, **translation_options)
+    author = translator.translate_metadata(info.author, **translation_options) if info.author else None
+    description = translator.translate(info.description, **translation_options) if info.description else None
+    return title, author, description
+
+
 @contextmanager
 def worker_process_lock():
     """Keep a second PC worker from claiming crawl or translation work."""
@@ -1301,11 +1329,12 @@ async def _crawl_and_translate_url(
                 "provider": provider, "model": model, "web_profile": web_profile,
                 "prompt_template": prompt_template,
             }
-            translated_title = info.title if is_vietnamese else translator.translate_metadata(info.title, **translation_options)
-            translated_author = info.author if is_vietnamese else (translator.translate_metadata(info.author, **translation_options) if info.author else None)
+            translated_title, translated_author, translated_description = _translate_new_novel_metadata(
+                info, source_type, translation_options,
+            )
             existing_slugs = {str(item["slug"]) for item in remote.all_rows("novels", {"select": "slug", "order": "slug.asc"}) if item.get("slug")}
             novel_slug = unique_slug(translated_title, existing_slugs)
-            novel = remote.insert("novels", {"slug": novel_slug, "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
+            novel = remote.insert("novels", {"slug": novel_slug, "title": translated_title, "author": translated_author, "description": translated_description, "cover_url": info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
 
         update_status(book_id=novel["id"], title=translated_title)
 
@@ -1423,7 +1452,10 @@ async def _crawl_and_translate_url(
                     logger.warning("Could not read the prior raw content for chapter %s.", chapter["chapter_number"])
             if source_update_novel_id and previous_payload and clean_chapter_text(str(previous_payload.get("original_content") or "")) == original:
                 if str(previous_payload.get("original_title") or "") != str(chapter["title"]):
-                    translated_title = translator.translate(str(chapter["title"]))
+                    translated_title = translator.translate(
+                        str(chapter["title"]), provider=provider, model=model,
+                        web_profile=web_profile, prompt_template=prompt_template,
+                    )
                     previous_payload.update({"number": chapter["chapter_number"], "title": translated_title, "original_title": chapter["title"]})
                     remote.upload_if_changed(
                         "chapters",
