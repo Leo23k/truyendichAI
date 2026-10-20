@@ -18,10 +18,14 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.10");
+  assert.equal(manifest.version, "1.0.11");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 12000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
+  assert.match(serviceWorker, /status", "GET", undefined, 5000/);
+  assert.match(serviceWorker, /CONNECTION_STATUS_TIMEOUT/);
   assert.match(popupScript, /MESSAGE_TIMEOUT_MS = 14000/);
+  assert.match(popupScript, /send\(\{ type: "connect-app", tab \}, 8000\)/);
+  assert.match(popupScript, /void refresh\(\)/);
 });
 
 test("Gemini health check does not require send or new-chat buttons before a job", () => {

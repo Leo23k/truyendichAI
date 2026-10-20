@@ -308,9 +308,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!tab?.id || !tab.url?.startsWith("http")) throw new Error("Mở website Leo Truyện trước khi kết nối.");
       const appOrigin = new URL(tab.url).origin;
       if (!["https://leotruyen.vercel.app", "http://127.0.0.1:8000", "http://localhost:8000"].includes(appOrigin)) throw companionError("UNSUPPORTED_APP_HOST", "Chỉ hỗ trợ Leo Truyện production hoặc localhost:8000.", { tabId: tab.id, url: tab.url });
-      await pageRequest(tab.id, "/api/gemini-extension/status");
+      await pageRequest(tab.id, "/api/gemini-extension/status", "GET", undefined, 5000);
       await chrome.storage.local.set({ appTabId: tab.id, appOrigin, lastError: "" });
-      await setSiteConnection(tab.id, "Companion đã kết nối với website này.", true);
+      await withTimeout(
+        setSiteConnection(tab.id, "Companion đã kết nối với website này.", true),
+        1500, "CONNECTION_STATUS_TIMEOUT", "",
+      ).catch((error) => log("CONNECT_STATUS", { code: error.code, message: "Kết nối đã lưu; chưa cập nhật được nhãn trên trang." }));
       sendResponse({ ok: true, origin: appOrigin });
       void processOneJob();
     })().catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));

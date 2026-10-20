@@ -1,13 +1,13 @@
 const $ = (id) => document.getElementById(id);
 const MESSAGE_TIMEOUT_MS = 14000;
 
-async function send(message) {
+async function send(message, timeoutMs = MESSAGE_TIMEOUT_MS) {
   let timer;
   try {
     return await Promise.race([
       chrome.runtime.sendMessage(message),
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("Extension chưa phản hồi sau 14 giây. Hãy tải lại extension rồi thử lại.")), MESSAGE_TIMEOUT_MS);
+        timer = setTimeout(() => reject(new Error(`Extension chưa phản hồi sau ${Math.round(timeoutMs / 1000)} giây. Hãy thử lại.`)), timeoutMs);
       }),
     ]);
   } finally {
@@ -47,11 +47,15 @@ function showHealthResult(result) {
 }
 
 async function refresh() {
-  const state = await send({ type: "get-state" });
-  const connected = Number.isInteger(state?.appTabId);
-  $("dot").classList.toggle("online", connected);
-  $("state").textContent = state?.currentJob ? `Đang dịch chương ${state.currentJob}` : connected ? "Đã kết nối" : "Chưa kết nối";
-  $("detail").textContent = state?.lastError || state?.appOrigin || "Mở Leo Truyện, rồi kết nối tab hiện tại.";
+  try {
+    const state = await send({ type: "get-state" });
+    const connected = Number.isInteger(state?.appTabId);
+    $("dot").classList.toggle("online", connected);
+    $("state").textContent = state?.currentJob ? `Đang dịch chương ${state.currentJob}` : connected ? "Đã kết nối" : "Chưa kết nối";
+    $("detail").textContent = state?.lastError || state?.appOrigin || "Mở Leo Truyện, rồi kết nối tab hiện tại.";
+  } catch (error) {
+    log("STATE_REFRESH_FAILED", String(error?.message || error));
+  }
 }
 
 $("connect").addEventListener("click", async () => {
@@ -59,7 +63,7 @@ $("connect").addEventListener("click", async () => {
   $("message").textContent = "Đang kết nối với website…";
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const result = await send({ type: "connect-app", tab });
+    const result = await send({ type: "connect-app", tab }, 8000);
     if (!result?.ok) throw new Error(result?.error || "Kết nối thất bại.");
     $("message").textContent = "Đã kết nối. Hàng đợi Gemini Web sẽ chạy tuần tự.";
   } catch (error) {
@@ -67,7 +71,7 @@ $("connect").addEventListener("click", async () => {
     log("CONNECT_FAILED", $("message").textContent);
   } finally {
     $("connect").disabled = false;
-    await refresh();
+    void refresh();
   }
 });
 
