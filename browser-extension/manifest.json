@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Leo Truyện Gemini Companion",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "Dịch tuần tự các chương đã xếp hàng bằng tab Gemini bạn đang đăng nhập.",
   "permissions": ["activeTab", "alarms", "sidePanel", "scripting", "storage", "tabs"],
   "host_permissions": [

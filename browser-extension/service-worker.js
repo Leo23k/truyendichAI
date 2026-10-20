@@ -80,9 +80,9 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 async function pageRequest(tabId, path, method = "GET", body, timeoutMs = 60000) {
-  const tab = await chrome.tabs.get(tabId);
+  const tab = await withTimeout(chrome.tabs.get(tabId), 5000, "APP_TAB_TIMEOUT", "Không đọc được tab Leo Truyện trong 5 giây.");
   try {
-    const results = await chrome.scripting.executeScript({
+    const results = await withTimeout(chrome.scripting.executeScript({
       target: { tabId }, world: "MAIN",
       func: async ({ path, method, body, timeoutMs }) => {
         const controller = new AbortController();
@@ -101,7 +101,7 @@ async function pageRequest(tabId, path, method = "GET", body, timeoutMs = 60000)
         }
       },
       args: [{ path, method, body, timeoutMs }],
-    });
+    }), timeoutMs + 5000, "BACKEND_REQUEST_TIMEOUT", "Website không trả lời yêu cầu hàng đợi. Companion sẽ thử lại ở lượt kiểm tra sau.");
     return results[0]?.result;
   } catch (error) {
     throw hostAccessError(error, `${new URL(tab.url).origin}/*`, tabId, tab.url);
@@ -366,6 +366,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "get-state") {
     chrome.storage.local.get(["appTabId", "appOrigin", "currentJob", "lastError"]).then(sendResponse);
+    void processOneJob();
     return true;
   }
   if (message.type === "resume-jobs") {
@@ -374,6 +375,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const result = await pageRequest(tab.id, "/api/gemini-extension/resume", "POST", {});
       await chrome.storage.local.set({ lastError: "" });
       sendResponse({ ok: true, resumed: result.resumed });
+      void processOneJob();
     })().catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
