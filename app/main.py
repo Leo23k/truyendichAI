@@ -80,7 +80,7 @@ from app.translator.prompt_service import (
     set_default_prompt,
     update_prompt,
 )
-from app.translator.providers import GeminiWebProvider
+from app.translator.providers import DEFAULT_PROMPT, GeminiWebProvider
 from app.tts.edge_tts_service import (
     DEFAULT_EDGE_VOICE,
     EdgeTTSUnavailableError,
@@ -924,6 +924,15 @@ def _translation_provider_context() -> dict[str, object]:
     }
 
 
+def _translation_prompt_choice(remote, provider: str, prompt_id: str) -> dict[str, str | bool | None]:
+    if provider == "hachimi":
+        return {
+            "prompt_id": None, "prompt_name": "Hachimi mặc định",
+            "prompt_template": DEFAULT_PROMPT, "is_default": False,
+        }
+    return resolve_prompt(remote, prompt_id)
+
+
 def _save_gemini_api_key(api_key: str) -> None:
     key = api_key.strip()
     if not key:
@@ -1040,7 +1049,7 @@ def update_admin_novel_source_page(
     provider: str = Form(settings.translation_provider),
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
-    prompt_id: str = Form(...),
+    prompt_id: str = Form(""),
     gemini_api_key: str = Form(""),
 ):
     source_url = source_url.strip()
@@ -1056,7 +1065,7 @@ def update_admin_novel_source_page(
             raise CdnDataError("Loại nguồn không khớp với truyện này.")
         _save_gemini_api_key(gemini_api_key)
         translation_choice = provider_settings(provider, model, web_profile)
-        prompt_choice = resolve_prompt(SupabaseSync(), prompt_id)
+        prompt_choice = _translation_prompt_choice(SupabaseSync(), provider, prompt_id)
         update_admin_novel_source(novel_id, source_url)
         enqueue_remote_crawl(
             source_url,
@@ -1266,7 +1275,7 @@ def retranslate_novel(
     provider: str = Form(settings.translation_provider),
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
-    prompt_id: str = Form(...),
+    prompt_id: str = Form(""),
     gemini_api_key: str = Form(""),
 ):
     if mode not in {"all", "selected"}:
@@ -1281,7 +1290,7 @@ def retranslate_novel(
         remote = SupabaseSync()
         _save_gemini_api_key(gemini_api_key)
         translation_choice = provider_settings(provider, model, web_profile)
-        prompt_choice = resolve_prompt(remote, prompt_id)
+        prompt_choice = _translation_prompt_choice(remote, provider, prompt_id)
         result = remote.rpc_rows("reset_retranslation_with_provider", {
             "p_novel_id": novel_id,
             "p_chapter_ids": selected_ids,
@@ -1346,7 +1355,7 @@ async def jobs_crawler_search(
     provider: str = Form(settings.translation_provider),
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
-    prompt_id: str = Form(...),
+    prompt_id: str = Form(""),
     gemini_api_key: str = Form(""),
 ):
     query = " ".join(query.split())
@@ -1358,7 +1367,7 @@ async def jobs_crawler_search(
         _save_gemini_api_key(gemini_api_key)
         remote = SupabaseSync()
         translation_choice = provider_settings(provider, model, web_profile)
-        prompt_choice = resolve_prompt(remote, prompt_id)
+        prompt_choice = _translation_prompt_choice(remote, provider, prompt_id)
         enqueue_options = {**translation_choice, **prompt_choice}
         if query.startswith(("http://", "https://")):
             # A URL submitted from the worker page must be persisted first.
@@ -1410,7 +1419,7 @@ def start_crawler_translation(
     provider: str = Form(settings.translation_provider),
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
-    prompt_id: str = Form(...),
+    prompt_id: str = Form(""),
     gemini_api_key: str = Form(""),
 ):
     try:
@@ -1420,7 +1429,7 @@ def start_crawler_translation(
         remote = SupabaseSync()
         _save_gemini_api_key(gemini_api_key)
         translation_choice = provider_settings(provider, model, web_profile)
-        prompt_choice = resolve_prompt(remote, prompt_id)
+        prompt_choice = _translation_prompt_choice(remote, provider, prompt_id)
         job = enqueue_remote_crawl(source_url, source_type=source_type, **translation_choice, **prompt_choice)
         request.state.crawl_job_id = str(job["id"])
         response = templates.TemplateResponse(
@@ -1914,7 +1923,7 @@ async def update_synced_book(
     provider: str = Form(settings.translation_provider),
     model: str = Form(settings.gemini_model),
     web_profile: str = Form(""),
-    prompt_id: str = Form(...),
+    prompt_id: str = Form(""),
     gemini_api_key: str = Form(""),
 ):
     try:
@@ -1924,7 +1933,7 @@ async def update_synced_book(
             raise CdnDataError("Truyện chưa có URL nguồn để cập nhật. Hãy đồng bộ lại từ máy local.")
         _save_gemini_api_key(gemini_api_key)
         translation_choice = provider_settings(provider, model, web_profile)
-        prompt_choice = resolve_prompt(SupabaseSync(), prompt_id)
+        prompt_choice = _translation_prompt_choice(SupabaseSync(), provider, prompt_id)
         enqueue_remote_crawl(str(source_url), **translation_choice, **prompt_choice)
         return RedirectResponse(f"/truyen/{slug}", status_code=303)
     except (CrawlerError, ValueError) as exc:

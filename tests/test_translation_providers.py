@@ -71,6 +71,91 @@ def test_gemini_web_profile_name_is_filesystem_safe() -> None:
         providers.GeminiWebProvider.normalize_profile("***")
 
 
+def test_hachimi_does_not_require_a_saved_prompt() -> None:
+    from app import main
+
+    class Remote:
+        def rows(self, *_args, **_kwargs):
+            raise AssertionError("Hachimi should not look up a saved prompt")
+
+    choice = main._translation_prompt_choice(Remote(), "hachimi", "")
+
+    assert choice["prompt_id"] is None
+    assert choice["prompt_name"] == "Hachimi mặc định"
+    assert choice["prompt_template"] == providers.DEFAULT_PROMPT
+
+
+def test_update_synced_book_accepts_hachimi_without_prompt(monkeypatch) -> None:
+    import asyncio
+
+    from app import main
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(main, "get_synced_novel_for_management", lambda _slug: {"source_url": "https://example.com/novel"})
+    monkeypatch.setattr(main, "SupabaseSync", lambda: object())
+    monkeypatch.setattr(main, "enqueue_remote_crawl", lambda url, **options: captured.update(url=url, **options))
+
+    response = asyncio.run(main.update_synced_book(
+        "novel", provider="hachimi", model="hachimi-local", web_profile="", prompt_id="", gemini_api_key="",
+    ))
+
+    assert response.status_code == 303
+    assert captured["prompt_id"] is None
+    assert captured["prompt_template"] == providers.DEFAULT_PROMPT
+
+
+def test_gemini_web_login_route_opens_profile_and_returns_feedback(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+    from app import main
+
+    opened: list[str] = []
+    monkeypatch.setattr(main, "user_from_token", lambda token: SimpleNamespace(role="admin") if token else None)
+    monkeypatch.setattr(main.GeminiWebProvider, "open_profile", classmethod(lambda _cls, name: opened.append(name) or name))
+
+    response = TestClient(main.app).post(
+        "/translation/providers/gemini-web/open", data={"name": "default"},
+        cookies={"sb-access-token": "test"}, headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 200
+    assert "Đã mở Chrome profile default" in response.text
+    assert opened == ["default"]
+
+
+def test_gemini_web_login_route_returns_actionable_error(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+    from app import main
+
+    monkeypatch.setattr(main, "user_from_token", lambda token: SimpleNamespace(role="admin") if token else None)
+    monkeypatch.setattr(main.GeminiWebProvider, "open_profile", classmethod(lambda _cls, _name: (_ for _ in ()).throw(RuntimeError("Không tìm thấy Google Chrome."))))
+
+    response = TestClient(main.app).post(
+        "/translation/providers/gemini-web/open", data={"name": "default"},
+        cookies={"sb-access-token": "test"},
+    )
+
+    assert response.status_code == 400
+    assert "Không tìm thấy Google Chrome." in response.text
+
+
+@pytest.mark.parametrize(("title", "expected"), [
+    ("Chương 12", 12),
+    ("Thứ 13 chương", 13),
+    ("**Chương 14**", 14),
+    ("第15章", 15),
+    ("第十六章", 16),
+    ("正文 第17章", 17),
+])
+def test_chapter_title_patterns(title: str, expected: int) -> None:
+    from app.crawlers.plugins.xsw import chapter_number_from_title
+
+    assert chapter_number_from_title(title) == expected
+
+
 def test_gemini_api_key_is_saved_to_local_config_not_translation_jobs(tmp_path, monkeypatch) -> None:
     from app import main
 

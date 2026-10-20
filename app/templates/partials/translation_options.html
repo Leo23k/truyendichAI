@@ -18,8 +18,8 @@
   </label>
   <input type="hidden" name="model" value="hachimi-local" x-bind:disabled="provider !== 'hachimi'">
   <input type="hidden" name="model" value="gemini-web" x-bind:disabled="provider !== 'gemini_web'">
-  <label class="text-sm font-medium text-stone-700 sm:col-span-2">Prompt cho truyện này
-    <select name="prompt_id" required class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm">
+  <label x-show="provider !== 'hachimi'" x-cloak class="text-sm font-medium text-stone-700 sm:col-span-2">Prompt cho truyện này
+    <select name="prompt_id" x-bind:required="provider !== 'hachimi'" x-bind:disabled="provider === 'hachimi'" class="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm">
       <option value="">Chọn prompt đã lưu</option>
       {% for prompt in translation_prompts %}<option value="{{ prompt.id }}" {% if prompt.is_default %}selected{% endif %}>{{ prompt.name }}{% if prompt.is_default %} · mặc định{% endif %}</option>{% endfor %}
     </select>
@@ -31,7 +31,7 @@
   {% set web_profile = (ready_profiles|first) if ready_profiles else ((all_profiles|first) if all_profiles else 'default') %}
   <div x-show="provider === 'gemini_web'" x-cloak class="sm:col-span-2">
     <input type="hidden" name="web_profile" value="{{ web_profile }}" x-bind:disabled="provider !== 'gemini_web'">
-    <button type="button" hx-post="/translation/providers/gemini-web/open" hx-params="not gemini_api_key" hx-vals='{"name": {{ web_profile|tojson }} }' hx-target="#{{ option_id }}-login-status" hx-swap="innerHTML" class="site-nav-button"><i data-lucide="external-link" class="h-4 w-4"></i>Đăng nhập bằng Google</button>
+    <button type="button" data-profile="{{ web_profile }}" onclick="const button=this; const status=document.getElementById('{{ option_id }}-login-status'); button.disabled=true; status.textContent='Đang mở Chrome…'; fetch('/translation/providers/gemini-web/open',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({name:button.dataset.profile})}).then(async response=>{status.innerHTML=await response.text();}).catch(()=>{status.textContent='Không thể kết nối tới ứng dụng local.';}).finally(()=>{button.disabled=false;})" class="site-nav-button"><i data-lucide="external-link" class="h-4 w-4"></i>Đăng nhập bằng Google</button>
     <div id="{{ option_id }}-login-status" class="mt-2" role="status" aria-live="polite"></div>
     <p class="mt-2 text-xs text-stone-500">Phiên đăng nhập được lưu trong Chrome profile này; lần sau dùng lại, không cần đăng nhập lại.</p>
     {% if not translation_providers.gemini_web_available %}<p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Gemini Web cần Chrome và Playwright trên máy chạy worker.</p>{% endif %}

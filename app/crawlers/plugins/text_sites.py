@@ -10,31 +10,9 @@ from curl_cffi.requests import AsyncSession
 from app.config import settings
 from app.crawlers.base import BaseCrawler, BookInfo, ChapterInfo, clean_chapter_text, dedupe_chapters, extract_cover_url
 from app.crawlers.errors import SourceParseError, SourceRequestError
+from app.crawlers.plugins.xsw import chapter_number_from_title
 
 logger = logging.getLogger(__name__)
-_CHAPTER_NUMBER = re.compile(r"\u7b2c\s*([0-9\u96f6\u3007\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u4e24\u5341\u767e\u5343]+)\s*\u7ae0")
-_CHINESE_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "两": 2}
-_CHINESE_UNITS = {"十": 10, "百": 100, "千": 1000}
-
-
-def _chapter_number_from_title(title: str) -> int | None:
-    match = _CHAPTER_NUMBER.search(title)
-    if not match:
-        return None
-    value = match.group(1)
-    if value.isdigit():
-        return int(value)
-
-    total = current = 0
-    for char in value:
-        if char in _CHINESE_DIGITS:
-            current = _CHINESE_DIGITS[char]
-        elif char in _CHINESE_UNITS:
-            total += (current or 1) * _CHINESE_UNITS[char]
-            current = 0
-        else:
-            return None
-    return total + current
 
 
 class HtmlNovelCrawler(BaseCrawler):
@@ -98,7 +76,7 @@ class HtmlNovelCrawler(BaseCrawler):
             title = link.get_text(" ", strip=True)
             if not title:
                 continue
-            number = _chapter_number_from_title(title)
+            number = chapter_number_from_title(title)
             chapters.append(ChapterInfo(number if number is not None else index, self._chapter_id(href), title, href))
         if not chapters:
             raise SourceParseError("Kh\u00f4ng t\u00ecm th\u1ea5y danh s\u00e1ch ch\u01b0\u01a1ng.")

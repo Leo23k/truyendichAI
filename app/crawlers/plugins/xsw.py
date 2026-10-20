@@ -35,7 +35,10 @@ CHINESE_DIGITS = {
     "九": 9,
 }
 CHINESE_UNITS = {"十": 10, "百": 100, "千": 1000, "萬": 10000, "万": 10000}
-CHAPTER_TITLE_RE = re.compile(r"第\s*([0-9零〇一二两兩三四五六七八九十百千万萬]+)\s*章")
+CHAPTER_TITLE_RE = re.compile(
+    r"(?:\*\*\s*)?(?:正文\s*)?(?:第|Thứ|Chương)\s*([0-9零〇一二两兩三四五六七八九十百千万萬]+)\s*(?:章|chương)?",
+    re.IGNORECASE,
+)
 
 
 class XswCrawler(BaseCrawler):
@@ -229,11 +232,11 @@ class XswCrawler(BaseCrawler):
             href = urljoin(page_url, link.get("href", ""))
             match = chapter_pattern.search(urlparse(href).path)
             title = link.get_text(" ", strip=True)
-            number_match = CHAPTER_TITLE_RE.search(title)
-            if not match or not number_match:
+            number = chapter_number_from_title(title)
+            if not match or number is None:
                 continue
             source_id = match.group(1)
-            chapters.append(ChapterInfo(chapter_number(number_match.group(1)), source_id, title, href))
+            chapters.append(ChapterInfo(number, source_id, title, href))
         return chapters
 
     @staticmethod
@@ -286,3 +289,10 @@ def chapter_number(raw: str) -> int:
             section += (number or 1) * unit
         number = 0
     return total + section + number
+
+
+def chapter_number_from_title(title: str) -> int | None:
+    match = CHAPTER_TITLE_RE.search(title)
+    if not match:
+        return None
+    return chapter_number(match.group(1))
