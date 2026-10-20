@@ -18,37 +18,35 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.17");
-  assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 12000/);
+  assert.equal(manifest.version, "1.0.18");
+  assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 24000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
   assert.match(serviceWorker, /BACKEND_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /GEMINI_CHECK_TIMEOUT/);
-  assert.match(serviceWorker, /ensureGeminiTab\(9500\)/);
-  assert.match(serviceWorker, /Math\.min\(7000, deadline - Date\.now\(\) - 1000\)/);
-  assert.match(serviceWorker, /geminiCheck, 11000, "GEMINI_CHECK_TIMEOUT"/);
-  assert.match(serviceWorker, /status", "GET", undefined, 4000/);
+  assert.match(serviceWorker, /ensureGeminiTab\(20000\)/);
+  assert.match(serviceWorker, /Math\.min\(14000, deadline - Date\.now\(\) - 1000\)/);
+  assert.match(serviceWorker, /geminiCheck, 22000, "GEMINI_CHECK_TIMEOUT"/);
+  assert.match(serviceWorker, /status", "GET", undefined, 12000/);
   assert.doesNotMatch(serviceWorker.slice(serviceWorker.indexOf('if (message.type === "connect-app")'), serviceWorker.indexOf('if (message.type === "disconnect-app")')), /\/api\/gemini-extension\/status/);
   assert.match(serviceWorker, /CONNECTION_STATUS_TIMEOUT/);
   assert.ok(serviceWorker.indexOf('sendResponse({ ok: true, origin: appOrigin })') < serviceWorker.indexOf('setSiteConnection(tab.id, "Companion đã kết nối với website này.", true)'));
-  assert.match(popupScript, /MESSAGE_TIMEOUT_MS = 14000/);
+  assert.match(popupScript, /MESSAGE_TIMEOUT_MS = 26000/);
   assert.match(popupScript, /send\(\{ type: "connect-app", tab \}, 8000\)/);
   assert.match(popupScript, /void refresh\(\)/);
   assert.match(popupScript, /includes\(geminiCode\)/);
   assert.match(popupScript, /result\?\.backend\?\.message/);
 });
 
-test("Gemini host access is optional and uses one explicit dynamic injection path", async () => {
+test("Gemini content script loads with the page and supports immediate injection into an existing tab", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
   assert.ok(manifest.permissions.includes("scripting"));
   assert.ok(manifest.optional_host_permissions.includes("https://gemini.google.com/*"));
-  assert.ok(!manifest.host_permissions.includes("https://gemini.google.com/*"));
-  assert.equal(manifest.content_scripts, undefined);
-  assert.match(serviceWorker, /chrome\.scripting\.executeScript\(\{ target: \{ tabId: tab\.id \}, files: \["content\.js"\] \}\)/);
-  assert.match(popupScript, /chrome\.permissions\.request\(\{ origins: \[GEMINI_PERMISSION\] \}\)/);
-  assert.match(popupScript, /grantPermission\"\)\.addEventListener\(\"click\"/);
-  assert.match(popupScript, /Chưa cấp quyền Gemini/);
+  assert.deepEqual(manifest.content_scripts[0].matches, ["https://gemini.google.com/*"]);
+  assert.deepEqual(manifest.content_scripts[0].js, ["content.js"]);
+  assert.match(serviceWorker, /chrome\.scripting\.executeScript\(\{ target: \{ tabId: tab\.id \}, files: \["content\.js"\], injectImmediately: true \}\)/);
+  assert.match(popupScript, /"INJECT_TIMEOUT", "INJECT_FAILED"/);
 });
 
 test("Gemini health check does not require send or new-chat buttons before a job", () => {
@@ -115,8 +113,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, injectError = null, injectTimeout = false, backendTimeout = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null } = {}) {
-  let contentScriptReady = false;
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, injectError = null, injectTimeout = false, backendTimeout = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null } = {}) {
   let injections = 0;
   const apiRequests = [];
   const storageState = { appTabId: 2 };
@@ -126,7 +123,7 @@ function loadServiceWorker({ runtimeGranted = true, injectError = null, injectTi
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.17", host_permissions: ["https://leotruyen.vercel.app/*"], optional_host_permissions: manifestDeclared ? ["https://gemini.google.com/*"] : [] }),
+      getManifest: () => ({ version: "1.0.18", host_permissions: ["https://leotruyen.vercel.app/*"], optional_host_permissions: manifestDeclared ? ["https://gemini.google.com/*"] : [] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -223,6 +220,15 @@ test("granted permission dynamically injects content.js once and waits for its p
   assert.equal(result.injected, true);
   assert.equal(result.permissionDiagnostics.actualAccess, true);
   assert.equal(worker.injections, 1);
+});
+
+test("a content script already loaded by the browser needs no dynamic injection", async () => {
+  const worker = loadServiceWorker({ contentScriptReady: true });
+
+  const result = await worker.api.ensureGeminiTabReady({ id: 1, url: "https://gemini.google.com/app" }, 1000);
+
+  assert.equal(result.injected, false);
+  assert.equal(worker.injections, 0);
 });
 
 test("a late inject response is accepted when the content script became reachable", async () => {

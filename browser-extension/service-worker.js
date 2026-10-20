@@ -1,7 +1,7 @@
 const ALARM = "gemini-companion-poll";
 const GEMINI_URL = "https://gemini.google.com/app";
 const GEMINI_PERMISSION = "https://gemini.google.com/*";
-const HEALTH_CHECK_TIMEOUT_MS = 12000;
+const HEALTH_CHECK_TIMEOUT_MS = 24000;
 let busy = false;
 
 function withTimeout(promise, timeoutMs, code, message) {
@@ -218,9 +218,9 @@ async function ensureGeminiTabReady(tab, timeoutMs = 30000) {
   }
   log("INJECT", { code: "START", tabId: tab.id, url: tab.url });
   try {
-    const injectTimeoutMs = Math.max(1, Math.min(7000, deadline - Date.now() - 1000));
+    const injectTimeoutMs = Math.max(1, Math.min(14000, deadline - Date.now() - 1000));
     await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] }),
+      chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"], injectImmediately: true }),
       injectTimeoutMs, "INJECT_TIMEOUT", "Edge mất quá lâu khi nạp content script vào tab Gemini.",
     );
   } catch (error) {
@@ -264,7 +264,7 @@ async function healthCheck() {
   const backendCheck = (async () => {
     try {
       const appTab = await activeAppTab();
-      await pageRequest(appTab.id, "/api/gemini-extension/status", "GET", undefined, 4000);
+      await pageRequest(appTab.id, "/api/gemini-extension/status", "GET", undefined, 12000);
       result.backend = { ok: true, code: "CONNECTED", url: new URL(appTab.url).origin };
     } catch (error) {
       result.backend = { ok: false, code: error.code || "BACKEND_UNAVAILABLE", message: error.message };
@@ -272,7 +272,7 @@ async function healthCheck() {
   })();
   const geminiCheck = (async () => {
     try {
-      const { tab, injected, permissionDiagnostics } = await ensureGeminiTab(9500);
+      const { tab, injected, permissionDiagnostics } = await ensureGeminiTab(20000);
       const dom = await withTimeout(
         chrome.tabs.sendMessage(tab.id, { type: "health-check" }),
         1500, "GEMINI_CHECK_TIMEOUT", "Tab Gemini không phản hồi kiểm tra trong 1,5 giây.",
@@ -287,10 +287,10 @@ async function healthCheck() {
     }
   })();
   await Promise.all([
-    withTimeout(backendCheck, 5000, "BACKEND_CHECK_TIMEOUT", "Backend không phản hồi trong 5 giây.").catch((error) => {
+    withTimeout(backendCheck, 13000, "BACKEND_CHECK_TIMEOUT", "Backend không phản hồi trong 13 giây.").catch((error) => {
       result.backend = { ok: false, code: error.code, message: error.message };
     }),
-    withTimeout(geminiCheck, 11000, "GEMINI_CHECK_TIMEOUT", "Kiểm tra tab Gemini quá 11 giây. Tải lại tab Gemini rồi thử lại.").catch((error) => {
+    withTimeout(geminiCheck, 22000, "GEMINI_CHECK_TIMEOUT", "Kiểm tra tab Gemini quá 22 giây. Tải lại tab Gemini rồi thử lại.").catch((error) => {
       result.browser = { ok: false, code: error.code, host: GEMINI_PERMISSION, message: error.message };
       result.gemini = { ok: false, code: error.code, message: error.message, checks: {} };
     }),
@@ -403,7 +403,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "health-check") {
     withTimeout(
-      healthCheck(), HEALTH_CHECK_TIMEOUT_MS, "HEALTH_CHECK_TIMEOUT", "Kiểm tra quá 12 giây. Hãy tải lại tab Gemini rồi thử lại.",
+      healthCheck(), HEALTH_CHECK_TIMEOUT_MS, "HEALTH_CHECK_TIMEOUT", "Kiểm tra quá 24 giây. Hãy tải lại tab Gemini rồi thử lại.",
     ).then(sendResponse).catch((error) => sendResponse({
       ok: false,
       code: error.code || "HEALTH_CHECK_FAILED",

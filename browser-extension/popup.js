@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const MESSAGE_TIMEOUT_MS = 14000;
+const MESSAGE_TIMEOUT_MS = 26000;
 
 async function send(message, timeoutMs = MESSAGE_TIMEOUT_MS) {
   let timer;
@@ -45,7 +45,7 @@ function showHealthResult(result) {
   ].filter(Boolean).join("\n");
   const permissionIssue = ["HOST_PERMISSION_REQUIRED", "HOST_PERMISSION_MISSING"].includes(geminiCode);
   $("grantPermission").hidden = !permissionIssue || !diagnostics?.manifestDeclared || !!diagnostics?.runtimeGranted;
-  $("reloadGemini").hidden = !["INJECT_FAILED", "CONTENT_SCRIPT_NOT_READY", "CONTENT_SCRIPT_FILE_MISSING"].includes(geminiCode) || !diagnostics?.runtimeGranted;
+  $("reloadGemini").hidden = !["INJECT_TIMEOUT", "INJECT_FAILED", "CONTENT_SCRIPT_NOT_READY", "CONTENT_SCRIPT_FILE_MISSING"].includes(geminiCode) || !diagnostics?.runtimeGranted;
   log(geminiCode || result?.code || "UNKNOWN", result?.gemini?.rawError || result?.gemini?.message || result?.backend?.message || "Health check completed", result?.gemini?.tabId, result?.gemini?.url);
 }
 
@@ -113,7 +113,7 @@ $("reloadGemini").addEventListener("click", async () => {
   $("reloadGemini").disabled = true;
   $("message").textContent = "Đang nạp lại tab Gemini hiện tại… Nội dung chưa gửi trong tab có thể mất.";
   try {
-    const reload = await send({ type: "reload-gemini" });
+    const reload = await send({ type: "reload-gemini" }, 35000);
     if (!reload?.ok) throw new Error(reload?.message || "Không thể nạp lại tab Gemini.");
     $("message").textContent = "Tab đã nạp lại. Đang kiểm tra quyền và content script…";
     showHealthResult(await send({ type: "health-check" }));

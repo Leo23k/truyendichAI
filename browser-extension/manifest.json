@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Leo Truyện Gemini Companion",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Dịch tuần tự các chương đã xếp hàng bằng tab Gemini bạn đang đăng nhập.",
   "permissions": ["activeTab", "alarms", "sidePanel", "scripting", "storage", "tabs"],
   "host_permissions": [
@@ -10,6 +10,9 @@
     "http://localhost/*"
   ],
   "optional_host_permissions": ["https://gemini.google.com/*"],
+  "content_scripts": [
+    { "matches": ["https://gemini.google.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ],
   "action": { "default_title": "Gemini Companion" },
   "side_panel": { "default_path": "popup.html" },
   "background": { "service_worker": "service-worker.js" }
