@@ -18,14 +18,16 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.13");
+  assert.equal(manifest.version, "1.0.14");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 12000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
   assert.match(serviceWorker, /BACKEND_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /GEMINI_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /status", "GET", undefined, 5000/);
+  assert.match(serviceWorker, /BACKEND_CONNECT_TIMEOUT/);
   assert.match(serviceWorker, /CONNECTION_STATUS_TIMEOUT/);
+  assert.ok(serviceWorker.indexOf('sendResponse({ ok: true, origin: appOrigin })') < serviceWorker.indexOf('setSiteConnection(tab.id, "Companion đã kết nối với website này.", true)'));
   assert.match(popupScript, /MESSAGE_TIMEOUT_MS = 14000/);
   assert.match(popupScript, /send\(\{ type: "connect-app", tab \}, 8000\)/);
   assert.match(popupScript, /void refresh\(\)/);
