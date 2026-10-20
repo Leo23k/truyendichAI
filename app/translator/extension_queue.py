@@ -73,3 +73,22 @@ def pause_extension_job(remote, job_id: str, reason: str, message: str) -> bool:
         {"status": status, "error_code": reason, "error_message": message[:1000], "updated_at": datetime.now(timezone.utc).isoformat()},
     )
     return bool(rows)
+
+
+def refresh_batch_progress(remote, batch_id: str | None) -> dict | None:
+    if not batch_id:
+        return None
+    batches = remote.rows("batch_translation_jobs", {"select": "id,total", "id": f"eq.{batch_id}", "limit": "1"})
+    if not batches:
+        return None
+    jobs = remote.all_rows("translation_queue", {"select": "status", "batch_job_id": f"eq.{batch_id}"})
+    completed = sum(row.get("status") == "completed" for row in jobs)
+    failed = sum(row.get("status") == "failed" for row in jobs)
+    active = sum(row.get("status") in {"queued", "translating", "backoff"} for row in jobs)
+    paused = sum(row.get("status") in {"paused", "paused_quota", "paused_manual", "review_required"} for row in jobs)
+    total = int(batches[0].get("total") or 0)
+    status = "completed" if total and completed + failed >= total and not failed else "failed" if failed else "running" if active else "paused" if paused else "queued"
+    updates = remote.patch_rows("batch_translation_jobs", {"id": f"eq.{batch_id}"}, {
+        "completed": completed, "failed": failed, "status": status, "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return updates[0] if updates else None

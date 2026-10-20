@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.translator.extension_queue import claim_next_extension_job, pause_extension_job
+from app.translator.extension_queue import claim_next_extension_job, pause_extension_job, refresh_batch_progress
 
 
 class FakeRemote:
@@ -61,3 +61,31 @@ def test_pause_classifies_transient_errors_for_backoff() -> None:
     remote.job["status"] = "translating"
     assert pause_extension_job(remote, "job-1", "transient", "temporary network error")
     assert remote.job["status"] == "backoff"
+
+
+def test_batch_progress_tracks_completion_and_manual_pause() -> None:
+    class BatchRemote(FakeRemote):
+        def __init__(self) -> None:
+            super().__init__()
+            self.batch = {"id": "batch-1", "total": 2}
+            self.jobs = [{"status": "completed"}, {"status": "paused_manual"}]
+
+        def rows(self, table: str, params: dict[str, str]) -> list[dict]:
+            if table == "batch_translation_jobs":
+                return [self.batch]
+            return super().rows(table, params)
+
+        def all_rows(self, table: str, params: dict[str, str]) -> list[dict]:
+            return self.jobs
+
+        def patch_rows(self, table: str, params: dict[str, str], payload: dict) -> list[dict]:
+            if table == "batch_translation_jobs":
+                self.batch.update(payload)
+                return [self.batch]
+            return super().patch_rows(table, params, payload)
+
+    remote = BatchRemote()
+    result = refresh_batch_progress(remote, "batch-1")
+    assert result["completed"] == 1
+    assert result["failed"] == 0
+    assert result["status"] == "paused"
