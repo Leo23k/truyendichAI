@@ -353,7 +353,11 @@ def test_restore_stored_chapters_recreates_missing_translation_queue() -> None:
 def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
     class WorkerRemote:
         def __init__(self) -> None:
-            self.job = {"id": "job", "chapter_id": 7, "current_chunk": 0, "total_chunks": 2}
+            self.job = {
+                "id": "job", "chapter_id": 7, "current_chunk": 0, "total_chunks": 2,
+                "provider": "gemini_web", "model": "gemini-web", "web_profile": "personal",
+                "prompt_name": "Fantasy", "prompt_template": "Dịch {{text}}",
+            }
             self.chunks = [{"id": "a", "original_text": "Một."}, {"id": "b", "original_text": "Hai."}]
             self.patches: list[tuple[str, dict, dict]] = []
 
@@ -374,12 +378,20 @@ def test_worker_translates_chunks_one_at_a_time(monkeypatch) -> None:
             return []
 
     remote = WorkerRemote()
-    monkeypatch.setattr(service.translator, "translate_batch", lambda texts, _glossary: [f"Dịch {text}" for text in texts])
+    translation_options: list[dict] = []
+    monkeypatch.setattr(
+        service.translator,
+        "translate_batch",
+        lambda texts, _glossary, **options: translation_options.append(options) or [f"Dịch {text}" for text in texts],
+    )
 
     published: list[int] = []
     monkeypatch.setattr(service, "publish_completed_translation", lambda _remote, chapter_id: published.append(chapter_id))
 
     assert service.run_translation_worker_once(remote) is True
+    assert translation_options[0]["provider"] == "gemini_web"
+    assert translation_options[0]["web_profile"] == "personal"
+    assert translation_options[0]["prompt_template"] == "Dịch {{text}}"
     assert [patch[2]["translated_text"] for patch in remote.patches if patch[0] == "chapter_chunks"] == ["Dịch Một.", "Dịch Hai."]
     updates = [index for index, patch in enumerate(remote.patches) if patch[0] == "translation_queue" and patch[2].get("status") in {"translating", "completed"}]
     assert [index for index, patch in enumerate(remote.patches) if patch[0] == "chapter_chunks"][0] < updates[1]
@@ -419,7 +431,7 @@ def test_worker_rebuilds_chunks_from_stored_raw_when_retranslation_has_none(monk
 
     remote = WorkerRemote()
     monkeypatch.setattr(service, "claim_translation_job", lambda _remote: remote.job)
-    monkeypatch.setattr(service.translator, "translate_batch", lambda texts, _glossary: [f"Dịch {text}" for text in texts])
+    monkeypatch.setattr(service.translator, "translate_batch", lambda texts, _glossary, **_options: [f"Dịch {text}" for text in texts])
     monkeypatch.setattr(service, "publish_completed_translation", lambda *_args: None)
 
     assert service.run_translation_worker_once(remote) is True

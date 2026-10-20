@@ -39,15 +39,6 @@ def render_prompt(template: str, text: str) -> str:
 class HachimiProvider:
     def translate_batch(self, texts: list[str], *, beam_size: int | None = None, **_: object) -> list[str]:
         try:
-            if len(texts) == 1:
-                response = httpx.post(
-                    f"{settings.model_service_url.rstrip('/')}/v1/translate",
-                    json={"text": texts[0], "beam_size": beam_size or settings.model_beam_size},
-                    timeout=settings.model_service_timeout,
-                    trust_env=False,
-                )
-                response.raise_for_status()
-                return [str(response.json()["translated_text"])]
             response = httpx.post(
                 f"{settings.model_service_url.rstrip('/')}/v1/translate-batch",
                 json={"texts": texts, "beam_size": beam_size or settings.model_beam_size},
@@ -59,6 +50,21 @@ class HachimiProvider:
             if not isinstance(translated, list) or len(translated) != len(texts):
                 raise ValueError("Invalid batch translation response")
             return [str(value) for value in translated]
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            raise ProviderUnavailableError(
+                "Không thể kết nối tới model service HachimiMT. Hãy kiểm tra service đang chạy."
+            ) from exc
+
+    def translate_text(self, text: str, *, beam_size: int | None = None) -> str:
+        try:
+            response = httpx.post(
+                f"{settings.model_service_url.rstrip('/')}/v1/translate",
+                json={"text": text, "beam_size": beam_size or settings.model_beam_size},
+                timeout=settings.model_service_timeout,
+                trust_env=False,
+            )
+            response.raise_for_status()
+            return str(response.json()["translated_text"])
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             raise ProviderUnavailableError(
                 "Không thể kết nối tới model service HachimiMT. Hãy kiểm tra service đang chạy."
@@ -123,7 +129,11 @@ class GeminiWebProvider:
         if not root.exists():
             return []
         return [
-            {"name": item.name, "ready": (item / "Default" / "Cookies").exists()}
+            {
+                "name": item.name,
+                "ready": (item / "Default" / "Cookies").exists()
+                or (item / "Default" / "Network" / "Cookies").exists(),
+            }
             for item in sorted(root.iterdir())
             if item.is_dir()
         ]
@@ -162,7 +172,11 @@ class GeminiWebProvider:
                     )
                     try:
                         page = context.pages[0] if context.pages else context.new_page()
-                        results = [self._translate_one(page, render_prompt(prompt_template, text)) for text in texts]
+                        results = []
+                        for index, text in enumerate(texts):
+                            results.append(self._translate_one(page, render_prompt(prompt_template, text)))
+                            if index < len(texts) - 1 and settings.gemini_web_cooldown_seconds > 0:
+                                page.wait_for_timeout(int(settings.gemini_web_cooldown_seconds * 1000))
                     finally:
                         context.close()
                 return results

@@ -36,6 +36,7 @@ def test_translator_delegates_full_text_to_model_service(monkeypatch) -> None:
 
     monkeypatch.setattr(translator_service.httpx, "post", fake_post)
     monkeypatch.setattr(translator_service.settings, "model_beam_size", 4)
+    monkeypatch.setattr(translator_service.settings, "translation_provider", "hachimi")
 
     translated = TranslatorService().translate("第一句。\n第二句。")
 
@@ -71,6 +72,7 @@ def test_user_glossary_restores_after_model_postprocess(monkeypatch) -> None:
 
     monkeypatch.setattr(translator_service.httpx, "post", fake_post)
     monkeypatch.setattr(translator_service.settings, "enable_glossary", True)
+    monkeypatch.setattr(translator_service.settings, "translation_provider", "hachimi")
 
     translated = TranslatorService().translate("陆江仙到了。", session)
 
@@ -99,6 +101,7 @@ def test_short_titles_and_names_go_through_model_service(monkeypatch) -> None:
         return Response()
 
     monkeypatch.setattr(translator_service.httpx, "post", fake_post)
+    monkeypatch.setattr(translator_service.settings, "translation_provider", "hachimi")
 
     assert TranslatorService().translate("陸江仙") == "Huyền Giám Tiên Tộc"
     assert calls[0]["json"]["text"] == "陆江仙"

@@ -1,5 +1,6 @@
 import pytest
 
+from app.config import Settings
 from app.translator import providers
 from app.translator.service import TranslatorService
 
@@ -8,6 +9,13 @@ def test_render_prompt_requires_text_placeholder() -> None:
     assert providers.render_prompt("Dịch:\n{{text}}", "你好") == "Dịch:\n你好"
     with pytest.raises(ValueError, match="text"):
         providers.render_prompt("Dịch đoạn này", "你好")
+
+
+def test_gemini_flash_lite_is_the_default_provider_and_model() -> None:
+    defaults = Settings(_env_file=None)
+
+    assert defaults.translation_provider == "hachimi"
+    assert defaults.gemini_model == "gemini-3.5-flash-lite"
 
 
 def test_gemini_api_uses_default_model_and_prompt(monkeypatch) -> None:

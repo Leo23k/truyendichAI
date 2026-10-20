@@ -2,7 +2,8 @@
 <div class="rounded-md border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900" role="status">Tìm thấy {{ results|length }} truyện cho “{{ query }}”.</div>
 <div class="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
   {% for result in results %}
-  <a data-search-item href="/books/preview?url={{ result.source_url|urlencode }}" class="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+  <article data-search-item class="overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
+  <a href="/books/preview?url={{ result.source_url|urlencode }}" class="group block overflow-hidden transition hover:-translate-y-0.5 hover:shadow-lg">
     {% if result.cover_url %}
     <img src="{{ result.cover_url }}" alt="Bìa {{ result.title }}" class="aspect-[4/3] w-full object-cover">
     {% else %}
@@ -14,6 +15,11 @@
       <p class="mt-1 text-xs font-medium text-teal-700">Có thể crawl{% if result.chapter_count is not none %} · {{ result.chapter_count }} chương{% endif %}</p>
     </div>
   </a>
+  <form action="/jobs/crawler/start" method="post" hx-post="/jobs/crawler/start" hx-target="#crawler-search-results" hx-swap="innerHTML" class="border-t border-stone-100 p-3">
+    <input type="hidden" name="source_url" value="{{ result.source_url }}"><input type="hidden" name="source_type" value="{{ source_type }}"><input type="hidden" name="provider" value="{{ provider }}"><input type="hidden" name="model" value="{{ model }}"><input type="hidden" name="web_profile" value="{{ web_profile or '' }}"><input type="hidden" name="prompt_id" value="{{ prompt_id }}">
+    <button class="site-nav-button accent w-full justify-center"><i data-lucide="languages" class="h-4 w-4"></i>Crawl và dịch với cấu hình đã chọn</button>
+  </form>
+  </article>
   {% endfor %}
 </div>
 {% else %}

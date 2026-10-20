@@ -160,10 +160,15 @@ class TranslatorService:
         prompt_template: str = DEFAULT_PROMPT,
     ) -> str:
         try:
-            translated = provider_for(provider or settings.translation_provider).translate_batch(
-                [protected.text], model=model, web_profile=web_profile,
-                prompt_template=prompt_template, beam_size=beam_size,
-            )[0]
+            selected = provider or settings.translation_provider
+            service = provider_for(selected)
+            if selected == "hachimi":
+                translated = service.translate_text(protected.text, beam_size=beam_size)
+            else:
+                translated = service.translate_batch(
+                    [protected.text], model=model, web_profile=web_profile,
+                    prompt_template=prompt_template, beam_size=beam_size,
+                )[0]
         except ProviderPausedError as exc:
             raise TranslationPausedError(str(exc)) from exc
         except (ProviderUnavailableError, IndexError, ValueError) as exc:

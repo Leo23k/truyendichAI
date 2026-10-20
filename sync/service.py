@@ -35,7 +35,8 @@ from app.storage import cdn_object_url, configured as b2_configured, download as
 from app.translator.chunking import chunk_text
 from app.translator.glossary import GlossaryEntry
 from app.translator.preprocess import traditional_to_simplified
-from app.translator.service import TranslationUnavailableError, glossary_for_source_url, translator
+from app.translator.providers import DEFAULT_PROMPT
+from app.translator.service import TranslationPausedError, TranslationUnavailableError, glossary_for_source_url, translator
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
 from app.crawlers.errors import SourceParseError, SourceRequestError
@@ -350,7 +351,19 @@ def migrate_remote_cover_urls(remote: SupabaseSync | None = None) -> dict[str, i
     return counts
 
 
-def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict], crawl_job_id: str | None = None, priority: int = 0) -> int:
+def enqueue_untranslated_chapters(
+    remote: SupabaseSync,
+    chapters: list[dict],
+    crawl_job_id: str | None = None,
+    priority: int = 0,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    web_profile: str | None = None,
+    prompt_id: str | None = None,
+    prompt_name: str = "Tiên hiệp tự nhiên",
+    prompt_template: str = DEFAULT_PROMPT,
+) -> int:
     candidates = [row for row in chapters if row.get("id") and row.get("original_content") and not row.get("translated_content")]
     if not candidates:
         return 0
@@ -365,7 +378,13 @@ def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict], cr
         if not parts:
             continue
         chunks.extend({"chapter_id": chapter["id"], "chunk_index": index, "original_text": part, "status": "queued"} for index, part in enumerate(parts))
-        jobs.append({"chapter_id": chapter["id"], "status": "queued", "priority": max(0, min(priority, 100)), "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0, "crawl_job_id": crawl_job_id})
+        jobs.append({
+            "chapter_id": chapter["id"], "status": "queued", "priority": max(0, min(priority, 100)),
+            "current_chunk": 0, "total_chunks": len(parts), "retry_count": 0, "crawl_job_id": crawl_job_id,
+            "provider": provider or settings.translation_provider, "model": model or settings.gemini_model,
+            "web_profile": web_profile or None, "prompt_id": prompt_id or None,
+            "prompt_name": prompt_name, "prompt_template": prompt_template,
+        })
     if not jobs:
         return 0
     remote.insert_many_ignore("chapter_chunks", chunks, "chapter_id,chunk_index")
@@ -373,7 +392,12 @@ def enqueue_untranslated_chapters(remote: SupabaseSync, chapters: list[dict], cr
     return len(jobs)
 
 
-def restore_stored_chapters(remote: SupabaseSync, chapters: list[dict], crawl_job_id: str | None = None) -> set[int]:
+def restore_stored_chapters(
+    remote: SupabaseSync,
+    chapters: list[dict],
+    crawl_job_id: str | None = None,
+    **translation_options: object,
+) -> set[int]:
     """Recreate translation work after a crawl was interrupted post-upload."""
     restored: list[dict] = []
     for chapter in chapters:
@@ -388,7 +412,7 @@ def restore_stored_chapters(remote: SupabaseSync, chapters: list[dict], crawl_jo
         original = str(payload.get("original_content") or "").strip()
         if original:
             restored.append({"id": chapter["id"], "original_content": original, "translated_content": None})
-    enqueue_untranslated_chapters(remote, restored, crawl_job_id)
+    enqueue_untranslated_chapters(remote, restored, crawl_job_id, **translation_options)
     return {int(chapter["id"]) for chapter in restored}
 
 
@@ -441,7 +465,18 @@ def prioritize_translation(remote: SupabaseSync, chapter_id: int, priority: int)
     return bool(rows)
 
 
-def enqueue_remote_crawl(source_url: str, source_type: str = "zh", result: dict | None = None) -> dict:
+def enqueue_remote_crawl(
+    source_url: str,
+    source_type: str = "zh",
+    result: dict | None = None,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    web_profile: str | None = None,
+    prompt_id: str | None = None,
+    prompt_name: str = "Tiên hiệp tự nhiên",
+    prompt_template: str = DEFAULT_PROMPT,
+) -> dict:
     """Persist a production crawl request for the outbound-only PC worker."""
     remote = SupabaseSync()
     active = remote.rows(
@@ -457,7 +492,12 @@ def enqueue_remote_crawl(source_url: str, source_type: str = "zh", result: dict 
     if active:
         return active[0]
     try:
-        return remote.insert("remote_crawl_jobs", {"source_url": source_url, "source_type": source_type, "status": "queued", "result": result or {}})
+        return remote.insert("remote_crawl_jobs", {
+            "source_url": source_url, "source_type": source_type, "status": "queued", "result": result or {},
+            "provider": provider or settings.translation_provider, "model": model or settings.gemini_model,
+            "web_profile": web_profile or None, "prompt_id": prompt_id or None,
+            "prompt_name": prompt_name, "prompt_template": prompt_template,
+        })
     except SyncError:
         active = remote.rows(
             "remote_crawl_jobs",
@@ -725,7 +765,7 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
     if not job:
         return False
 
-    BATCH_SIZE = 4
+    BATCH_SIZE = 1 if job.get("provider") == "gemini_web" else 4
 
     try:
         chapter_rows = remote.rows(
@@ -814,7 +854,14 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
 
             # Gom nhiều chunk gửi GPU một lần
             texts = [str(r["original_text"]) for r in rows]
-            translated_texts = translator.translate_batch(texts, glossary)
+            translated_texts = translator.translate_batch(
+                texts,
+                glossary,
+                provider=str(job.get("provider") or settings.translation_provider),
+                model=str(job.get("model") or settings.gemini_model),
+                web_profile=str(job.get("web_profile") or "") or None,
+                prompt_template=str(job.get("prompt_template") or DEFAULT_PROMPT),
+            )
 
             # Lưu kết quả
             for row, translated in zip(rows, translated_texts):
@@ -854,6 +901,21 @@ def run_translation_worker_once(remote: SupabaseSync | None = None) -> bool:
             complete_crawl_job_when_translation_finishes(remote, str(job["crawl_job_id"]))
         logger.info("Hoàn tất toàn bộ chương ID %s.", job["chapter_id"])
         return True
+
+    except TranslationPausedError as exc:
+        logger.warning("Tạm dừng chương ID %s: %s", job["chapter_id"], exc)
+        if job.get("provider") == "gemini_web":
+            remote.patch_rows(
+                "translation_queue",
+                {"provider": "eq.gemini_web", "status": "eq.queued"},
+                {"status": "paused", "updated_at": datetime.now(timezone.utc).isoformat()},
+            )
+        remote.patch_rows(
+            "translation_queue",
+            {"id": f"eq.{job['id']}"},
+            {"status": "paused", "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
+        return False
 
     except (TranslationUnavailableError, SyncError):
         logger.exception(
@@ -1205,6 +1267,12 @@ async def _crawl_and_translate_url(
     crawl_job_id: str | None = None,
     source_type: str = "zh",
     source_update_novel_id: int | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    web_profile: str | None = None,
+    prompt_id: str | None = None,
+    prompt_name: str = "Tiên hiệp tự nhiên",
+    prompt_template: str = DEFAULT_PROMPT,
 ) -> None:
     """Crawl directly into Supabase; SQLite is never used in this path."""
     try:
@@ -1229,8 +1297,12 @@ async def _crawl_and_translate_url(
             novel_patch = _existing_novel_refresh_patch(info, source_type)
             remote.patch_rows("novels", {"id": f"eq.{novel['id']}"}, novel_patch)
         else:
-            translated_title = info.title if is_vietnamese else translator.translate_metadata(info.title)
-            translated_author = info.author if is_vietnamese else (translator.translate_metadata(info.author) if info.author else None)
+            translation_options = {
+                "provider": provider, "model": model, "web_profile": web_profile,
+                "prompt_template": prompt_template,
+            }
+            translated_title = info.title if is_vietnamese else translator.translate_metadata(info.title, **translation_options)
+            translated_author = info.author if is_vietnamese else (translator.translate_metadata(info.author, **translation_options) if info.author else None)
             existing_slugs = {str(item["slug"]) for item in remote.all_rows("novels", {"select": "slug", "order": "slug.asc"}) if item.get("slug")}
             novel_slug = unique_slug(translated_title, existing_slugs)
             novel = remote.insert("novels", {"slug": novel_slug, "title": translated_title, "author": translated_author, "cover_url": info.cover_url, "genres": info.genres or [], "source_type": source_type, "source_url": info.source_url, "latest_chapter": 0})
@@ -1273,7 +1345,11 @@ async def _crawl_and_translate_url(
             if row.get("chapter_id") in chapter_ids
         }
         stored_without_queue = [row for row in chapters if not row["translated"] and row.get("content_path") and row["id"] not in queued]
-        restored_chapter_ids = set() if is_vietnamese else restore_stored_chapters(remote, stored_without_queue, crawl_job_id)
+        restored_chapter_ids = set() if is_vietnamese else restore_stored_chapters(
+            remote, stored_without_queue, crawl_job_id,
+            provider=provider, model=model, web_profile=web_profile, prompt_id=prompt_id,
+            prompt_name=prompt_name, prompt_template=prompt_template,
+        )
         pending = [
             row
             for row in chapters
@@ -1419,7 +1495,12 @@ async def _crawl_and_translate_url(
                 "Đã crawl %s/%s: chương %s (%s ký tự, %s đoạn dịch).",
                 completed, total_raw, chapter["chapter_number"], len(original), len(parts),
             )
-            if enqueue_untranslated_chapters(remote, [{"id": chapter["id"], "original_content": original, "translated_content": None}], crawl_job_id, 100 if chapter["source_url"] in new_source_urls else 0):
+            if enqueue_untranslated_chapters(
+                remote, [{"id": chapter["id"], "original_content": original, "translated_content": None}],
+                crawl_job_id, 100 if chapter["source_url"] in new_source_urls else 0,
+                provider=provider, model=model, web_profile=web_profile, prompt_id=prompt_id,
+                prompt_name=prompt_name, prompt_template=prompt_template,
+            ):
                 processed_job_ids.add(int(chapter["id"]))
             update_status(status="crawling", raw_loaded=completed, total_raw=total_raw, current_chapter=chapter["chapter_number"])
         if is_vietnamese:
@@ -1478,6 +1559,12 @@ def process_remote_crawl_job_once(remote: SupabaseSync | None = None) -> bool:
         asyncio.run(_crawl_and_translate_url(
             str(job["source_url"]), update_status, str(job["id"]), str(job.get("source_type") or "zh"),
             int(source_update_novel_id) if source_update_novel_id else None,
+            provider=str(job.get("provider") or settings.translation_provider),
+            model=str(job.get("model") or settings.gemini_model),
+            web_profile=str(job.get("web_profile") or "") or None,
+            prompt_id=str(job.get("prompt_id") or "") or None,
+            prompt_name=str(job.get("prompt_name") or "Tiên hiệp tự nhiên"),
+            prompt_template=str(job.get("prompt_template") or DEFAULT_PROMPT),
         ))
     except Exception as exc:
         logger.exception("Job crawl từ xa thất bại trước khi khởi chạy.")

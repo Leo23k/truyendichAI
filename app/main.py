@@ -69,6 +69,18 @@ from app.models import Chapter
 from app.search import normalize_search_key, search_books as run_search
 from app.services.book_service import BookService
 from app.translator.service import TranslationUnavailableError, translator
+from app.translator.prompt_service import (
+    DEFAULT_MODELS,
+    DEFAULT_PROMPT_NAME,
+    create_prompt,
+    delete_prompt,
+    load_prompts,
+    provider_settings,
+    resolve_prompt,
+    set_default_prompt,
+    update_prompt,
+)
+from app.translator.providers import GeminiWebProvider
 from app.tts.edge_tts_service import (
     DEFAULT_EDGE_VOICE,
     EdgeTTSUnavailableError,
@@ -154,7 +166,7 @@ async def auth_guard(request: Request, call_next):
             return HTMLResponse(status_code=401)
         return RedirectResponse("/login", status_code=303) if request.method == "GET" else HTMLResponse(status_code=401)
     user_mutation = path in {"/api/tts", "/api/reading-progress", "/api/notifications/read-all"} or path.startswith(("/api/books/", "/api/ebooks/", "/api/follows/", "/api/notifications/", "/api/notification-settings"))
-    admin = path.startswith(("/admin", "/restore", "/jobs", "/retranslate", "/translation-memory", "/books/preview", "/books/search")) or (request.method != "GET" and not user_mutation)
+    admin = path.startswith(("/admin", "/restore", "/jobs", "/retranslate", "/translation-memory", "/translation-prompts", "/translation/providers", "/books/preview", "/books/search")) or (request.method != "GET" and not user_mutation)
     if admin and request.state.user.role != "admin":
         return HTMLResponse("Chỉ quản trị viên được phép.", status_code=403)
     response = await call_next(request)
@@ -842,7 +854,7 @@ def _translation_queue_cards() -> list[dict]:
     queue = remote.rows(
         "translation_queue",
         {
-            "select": "id,chapter_id,status,current_chunk,total_chunks,updated_at",
+            "select": "id,chapter_id,status,current_chunk,total_chunks,updated_at,provider,model,web_profile,prompt_name",
             "status": "in.(queued,translating,paused,failed)",
             "order": "updated_at.desc",
             "limit": "50",
@@ -894,8 +906,30 @@ def _retranslate_page_context(**extra: object) -> dict[str, object]:
         "retranslate_books": SupabaseSync().all_rows(
             "novels", {"select": "id,title", "deleted_at": "is.null", "order": "title.asc"}
         ),
+        "translation_prompts": load_prompts(SupabaseSync()),
+        "translation_providers": _translation_provider_context(),
+        "default_provider": settings.translation_provider,
+        "default_model": settings.gemini_model,
         **extra,
     }
+
+
+def _translation_provider_context() -> dict[str, object]:
+    return {
+        "gemini_api_configured": bool(settings.gemini_api_key),
+        "gemini_model": settings.gemini_model,
+        "gemini_web_profiles": GeminiWebProvider.list_profiles(),
+        "gemini_web_available": _gemini_web_available(),
+        "providers": DEFAULT_MODELS,
+    }
+
+
+def _gemini_web_available() -> bool:
+    try:
+        import playwright.sync_api  # noqa: F401
+    except ImportError:
+        return False
+    return Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe").exists()
 
 
 @app.get("/admin", include_in_schema=False)
@@ -905,6 +939,10 @@ def admin_page(request: Request):
         name="admin.html",
         context={
             "crawler_sources": [crawler.source_name for crawler in registry._crawlers],
+            "translation_prompts": load_prompts(SupabaseSync()),
+            "translation_providers": _translation_provider_context(),
+            "default_provider": settings.translation_provider,
+            "default_model": settings.gemini_model,
             "toast": request.query_params.get("toast"),
             "toast_error": request.query_params.get("error") == "1",
         },
@@ -1095,6 +1133,76 @@ def retranslate_page(request: Request):
     return templates.TemplateResponse(request=request, name="retranslate.html", context=_retranslate_page_context())
 
 
+@app.get("/translation-prompts")
+def translation_prompts_page(request: Request, toast: str | None = None, toast_error: bool = False):
+    return templates.TemplateResponse(
+        request=request, name="translation_prompts.html",
+        context={"translation_prompts": load_prompts(SupabaseSync()), "toast": toast, "toast_error": toast_error},
+    )
+
+
+def _prompt_redirect(message: str, error: bool = False) -> RedirectResponse:
+    suffix = "&error=1" if error else ""
+    return RedirectResponse(f"/translation-prompts?toast={quote(message)}{suffix}", status_code=303)
+
+
+@app.post("/translation-prompts/create")
+def translation_prompt_create(name: str = Form(...), template: str = Form(...)):
+    try:
+        create_prompt(SupabaseSync(), name, template)
+    except (ValueError, SyncError) as exc:
+        return _prompt_redirect(str(exc), error=True)
+    return _prompt_redirect("Đã tạo prompt dịch.")
+
+
+@app.post("/translation-prompts/{prompt_id}/update")
+def translation_prompt_update(prompt_id: str, name: str = Form(...), template: str = Form(...)):
+    try:
+        update_prompt(SupabaseSync(), prompt_id, name, template)
+    except (ValueError, SyncError) as exc:
+        return _prompt_redirect(str(exc), error=True)
+    return _prompt_redirect("Đã lưu thay đổi prompt.")
+
+
+@app.post("/translation-prompts/{prompt_id}/default")
+def translation_prompt_default(prompt_id: str):
+    try:
+        set_default_prompt(SupabaseSync(), prompt_id)
+    except (ValueError, SyncError) as exc:
+        return _prompt_redirect(str(exc), error=True)
+    return _prompt_redirect("Đã đặt prompt mặc định.")
+
+
+@app.post("/translation-prompts/{prompt_id}/delete")
+def translation_prompt_delete(prompt_id: str):
+    try:
+        delete_prompt(SupabaseSync(), prompt_id)
+    except (ValueError, SyncError) as exc:
+        return _prompt_redirect(str(exc), error=True)
+    return _prompt_redirect("Đã xóa prompt.")
+
+
+@app.get("/translation/providers/status")
+def translation_provider_status():
+    context = _translation_provider_context()
+    context.pop("providers", None)
+    return context
+
+
+@app.post("/translation/providers/gemini-web/open")
+def open_gemini_web_profile(request: Request, name: str = Form(...)):
+    try:
+        profile_name = GeminiWebProvider.open_profile(name)
+    except (ValueError, RuntimeError) as exc:
+        return templates.TemplateResponse(
+            request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400,
+        )
+    return templates.TemplateResponse(
+        request=request, name="partials/message.html",
+        context={"message": f"Đã mở Chrome profile {profile_name}. Đăng nhập Google thủ công rồi đóng cửa sổ để worker sử dụng phiên.", "error": False},
+    )
+
+
 @app.get("/retranslate/chapters", include_in_schema=False)
 def retranslate_chapter_picker(request: Request, novel_id: int):
     chapters = SupabaseSync().all_rows(
@@ -1114,6 +1222,10 @@ def retranslate_novel(
     novel_id: int = Form(...),
     mode: str = Form("all"),
     chapter_ids: list[int] = Form(default=[]),
+    provider: str = Form(settings.translation_provider),
+    model: str = Form(settings.gemini_model),
+    web_profile: str = Form(""),
+    prompt_id: str = Form(...),
 ):
     if mode not in {"all", "selected"}:
         raise HTTPException(status_code=400, detail="Tùy chọn dịch lại không hợp lệ.")
@@ -1124,9 +1236,23 @@ def retranslate_novel(
 
     selected_ids = sorted(set(chapter_ids)) if mode == "selected" else None
     try:
-        result = SupabaseSync().rpc_rows(
-            "reset_retranslation",
-            {"p_novel_id": novel_id, "p_chapter_ids": selected_ids},
+        remote = SupabaseSync()
+        translation_choice = provider_settings(provider, model, web_profile)
+        prompt_choice = resolve_prompt(remote, prompt_id)
+        result = remote.rpc_rows("reset_retranslation_with_provider", {
+            "p_novel_id": novel_id,
+            "p_chapter_ids": selected_ids,
+            "p_provider": translation_choice["provider"],
+            "p_model": translation_choice["model"],
+            "p_web_profile": translation_choice["web_profile"],
+            "p_prompt_id": prompt_choice["prompt_id"],
+            "p_prompt_name": prompt_choice["prompt_name"],
+            "p_prompt_template": prompt_choice["prompt_template"],
+        })
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request=request, name="retranslate.html",
+            context=_retranslate_page_context(toast=str(exc), toast_error=True), status_code=400,
         )
     except SyncError as exc:
         logger.exception("Could not reset retranslation queue for novel %s", novel_id)
@@ -1170,13 +1296,25 @@ def control_workers(target: str, action: str, request: Request):
 
 
 @app.post("/jobs/crawler/search")
-async def jobs_crawler_search(request: Request, query: str = Form(...), source_type: str = Form("zh")):
+async def jobs_crawler_search(
+    request: Request,
+    query: str = Form(...),
+    source_type: str = Form("zh"),
+    provider: str = Form(settings.translation_provider),
+    model: str = Form(settings.gemini_model),
+    web_profile: str = Form(""),
+    prompt_id: str = Form(...),
+):
     query = " ".join(query.split())
     if source_type not in {"zh", "vi"}:
         raise HTTPException(status_code=400, detail="Loại nguồn không hợp lệ.")
     if not query:
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Hãy nhập tên truyện hoặc URL nguồn để tìm.", "error": True}, status_code=400)
     try:
+        remote = SupabaseSync()
+        translation_choice = provider_settings(provider, model, web_profile)
+        prompt_choice = resolve_prompt(remote, prompt_id)
+        enqueue_options = {**translation_choice, **prompt_choice}
         if query.startswith(("http://", "https://")):
             # A URL submitted from the worker page must be persisted first.
             # Fetching the source here makes Vercel wait on a third-party site
@@ -1189,7 +1327,7 @@ async def jobs_crawler_search(request: Request, query: str = Form(...), source_t
             # sources (notably UUKANSHU) are reachable from the PC worker but
             # blocked or slow from the web runtime. The worker validates and
             # reports the crawl outcome after the job is persisted.
-            job = enqueue_remote_crawl(query, source_type=source_type)
+            job = enqueue_remote_crawl(query, source_type=source_type, **enqueue_options)
             request.state.crawl_job_id = str(job["id"])
             response = templates.TemplateResponse(
                 request=request,
@@ -1203,7 +1341,10 @@ async def jobs_crawler_search(request: Request, query: str = Form(...), source_t
             return response
 
         results = await asyncio.wait_for(registry.search(query), timeout=min(settings.crawler_timeout, 12))
-        return templates.TemplateResponse(request=request, name="partials/search_results.html", context={"results": results[:20], "query": query})
+        return templates.TemplateResponse(
+            request=request, name="partials/search_results.html",
+            context={"results": results[:20], "query": query, "source_type": source_type, **enqueue_options},
+        )
     except asyncio.TimeoutError:
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Tìm nguồn quá lâu (12 giây). Website nguồn có thể đang chặn hoặc chậm; hãy thử lại sau.", "error": True}, status_code=504)
     except CrawlerError as exc:
@@ -1214,6 +1355,37 @@ async def jobs_crawler_search(request: Request, query: str = Form(...), source_t
     except Exception:
         logger.exception("Crawler search failed query=%r", query)
         return templates.TemplateResponse(request=request, name="partials/message.html", context={"message": "Không thể tìm truyện lúc này. Vui lòng thử lại sau.", "error": True}, status_code=502)
+
+
+@app.post("/jobs/crawler/start")
+def start_crawler_translation(
+    request: Request,
+    source_url: str = Form(...),
+    source_type: str = Form("zh"),
+    provider: str = Form(settings.translation_provider),
+    model: str = Form(settings.gemini_model),
+    web_profile: str = Form(""),
+    prompt_id: str = Form(...),
+):
+    try:
+        crawler = registry.get_for_url(source_url)
+        if getattr(crawler, "source_type", "zh") != source_type:
+            raise ValueError("Loại nguồn không khớp website này.")
+        remote = SupabaseSync()
+        translation_choice = provider_settings(provider, model, web_profile)
+        prompt_choice = resolve_prompt(remote, prompt_id)
+        job = enqueue_remote_crawl(source_url, source_type=source_type, **translation_choice, **prompt_choice)
+        request.state.crawl_job_id = str(job["id"])
+        response = templates.TemplateResponse(
+            request=request, name="partials/message.html",
+            context={"message": "Đã thêm truyện vào hàng đợi crawl và dịch với provider/prompt đã chọn.", "error": False},
+        )
+        response.headers["HX-Trigger"] = "jobsChanged"
+        return response
+    except (CrawlerError, SyncError, ValueError) as exc:
+        return templates.TemplateResponse(
+            request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400,
+        )
 
 
 @app.post("/jobs/translations/{queue_id}/retry")
@@ -1236,6 +1408,25 @@ def retry_failed_translation(queue_id: str, request: Request):
         request=request,
         name="jobs.html",
         context=_jobs_page_context(partial=True, toast="Đã đưa chương lỗi vào hàng đợi dịch lại."),
+    )
+    response.headers["HX-Trigger"] = "jobsChanged"
+    return response
+
+
+@app.post("/jobs/translations/{queue_id}/resume")
+def resume_paused_translation(queue_id: str, request: Request):
+    remote = SupabaseSync()
+    rows = remote.patch_rows(
+        "translation_queue",
+        {"id": f"eq.{queue_id}", "status": "eq.paused"},
+        {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Không tìm thấy chương đang tạm dừng.")
+    response = templates.TemplateResponse(
+        request=request,
+        name="jobs.html",
+        context=_jobs_page_context(partial=True, toast="Đã tiếp tục chương dịch."),
     )
     response.headers["HX-Trigger"] = "jobsChanged"
     return response

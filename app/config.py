@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     tts_api_url: str | None = Field(default=None, validation_alias=AliasChoices("TTS_API_URL"))
     model_service_timeout: int = 300
     model_beam_size: int = 4
-    translation_provider: str = "hachimi"
+    translation_provider: str = Field(default="hachimi", validation_alias=AliasChoices("TRANSLATION_PROVIDER"))
     gemini_api_key: str | None = Field(default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"))
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_web_cooldown_seconds: float = 3.0
