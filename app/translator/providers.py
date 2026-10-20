@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -111,6 +112,73 @@ class GeminiApiProvider:
 class GeminiWebProvider:
     _lock = threading.Lock()
     _profile_pattern = re.compile(r"[^a-zA-Z0-9_-]+")
+    _browser_labels = {"chrome": "Google Chrome", "edge": "Microsoft Edge"}
+
+    @classmethod
+    def browser_executable(cls, browser: str) -> Path:
+        if browser not in cls._browser_labels:
+            raise ValueError("Trình duyệt Gemini Web không được hỗ trợ.")
+        names = {"chrome": ("chrome.exe", "chrome"), "edge": ("msedge.exe", "msedge")}[browser]
+        candidates = [Path(found) for name in names if (found := shutil.which(name))]
+        if browser == "chrome":
+            candidates.extend([
+                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+                Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+                Path.home() / "AppData/Local/Google/Chrome/Application/chrome.exe",
+            ])
+        else:
+            candidates.extend([
+                Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+                Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+                Path.home() / "AppData/Local/Microsoft/Edge/Application/msedge.exe",
+            ])
+        executable = next((candidate for candidate in candidates if candidate.is_file()), None)
+        if executable is None:
+            raise ProviderUnavailableError(f"Không tìm thấy {cls._browser_labels[browser]} trên máy này.")
+        return executable
+
+    @classmethod
+    def available_browsers(cls) -> list[dict[str, str]]:
+        available = []
+        for browser, label in cls._browser_labels.items():
+            try:
+                cls.browser_executable(browser)
+            except ProviderUnavailableError:
+                continue
+            available.append({"id": browser, "name": label})
+        return available
+
+    @classmethod
+    def default_browser(cls) -> str:
+        available = [browser["id"] for browser in cls.available_browsers()]
+        preferred = None
+        try:
+            import winreg
+
+            key_path = r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                prog_id = winreg.QueryValueEx(key, "ProgId")[0]
+            preferred = "edge" if "MSEdge" in prog_id else "chrome" if "ChromeHTML" in prog_id else None
+        except (ImportError, OSError):
+            pass
+        if preferred in available:
+            return preferred
+        return "edge" if "edge" in available else (available[0] if available else "chrome")
+
+    @classmethod
+    def profile_identity(cls, name: str, browser: str | None = None) -> tuple[str, str]:
+        if browser is None and ":" in name:
+            browser, name = name.split(":", 1)
+        browser = browser or "chrome"
+        if browser not in cls._browser_labels:
+            raise ValueError("Trình duyệt Gemini Web không được hỗ trợ.")
+        return browser, cls.normalize_profile(name)
+
+    @classmethod
+    def playwright_channel(cls, browser: str) -> str:
+        if browser not in cls._browser_labels:
+            raise ValueError("Trình duyệt Gemini Web không được hỗ trợ.")
+        return "msedge" if browser == "edge" else "chrome"
 
     @classmethod
     def normalize_profile(cls, name: str) -> str:
@@ -120,8 +188,10 @@ class GeminiWebProvider:
         return normalized[:64]
 
     @classmethod
-    def profile_dir(cls, name: str) -> Path:
-        return settings.gemini_profile_path / cls.normalize_profile(name)
+    def profile_dir(cls, name: str, browser: str | None = None) -> Path:
+        browser, profile_name = cls.profile_identity(name, browser)
+        root = settings.gemini_profile_path
+        return root / profile_name if browser == "chrome" else root / browser / profile_name
 
     @classmethod
     def list_profiles(cls) -> list[dict[str, object]]:
@@ -139,26 +209,31 @@ class GeminiWebProvider:
         ]
 
     @classmethod
-    def open_profile(cls, name: str) -> str:
-        profile = cls.profile_dir(name)
+    def open_profile(cls, name: str, browser: str = "chrome") -> str:
+        browser, profile_name = cls.profile_identity(name, browser)
+        profile = cls.profile_dir(profile_name, browser)
         profile.mkdir(parents=True, exist_ok=True)
-        chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
-        if not chrome.exists():
-            raise ProviderUnavailableError("Không tìm thấy Google Chrome trên máy này.")
-        subprocess.Popen([str(chrome), f"--user-data-dir={profile}", "https://gemini.google.com/app"])
-        return profile.name
+        executable = cls.browser_executable(browser)
+        subprocess.Popen([str(executable), f"--user-data-dir={profile}", "https://gemini.google.com/app"])
+        return f"{browser}:{profile_name}"
 
     @classmethod
-    def logout(cls, name: str) -> None:
-        profile = cls.profile_dir(name)
+    def logout(cls, name: str, browser: str = "chrome") -> None:
+        browser, profile_name = cls.profile_identity(name, browser)
+        profile = cls.profile_dir(profile_name, browser)
         profile.mkdir(parents=True, exist_ok=True)
-        chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
-        if not chrome.exists():
-            raise ProviderUnavailableError("Không tìm thấy Google Chrome trên máy này.")
+        executable = cls.browser_executable(browser)
         subprocess.Popen([
-            str(chrome), f"--user-data-dir={profile}",
+            str(executable), f"--user-data-dir={profile}",
             "https://accounts.google.com/Logout?continue=https%3A%2F%2Fgemini.google.com%2Fapp",
         ])
+
+    @classmethod
+    def launch_context(cls, playwright, web_profile: str):
+        browser, _ = cls.profile_identity(web_profile)
+        return playwright.chromium.launch_persistent_context(
+            str(cls.profile_dir(web_profile)), channel=cls.playwright_channel(browser), headless=False,
+        )
 
     def translate_batch(
         self,
@@ -179,9 +254,7 @@ class GeminiWebProvider:
         with self._lock:
             try:
                 with sync_playwright() as playwright:
-                    context = playwright.chromium.launch_persistent_context(
-                        str(self.profile_dir(web_profile)), channel="chrome", headless=False,
-                    )
+                    context = self.launch_context(playwright, web_profile)
                     try:
                         page = context.pages[0] if context.pages else context.new_page()
                         results = []

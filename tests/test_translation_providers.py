@@ -71,6 +71,45 @@ def test_gemini_web_profile_name_is_filesystem_safe() -> None:
         providers.GeminiWebProvider.normalize_profile("***")
 
 
+def test_gemini_web_edge_profile_launches_with_edge_channel(tmp_path, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class Chromium:
+        def launch_persistent_context(self, user_data_dir, **options):
+            captured.update(user_data_dir=user_data_dir, **options)
+            return "edge-context"
+
+    monkeypatch.setattr(
+        providers.GeminiWebProvider, "profile_dir",
+        classmethod(lambda _cls, _name, _browser=None: tmp_path / "edge" / "default"),
+    )
+
+    context = providers.GeminiWebProvider.launch_context(type("Playwright", (), {"chromium": Chromium()})(), "edge:default")
+
+    assert context == "edge-context"
+    assert captured["channel"] == "msedge"
+    assert captured["user_data_dir"] == str(tmp_path / "edge" / "default")
+
+
+def test_gemini_web_login_opens_selected_edge(tmp_path, monkeypatch) -> None:
+    launched: dict[str, object] = {}
+    monkeypatch.setattr(
+        providers.GeminiWebProvider, "profile_dir",
+        classmethod(lambda _cls, name, browser=None: tmp_path / browser / name),
+    )
+    monkeypatch.setattr(
+        providers.GeminiWebProvider, "browser_executable",
+        classmethod(lambda _cls, browser: tmp_path / f"{browser}.exe"),
+    )
+    monkeypatch.setattr(providers.subprocess, "Popen", lambda args: launched.update(args=args))
+
+    result = providers.GeminiWebProvider.open_profile("default", "edge")
+
+    assert result == "edge:default"
+    assert launched["args"][0] == str(tmp_path / "edge.exe")
+    assert launched["args"][1] == f"--user-data-dir={tmp_path / 'edge' / 'default'}"
+
+
 def test_hachimi_does_not_require_a_saved_prompt() -> None:
     from app import main
 
@@ -112,7 +151,8 @@ def test_gemini_web_login_route_opens_profile_and_returns_feedback(monkeypatch) 
 
     opened: list[str] = []
     monkeypatch.setattr(main, "user_from_token", lambda token: SimpleNamespace(role="admin") if token else None)
-    monkeypatch.setattr(main.GeminiWebProvider, "open_profile", classmethod(lambda _cls, name: opened.append(name) or name))
+    monkeypatch.setattr(main.GeminiWebProvider, "default_browser", classmethod(lambda _cls: "edge"))
+    monkeypatch.setattr(main.GeminiWebProvider, "open_profile", classmethod(lambda _cls, name, browser: opened.append((name, browser)) or name))
 
     response = TestClient(main.app).post(
         "/translation/providers/gemini-web/open", data={"name": "default"},
@@ -120,9 +160,9 @@ def test_gemini_web_login_route_opens_profile_and_returns_feedback(monkeypatch) 
     )
 
     assert response.status_code == 200
-    assert "Đã mở Gemini Web trong Chrome" in response.text
+    assert "Đã mở Gemini Web trong trình duyệt mặc định" in response.text
     assert "đăng nhập tài khoản Google" in response.text
-    assert opened == ["default"]
+    assert opened == [("default", "edge")]
 
 
 def test_gemini_web_login_route_returns_actionable_error(monkeypatch) -> None:
@@ -132,7 +172,8 @@ def test_gemini_web_login_route_returns_actionable_error(monkeypatch) -> None:
     from app import main
 
     monkeypatch.setattr(main, "user_from_token", lambda token: SimpleNamespace(role="admin") if token else None)
-    monkeypatch.setattr(main.GeminiWebProvider, "open_profile", classmethod(lambda _cls, _name: (_ for _ in ()).throw(RuntimeError("Không tìm thấy Google Chrome."))))
+    monkeypatch.setattr(main.GeminiWebProvider, "default_browser", classmethod(lambda _cls: "edge"))
+    monkeypatch.setattr(main.GeminiWebProvider, "open_profile", classmethod(lambda _cls, _name, _browser: (_ for _ in ()).throw(RuntimeError("Không tìm thấy Google Chrome."))))
 
     response = TestClient(main.app).post(
         "/translation/providers/gemini-web/open", data={"name": "default"},
@@ -151,16 +192,16 @@ def test_gemini_web_logout_route_opens_google_logout(monkeypatch) -> None:
 
     logged_out: list[str] = []
     monkeypatch.setattr(main, "user_from_token", lambda token: SimpleNamespace(role="admin") if token else None)
-    monkeypatch.setattr(main.GeminiWebProvider, "logout", classmethod(lambda _cls, name: logged_out.append(name)))
+    monkeypatch.setattr(main.GeminiWebProvider, "logout", classmethod(lambda _cls, name, browser: logged_out.append((name, browser))))
 
     response = TestClient(main.app).post(
-        "/translation/providers/gemini-web/logout", data={"name": "default"},
+        "/translation/providers/gemini-web/logout", data={"name": "default", "browser": "edge"},
         cookies={"sb-access-token": "test"},
     )
 
     assert response.status_code == 200
     assert "đăng xuất khỏi Gemini Web" in response.text
-    assert logged_out == ["default"]
+    assert logged_out == [("default", "edge")]
 
 
 @pytest.mark.parametrize(("title", "expected"), [

@@ -919,6 +919,8 @@ def _translation_provider_context() -> dict[str, object]:
         "gemini_api_configured": bool(settings.gemini_api_key),
         "gemini_model": settings.gemini_model,
         "gemini_web_profiles": GeminiWebProvider.list_profiles(),
+        "gemini_web_browsers": GeminiWebProvider.available_browsers(),
+        "gemini_web_default_browser": GeminiWebProvider.default_browser(),
         "gemini_web_available": _gemini_web_available(),
         "providers": DEFAULT_MODELS,
     }
@@ -958,7 +960,7 @@ def _gemini_web_available() -> bool:
         import playwright.sync_api  # noqa: F401
     except ImportError:
         return False
-    return Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe").exists()
+    return bool(GeminiWebProvider.available_browsers())
 
 
 @app.get("/admin", include_in_schema=False)
@@ -1240,32 +1242,32 @@ def translation_provider_status():
 
 
 @app.post("/translation/providers/gemini-web/open")
-def open_gemini_web_profile(request: Request, name: str = Form(...)):
+def open_gemini_web_profile(request: Request, name: str = Form(...), browser: str | None = Form(None)):
     require_admin(request)
     try:
-        GeminiWebProvider.open_profile(name)
+        GeminiWebProvider.open_profile(name, browser or GeminiWebProvider.default_browser())
     except (ValueError, RuntimeError) as exc:
         return templates.TemplateResponse(
             request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400,
         )
     return templates.TemplateResponse(
         request=request, name="partials/message.html",
-        context={"message": "Đã mở Gemini Web trong Chrome. Hãy đăng nhập tài khoản Google trong cửa sổ này nếu được yêu cầu; phiên sẽ được lưu để dùng lần sau.", "error": False},
+        context={"message": "Đã mở Gemini Web trong trình duyệt mặc định. Hãy đăng nhập tài khoản Google nếu được yêu cầu; phiên sẽ được lưu để dùng lần sau.", "error": False},
     )
 
 
 @app.post("/translation/providers/gemini-web/logout")
-def logout_gemini_web(request: Request, name: str = Form(...)):
+def logout_gemini_web(request: Request, name: str = Form(...), browser: str | None = Form(None)):
     require_admin(request)
     try:
-        GeminiWebProvider.logout(name)
+        GeminiWebProvider.logout(name, browser or GeminiWebProvider.default_browser())
     except (ValueError, RuntimeError) as exc:
         return templates.TemplateResponse(
             request=request, name="partials/message.html", context={"message": str(exc), "error": True}, status_code=400,
         )
     return templates.TemplateResponse(
         request=request, name="partials/message.html",
-        context={"message": "Đã mở Google để đăng xuất khỏi Gemini Web. Hoàn tất trong cửa sổ Chrome nếu Google yêu cầu.", "error": False},
+        context={"message": "Đã mở Google để đăng xuất khỏi Gemini Web trong trình duyệt mặc định. Hoàn tất nếu Google yêu cầu.", "error": False},
     )
 
 
