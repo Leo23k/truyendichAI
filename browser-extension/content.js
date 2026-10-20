@@ -2,16 +2,28 @@
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
 const readBody = () => (document.body?.innerText || "").toLowerCase();
-const buttonText = (button) => `${button.getAttribute("aria-label") || ""} ${button.innerText || ""} ${button.title || ""}`.toLowerCase();
+const buttonText = (button) => [
+  button.getAttribute("aria-label"), button.innerText, button.title,
+  button.getAttribute("data-tooltip"), button.getAttribute("mattooltip"),
+  button.getAttribute("data-mat-icon-name"), button.querySelector("mat-icon")?.textContent,
+  ...[...button.querySelectorAll("mat-icon, svg, [data-mat-icon-name]")].flatMap((icon) => [
+    icon.getAttribute("data-mat-icon-name"), icon.getAttribute("aria-label"), icon.getAttribute("data-icon"), icon.textContent,
+  ]),
+  button.querySelector("svg")?.getAttribute("aria-label"),
+].filter(Boolean).join(" ").toLowerCase();
 const visible = (node) => node?.getClientRects().length > 0;
 const MAX_CHAPTERS_PER_CONVERSATION = 10;
 const GeminiSelectors = {
   composer: () => [...document.querySelectorAll('[role="textbox"], textarea, [contenteditable="true"]')].filter(visible).at(-1),
   buttons: () => [...document.querySelectorAll('button, [role="button"]')].filter(visible),
-  newChat: () => GeminiSelectors.buttons().find((node) => /new chat|new conversation|start a chat|cuộc trò chuyện mới|tạo cuộc trò chuyện mới/i.test(buttonText(node))),
+  newChat: () => {
+    const buttons = GeminiSelectors.buttons();
+    return buttons.find((node) => /new (chat|conversation)|start (a )?(new )?chat|create (a )?(new )?(chat|conversation)|cuộc trò chuyện mới|tạo (cuộc trò chuyện|đoạn chat) mới/i.test(buttonText(node)))
+      || buttons.find((node) => node.closest("nav, header") && /\b(edit_square|chat_add_on|add_2)\b/.test(buttonText(node)));
+  },
   send: () => GeminiSelectors.buttons().find((node) => {
-    const label = `${node.getAttribute("aria-label") || ""} ${node.title || ""} ${node.innerText || ""}`.trim();
-    return /^(send|gửi)\b/i.test(label) && !/feedback/i.test(label);
+    const label = buttonText(node);
+    return /\b(send(?:_up)?|gửi)\b/i.test(label) && !/feedback|stop|dừng|ngừng/i.test(label);
   }),
   responses: () => {
     for (const selector of ["message-content", "model-response", '[data-message-author-role="model"]']) {
@@ -60,7 +72,7 @@ async function startNewConversation(tabId) {
     await chrome.storage.local.set({ [key]: { chapters: 0 } });
     return;
   }
-  if (stats.chapters && stats.chapters < MAX_CHAPTERS_PER_CONVERSATION) return;
+  if (stats.chapters < MAX_CHAPTERS_PER_CONVERSATION) return;
   const button = GeminiSelectors.newChat();
   if (!button) throw Object.assign(new Error("Không tìm thấy nút tạo cuộc trò chuyện mới trong Gemini."), { code: "NEW_CHAT_SELECTOR_NOT_FOUND", reason: "ui_changed" });
   log("NEW_CHAT", { code: "CLICK", url: location.href });
@@ -88,14 +100,34 @@ async function recordConversationChapter(tabId) {
   await chrome.storage.local.set({ [key]: { chapters: stats.chapters + 1 } });
 }
 
+function waitForUsableSendButton(timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    let timer;
+    const observer = new MutationObserver(check);
+    const finish = (button, error) => {
+      clearTimeout(timer);
+      observer.disconnect();
+      if (error) reject(error); else resolve(button);
+    };
+    function check() {
+      const button = GeminiSelectors.send();
+      if (button && !button.disabled && button.getAttribute("aria-disabled") !== "true") finish(button);
+    }
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    timer = setTimeout(() => finish(null, Object.assign(
+      new Error("Gemini chưa hiển thị nút Gửi khả dụng sau khi nhập prompt."),
+      { code: "SEND_BUTTON_NOT_USABLE", reason: "ui_changed" },
+    )), timeoutMs);
+    check();
+  });
+}
+
 async function submitPrompt(prompt) {
   const blocked = classifyPage();
   if (blocked) throw Object.assign(new Error(blocked.message), blocked);
   const box = composer();
   if (!box) throw Object.assign(new Error("Không nhận diện được ô nhập Gemini; có thể UI đã thay đổi."), { code: "COMPOSER_NOT_FOUND", reason: "ui_changed" });
   if (stopVisible()) throw Object.assign(new Error("Gemini vẫn đang tạo phản hồi trước đó."), { code: "GENERATION_IN_PROGRESS", reason: "transient" });
-  const send = GeminiSelectors.send();
-  if (!send) throw Object.assign(new Error("Không tìm thấy nút gửi Gemini."), { code: "SEND_BUTTON_NOT_FOUND", reason: "ui_changed" });
   const before = responseNodes().length;
   const previousOutput = responseNodes().at(-1)?.innerText?.trim() || "";
   box.focus();
@@ -109,7 +141,7 @@ async function submitPrompt(prompt) {
   }
   const entered = (box.value ?? box.innerText ?? box.textContent ?? "").trim();
   if (entered !== prompt.trim()) throw Object.assign(new Error("Gemini không nhận đủ nội dung prompt; không gửi để tránh dịch thiếu."), { code: "PROMPT_INPUT_MISMATCH", reason: "transient" });
-  if (send.disabled || send.getAttribute("aria-disabled") === "true") throw Object.assign(new Error("Nút gửi Gemini vẫn chưa khả dụng sau khi nhập prompt."), { code: "SEND_BUTTON_NOT_USABLE", reason: "ui_changed" });
+  const send = await waitForUsableSendButton();
 
   return new Promise((resolve, reject) => {
     let sawGenerating = false;
@@ -232,7 +264,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     };
     const firstFailure = blocked || (!checks.loggedIn ? { code: "GEMINI_NOT_LOGGED_IN", message: "Gemini chưa đăng nhập hoặc chưa tải xong." }
       : !checks.composer ? { code: "COMPOSER_NOT_FOUND", message: "Không tìm thấy ô nhập Gemini." }
-        : !checks.sendButton || !checks.newChat || !checks.responseContainer ? { code: "UI_CHANGED", message: "Gemini đã đổi giao diện; thiếu selector cần thiết." } : null);
+        : !checks.responseContainer ? { code: "UI_CHANGED", message: "Không tìm thấy vùng phản hồi Gemini." } : null);
     const result = { ok: !firstFailure, code: firstFailure?.code || "READY", message: firstFailure?.message || "Gemini đã sẵn sàng.", checks };
     log("HEALTH", { code: result.code, checks, url: location.href });
     sendResponse(result);
