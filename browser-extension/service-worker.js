@@ -134,14 +134,22 @@ async function setSiteConnection(tabId, message, connected) {
 }
 
 async function findGeminiTab() {
+  const tabs = await chrome.tabs.query({ url: "https://gemini.google.com/*" });
+  const active = tabs.find((tab) => tab.active);
+  if (active) return active;
+
   const { geminiTabId } = await chrome.storage.local.get("geminiTabId");
   if (geminiTabId) {
     const saved = await chrome.tabs.get(geminiTabId).catch(() => null);
     if (saved?.url?.startsWith("https://gemini.google.com/") || saved?.url?.startsWith("https://accounts.google.com/") || saved?.pendingUrl?.startsWith("https://gemini.google.com/")) return saved;
     await chrome.storage.local.remove("geminiTabId");
   }
-  const tabs = await chrome.tabs.query({ url: "https://gemini.google.com/*" });
-  return tabs.find((tab) => tab.active) || tabs[0] || null;
+  return tabs[0] || null;
+}
+
+async function activateGeminiTab(tabId) {
+  await chrome.tabs.update(tabId, { active: true });
+  await chrome.storage.local.set({ geminiTabId: tabId });
 }
 
 async function openGeminiTab() {
@@ -361,6 +369,8 @@ async function processOneJob() {
     await updateJobProgress(appTab.id, job.id, "Đang mở tab Gemini và chuẩn bị gửi chương.");
     const { tab } = await ensureGeminiTab();
     activeGeminiTab = tab;
+    await activateGeminiTab(tab.id);
+    log("TAB", { code: "JOB_TARGET_ACTIVE", tabId: tab.id, url: tab.url });
     let result = await translateChapter(tab.id, job, appTab.id);
     if (result?.code === "GENERATION_IN_PROGRESS" && result.submittedPrompts === 0) {
       // This job was not submitted. Leave the old conversation alone and retry once in a fresh tab.

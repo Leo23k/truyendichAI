@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.34";
+const CONTENT_SCRIPT_VERSION = "1.0.35";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -28,26 +28,26 @@ const GeminiSelectors = {
   send: () => {
     const buttons = GeminiSelectors.buttons();
     const isExcluded = (node) => /feedback|stop|dừng|ngừng|microphone|mic|attach|upload|menu|share|voice|model|flash|thinking|reasoning/i.test(buttonText(node));
-    const labelled = buttons.find((node) => {
-    const label = buttonText(node);
-    const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
-    return (/\b(send(?:_up)?|submit|gửi)\b|arrow_upward/i.test(label) || /send|submit/i.test(testId))
-      && !isExcluded(node);
-    });
-    if (labelled) return labelled;
-
     const box = GeminiSelectors.composer();
     const boxRect = box?.getBoundingClientRect?.();
     if (!boxRect) return null;
     let root = box.parentElement;
     for (let depth = 0; root && depth < 6; depth += 1, root = root.parentElement) {
+      const rootRect = root.getBoundingClientRect?.();
       const related = buttons.filter((node) => {
         if (!root.contains?.(node) || node.disabled || node.getAttribute("aria-disabled") === "true" || isExcluded(node)) return false;
         const rect = node.getBoundingClientRect?.();
-        if (!rect) return false;
+        if (!rect || !rootRect) return false;
         const verticalGap = Math.max(0, rect.top - boxRect.bottom, boxRect.top - rect.bottom);
-        return verticalGap <= 32 && rect.left >= boxRect.left + boxRect.width * 0.6 && rect.right <= boxRect.right + 24;
+        const centerX = rect.left + rect.width / 2;
+        return verticalGap <= 48 && centerX >= rootRect.left + rootRect.width * 0.58 && centerX <= rootRect.right + 8;
       });
+      const labelled = related.find((node) => {
+        const label = buttonText(node);
+        const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
+        return (/\b(send(?:_up)?|submit|gửi)\b|arrow_upward/i.test(label) || /send|submit/i.test(testId));
+      });
+      if (labelled) return labelled;
       if (related.length) return related.sort((left, right) => right.getBoundingClientRect().right - left.getBoundingClientRect().right)[0];
     }
     return null;
@@ -339,8 +339,9 @@ async function submitPrompt(prompt, onProgress = () => {}) {
         const retained = !!currentComposer && composerTextMatches(currentComposer, prompt);
         const details = { code: "PROMPT_NOT_ACCEPTED", method: send ? "button" : "enter", composerChars: composerText(currentComposer || {}).length, retained, userMessageCount: GeminiSelectors.userMessages().length, responseCount: responseNodes().length, generating: stopVisible(), url: location.href };
         log("SUBMIT_NOT_ACCEPTED", details);
+        const method = send ? `nút “${buttonText(send).slice(0, 48) || send.tagName}”` : "Enter";
         const message = retained
-          ? "Gemini vẫn giữ prompt trong ô nhập nhưng chưa nhận được; chưa tạo cuộc trò chuyện. Hãy kiểm tra tab Gemini trước khi thử lại."
+          ? `Gemini vẫn giữ prompt trong ô nhập nhưng chưa nhận được; chưa tạo cuộc trò chuyện (đã thử ${method}). Hãy kiểm tra tab Gemini trước khi thử lại.`
           : "Gemini chưa tạo tin nhắn/cuộc trò chuyện sau khi gửi; prompt không còn trong ô nhập. Hãy kiểm tra tab Gemini trước khi thử lại.";
         finish(Object.assign(new Error(message), { code: "PROMPT_NOT_ACCEPTED", reason: "transient" }));
       }

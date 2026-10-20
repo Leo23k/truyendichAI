@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.34");
+  assert.equal(manifest.version, "1.0.35");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,9 +40,10 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.34"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.35"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
+  assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
 });
 
 test("Gemini content script loads by default and the app bridge is injected after site access is granted", async () => {
@@ -207,28 +208,31 @@ test("Gemini send detection supports send-button test IDs and synchronizes compo
 });
 
 test("Gemini send detection finds an unlabeled control beside the composer without clicking the microphone", () => {
-  const root = { parentElement: null, contains: () => true };
+  const root = { parentElement: null, contains: (node) => node.parentElement === root, getBoundingClientRect: () => ({ left: 0, right: 500, width: 500, top: 0, bottom: 140 }) };
   const makeControl = (label, right) => ({
     parentElement: root, innerText: "", title: "", value: "", disabled: false,
     getClientRects: () => [{}], getAttribute: (name) => name === "aria-label" ? label : null,
     querySelector: () => null, querySelectorAll: () => [],
-    getBoundingClientRect: () => ({ left: right - 30, right, top: 90, bottom: 120 }),
+    getBoundingClientRect: () => ({ left: right - 30, right, width: 30, top: 90, bottom: 120 }),
   });
   const microphone = makeControl("Use microphone", 480);
   const sendControl = makeControl("", 450);
+  const unrelatedSend = makeControl("Send message", 490);
+  unrelatedSend.parentElement = {};
   const box = {
     parentElement: root, getClientRects: () => [{}], getBoundingClientRect: () => ({ left: 0, right: 500, width: 500, top: 0, bottom: 80 }),
     getAttribute: () => null, querySelector: () => null, querySelectorAll: () => [],
   };
   const document = {
-    querySelectorAll: (selector) => selector.includes('role="textbox"') ? [box] : [microphone, sendControl],
+    querySelectorAll: (selector) => selector.includes('role="textbox"') ? [box] : [microphone, sendControl, unrelatedSend],
   };
   const context = { globalThis: {}, document, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
   const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__send = GeminiSelectors.send;\n})();");
   vm.runInNewContext(instrumented, context);
 
   assert.equal(context.globalThis.__send(), sendControl);
-  assert.match(contentScript, /verticalGap <= 32/);
+  assert.match(contentScript, /verticalGap <= 48/);
+  assert.match(contentScript, /rootRect\.left \+ rootRect\.width \* 0\.58/);
   assert.match(contentScript, /model\|flash\|thinking\|reasoning/);
 });
 
@@ -300,18 +304,23 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.34", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.35", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
   const storageState = queueRequestHangs ? {} : { appTabId: 2 };
   const geminiTab = { id: 1, url: tabUrl, status: tabStatus };
+  geminiTab.active = activeGeminiTabId === geminiTab.id;
+  const otherActiveGeminiTab = activeGeminiTabId && activeGeminiTabId !== geminiTab.id
+    ? { id: activeGeminiTabId, url: "https://gemini.google.com/app", status: "complete", active: true }
+    : null;
+  const activatedTabIds = [];
   const appTab = { id: 2, url: "https://leotruyen.vercel.app/truyen/test" };
   const listeners = {};
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.34", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.35", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -322,7 +331,8 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
     storage: { local: { get: async (keys) => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map((key) => [key, storageState[key]])), set: async (value) => Object.assign(storageState, value), remove: async (keys) => { for (const key of Array.isArray(keys) ? keys : [keys]) delete storageState[key]; } } },
     tabs: {
       get: async (id) => id === 1 ? geminiTab : id === 2 ? appTab : id === 3 && newTab ? newTab : Promise.reject(new Error("Tab missing")),
-      query: async () => [geminiTab, ...(newTab ? [newTab] : [])],
+      query: async () => [geminiTab, ...(otherActiveGeminiTab ? [otherActiveGeminiTab] : []), ...(newTab ? [newTab] : [])],
+      update: async (id, options) => { if (options?.active) activatedTabIds.push(id); return id === 1 ? geminiTab : otherActiveGeminiTab; },
       create: async () => { createdTabs += 1; newTab = { id: 3, url: "https://gemini.google.com/app", status: "complete" }; return newTab; },
       reload: async () => {},
       sendMessage: async (id, message) => {
@@ -334,7 +344,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.34" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.35" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },
@@ -355,9 +365,20 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
     },
   };
   const context = { chrome, console: { info() {} }, URL, Date, Promise, Error, Object, String, Array, Math, JSON, setTimeout, clearTimeout };
-  vm.runInNewContext(`${serviceWorker}\nglobalThis.__test = { ensureGeminiTabReady, ensureGeminiTab, healthCheck, pageRequest };`, context);
-  return { api: context.__test, geminiTab, listeners, apiRequests, storageState, get createdTabs() { return createdTabs; } };
+  vm.runInNewContext(`${serviceWorker}\nglobalThis.__test = { ensureGeminiTabReady, ensureGeminiTab, findGeminiTab, activateGeminiTab, healthCheck, pageRequest };`, context);
+  return { api: context.__test, geminiTab, listeners, apiRequests, storageState, activatedTabIds, get createdTabs() { return createdTabs; } };
 }
+
+test("Gemini jobs prefer the visible Gemini tab and focus the exact tab used for the job", async () => {
+  const worker = loadServiceWorker({ contentScriptReady: true, activeGeminiTabId: 4 });
+  worker.storageState.geminiTabId = 1;
+
+  const selected = await worker.api.findGeminiTab();
+  assert.equal(selected.id, 4);
+  await worker.api.activateGeminiTab(selected.id);
+  assert.deepEqual(worker.activatedTabIds, [4]);
+  assert.equal(worker.storageState.geminiTabId, 4);
+});
 
 test("connecting the website tab does not wait for the remote queue status API", async () => {
   const worker = loadServiceWorker();
