@@ -151,6 +151,22 @@ def test_pause_classifies_transient_errors_for_backoff() -> None:
     assert remote.job["status"] == "backoff"
 
 
+def test_extension_progress_updates_the_active_job_and_chunk_counts(monkeypatch) -> None:
+    remote = FakeRemote()
+    remote.job["status"] = "translating"
+    monkeypatch.setattr(extension_api, "require_admin", lambda _request: None)
+    monkeypatch.setattr(extension_api, "SupabaseSync", lambda: remote)
+
+    result = extension_api.update_extension_job_progress(
+        "job-1", extension_api.ProgressRequest(message="Đang gửi đoạn 2/3 lên Gemini.", current_chunk=1, total_chunks=3), None,
+    )
+
+    assert result == {"status": "translating"}
+    assert remote.job["error_message"] == "Đang gửi đoạn 2/3 lên Gemini."
+    assert remote.job["current_chunk"] == 1
+    assert remote.job["total_chunks"] == 3
+
+
 def test_batch_progress_tracks_completion_and_manual_pause() -> None:
     class BatchRemote(FakeRemote):
         def __init__(self) -> None:

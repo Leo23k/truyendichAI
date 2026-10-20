@@ -296,20 +296,39 @@ async function healthCheck() {
   return result;
 }
 
+async function updateJobProgress(tabId, jobId, message, currentChunk = 0, totalChunks = 0) {
+  try {
+    await pageRequest(tabId, `/api/gemini-extension/jobs/${encodeURIComponent(jobId)}/progress`, "POST", {
+      message, current_chunk: currentChunk, total_chunks: totalChunks,
+    }, 10000);
+  } catch (error) {
+    log("PROGRESS", { code: error.code || "PROGRESS_UPDATE_FAILED", message: String(error?.message || error), tabId });
+  }
+}
+
 async function pauseJob(tabId, jobId, reason, message) {
   await pageRequest(tabId, `/api/gemini-extension/jobs/${encodeURIComponent(jobId)}/pause`, "POST", { reason, message });
 }
 
-function translateChapter(tabId, job) {
+function translateChapter(tabId, job, appTabId) {
   return new Promise((resolve, reject) => {
     const port = chrome.tabs.connect(tabId, { name: "gemini-translation" });
     let finished = false;
+    let progressQueue = Promise.resolve();
     port.onMessage.addListener((message) => {
       if (message?.type === "heartbeat") return;
+      if (message?.type === "progress") {
+        progressQueue = progressQueue.then(() => pageRequest(appTabId, `/api/gemini-extension/jobs/${encodeURIComponent(job.id)}/progress`, "POST", {
+          message: message.message,
+          current_chunk: message.currentChunk ?? 0,
+          total_chunks: message.totalChunks ?? 0,
+        }, 10000)).catch((error) => log("PROGRESS", { code: error.code || "PROGRESS_UPDATE_FAILED", message: String(error?.message || error), tabId }));
+        return;
+      }
       if (message?.type !== "result") return;
       finished = true;
       port.disconnect();
-      resolve(message.result);
+      progressQueue.then(() => resolve(message.result));
     });
     port.onDisconnect.addListener(() => {
       if (finished) return;
@@ -339,14 +358,16 @@ async function processOneJob() {
     if (!response?.job) return;
     job = response.job;
     await chrome.storage.local.set({ currentJob: `${job.chapter_number}` });
+    await updateJobProgress(appTab.id, job.id, "Đang mở tab Gemini và chuẩn bị gửi chương.");
     const { tab } = await ensureGeminiTab();
     activeGeminiTab = tab;
-    let result = await translateChapter(tab.id, job);
+    let result = await translateChapter(tab.id, job, appTab.id);
     if (result?.code === "GENERATION_IN_PROGRESS" && result.submittedPrompts === 0) {
       // This job was not submitted. Leave the old conversation alone and retry once in a fresh tab.
+      await updateJobProgress(appTab.id, job.id, "Tab Gemini cũ còn phản hồi trước; đang mở tab mới để gửi lại chương.");
       const fresh = await openGeminiTab();
       activeGeminiTab = (await ensureGeminiTabReady(fresh, 30000, 30000)).tab;
-      result = await translateChapter(activeGeminiTab.id, job);
+      result = await translateChapter(activeGeminiTab.id, job, appTab.id);
     }
     if (!result?.ok) {
       const message = result?.message || "Gemini Web cần thao tác thủ công.";
@@ -354,6 +375,7 @@ async function processOneJob() {
       await chrome.storage.local.set({ lastError: message });
       return;
     }
+    await updateJobProgress(appTab.id, job.id, "Gemini đã trả đủ bản dịch; website đang kiểm tra và lưu vào truyện.");
     await pageRequest(appTab.id, `/api/gemini-extension/jobs/${encodeURIComponent(job.id)}/complete`, "POST", result.translation);
   } catch (error) {
     const message = String(error?.message || error);

@@ -30,6 +30,12 @@ class PauseRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
 
 
+class ProgressRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+    current_chunk: int = Field(default=0, ge=0)
+    total_chunks: int = Field(default=0, ge=0)
+
+
 @router.get("/api/gemini-extension/status")
 def extension_status(request: Request) -> dict:
     require_admin(request)
@@ -57,6 +63,22 @@ def pause_extension_job_route(job_id: str, payload: PauseRequest, request: Reque
         raise HTTPException(status_code=409, detail="Job không còn ở trạng thái đang dịch.")
     refresh_batch_progress(remote, str(jobs[0].get("batch_job_id") or "") if jobs else None)
     return {"status": status}
+
+
+@router.post("/api/gemini-extension/jobs/{job_id}/progress")
+def update_extension_job_progress(job_id: str, payload: ProgressRequest, request: Request) -> dict:
+    require_admin(request)
+    updated = SupabaseSync().patch_rows("translation_queue", {
+        "id": f"eq.{job_id}", "provider": "eq.gemini_web", "status": "eq.translating",
+    }, {
+        "error_message": payload.message,
+        "current_chunk": payload.current_chunk,
+        "total_chunks": payload.total_chunks,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    if not updated:
+        raise HTTPException(status_code=409, detail="Job không còn ở trạng thái đang dịch.")
+    return {"status": "translating"}
 
 
 @router.post("/api/gemini-extension/jobs/{job_id}/complete")
