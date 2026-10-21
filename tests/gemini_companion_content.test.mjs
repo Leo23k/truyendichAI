@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.51");
+  assert.equal(manifest.version, "1.0.52");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.51"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.52"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -375,6 +375,19 @@ test("Gemini reads the model-response wrapper when an older message-content node
   assert.deepEqual(Array.from(context.globalThis.__responses()), [modelResponse]);
 });
 
+test("Gemini extracts visible response text from a descendant when the model-response wrapper is short", () => {
+  const translated = "Bọn họ đã lùi bước khỏi khu vực nguy hiểm, tránh được sự chú ý của lực lượng kỳ lạ. ".repeat(12);
+  const body = { tagName: "DIV", innerText: translated, children: [], getClientRects: () => [{}] };
+  const response = { tagName: "MODEL-RESPONSE", innerText: "Gemini đã nói", children: [body], getClientRects: () => [{}] };
+  const document = { querySelectorAll: (selector) => selector === "model-response" ? [response] : [] };
+  const context = { globalThis: {}, document, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__responseText = responseText; globalThis.__responses = GeminiSelectors.responses;\n})();");
+  vm.runInNewContext(instrumented, context);
+
+  assert.deepEqual(Array.from(context.globalThis.__responses()), [response]);
+  assert.equal(context.globalThis.__responseText(response), translated.trim());
+});
+
 test("Gemini recognizes response text updates when the model-response node count stays the same", () => {
   const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__responseChanged = responseChangedSinceSubmit;\n})();");
   const context = { globalThis: {}, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
@@ -690,7 +703,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.51", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.52", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -706,7 +719,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.51", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.52", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -730,7 +743,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.51" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.52" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },

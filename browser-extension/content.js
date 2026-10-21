@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.51";
+const CONTENT_SCRIPT_VERSION = "1.0.52";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -13,7 +13,7 @@ const buttonText = (button) => [
   ]),
   button.querySelector("svg")?.getAttribute("aria-label"),
 ].filter(Boolean).join(" ").toLowerCase();
-const visible = (node) => node?.getClientRects().length > 0;
+const visible = (node) => (node?.getClientRects?.().length || 0) > 0;
 const MAX_CHAPTERS_PER_CONVERSATION = 30;
 const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
@@ -35,7 +35,7 @@ const GeminiSelectors = {
   send: () => inspectSendButton().button,
   responses: () => {
     for (const selector of ["model-response", '[data-message-author-role="model"]', "message-content"]) {
-      const nodes = [...document.querySelectorAll(selector)].filter((node) => node.innerText?.trim());
+      const nodes = [...document.querySelectorAll(selector)].filter((node) => responseText(node));
       if (nodes.length) return nodes;
     }
     return [];
@@ -166,6 +166,22 @@ function responseNodes() {
   return GeminiSelectors.responses();
 }
 
+function responseText(node) {
+  if (!node) return "";
+  let longest = "";
+  const visit = (element, shadowRoot = false, root = false) => {
+    if (!element) return;
+    if (root || shadowRoot || visible(element)) {
+      const text = String(element.innerText || "").trim();
+      if (text.length > longest.length) longest = text;
+    }
+    if (element.shadowRoot) visit(element.shadowRoot, true);
+    for (const child of element.children || []) visit(child);
+  };
+  visit(node, false, true);
+  return longest;
+}
+
 function inspectResponseDom() {
   const selectors = ["message-content", "model-response", '[data-message-author-role="model"]'];
   const describe = (node) => ({
@@ -174,14 +190,14 @@ function inspectResponseDom() {
     testId: node.getAttribute?.("data-testid") || node.getAttribute?.("data-test-id") || null,
     authorRole: node.getAttribute?.("data-message-author-role") || null,
     ariaLabel: node.getAttribute?.("aria-label") || null,
-    textChars: String(node.innerText || "").trim().length,
+    textChars: responseText(node).length,
     visible: visible(node),
     childTags: [...(node.children || [])].slice(0, 8).map((child) => child.tagName || "unknown"),
   });
   const bySelector = selectors.map((selector) => {
     try {
       const nodes = [...document.querySelectorAll(selector)];
-      return { selector, count: nodes.length, nonEmpty: nodes.filter((node) => node.innerText?.trim()).length, last: nodes.length ? describe(nodes.at(-1)) : null };
+      return { selector, count: nodes.length, nonEmpty: nodes.filter((node) => responseText(node)).length, last: nodes.length ? describe(nodes.at(-1)) : null };
     } catch {
       return { selector, count: 0, nonEmpty: 0, last: null };
     }
@@ -428,7 +444,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   await waitForGenerationIdle(undefined, onProgress);
   const before = responseNodes().length;
   const previousUserMessages = GeminiSelectors.userMessages();
-  const previousOutput = responseNodes().at(-1)?.innerText?.trim() || "";
+  const previousOutput = responseText(responseNodes().at(-1));
   let inputEvidence;
   try {
     inputEvidence = writePromptToComposer(box, prompt);
@@ -478,7 +494,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
       const blockedNow = classifyPage();
       if (blockedNow) return finish(Object.assign(new Error(blockedNow.message), blockedNow));
       const nodes = responseNodes();
-      const output = nodes.at(-1)?.innerText?.trim() || "";
+      const output = responseText(nodes.at(-1));
       const generating = stopVisible();
       const composerNode = composer();
       const composerCleared = !!composerNode && !composerText(composerNode).trim();
@@ -526,7 +542,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
         clearTimeout(readTimer);
         readTimer = setTimeout(() => {
           const finalNodes = responseNodes();
-          const finalOutput = finalNodes.at(-1)?.innerText?.trim() || "";
+          const finalOutput = responseText(finalNodes.at(-1));
           if (responseChangedSinceSubmit({ priorCount: before, currentCount: finalNodes.length, previousOutput, output: finalOutput, generationSeen: sawGenerating || sawAccepted })) {
             if (!reportedResponseDetected) log("RESPONSE_DETECTED", { code: "FINAL_DOM_READ", chars: finalOutput.length, url: location.href });
             return finishStable(finalOutput);
