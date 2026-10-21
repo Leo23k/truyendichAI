@@ -88,6 +88,30 @@ def test_crawl_job_returns_while_its_translation_is_queued(monkeypatch) -> None:
     assert not any(status.get("status") == "completed" for status in statuses)
 
 
+def test_crawl_failure_before_remote_initialization_preserves_source_error(monkeypatch) -> None:
+    class FailingCrawler:
+        source_name = "uukanshu"
+
+        async def get_book_info(self, _url: str) -> BookInfo:
+            from app.crawlers.errors import SourceRequestError
+
+            raise SourceRequestError("Không thể tải dữ liệu từ website nguồn.")
+
+    statuses: list[dict] = []
+    monkeypatch.setattr(service.registry, "get_for_url", lambda _url: FailingCrawler())
+    monkeypatch.setattr(service, "SupabaseSync", lambda: (_ for _ in ()).throw(AssertionError("remote must not be initialized")))
+
+    asyncio.run(
+        service._crawl_and_translate_url(
+            "https://uukanshu.cc/book/27257/",
+            lambda **values: statuses.append(values),
+            "crawl-timeout",
+        )
+    )
+
+    assert statuses[-1] == {"status": "queued", "error": "Không thể tải dữ liệu từ website nguồn."}
+
+
 def test_new_crawl_translates_title_author_and_description_with_selected_provider(monkeypatch) -> None:
     info = BookInfo("https://source.example/novel", "example", "book", "原題", "作者", "简介", None)
     options = {"provider": "gemini_api", "model": "gemini-3.5-flash-lite", "web_profile": None, "prompt_template": "Dịch {{text}}"}

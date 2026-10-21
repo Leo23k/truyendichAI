@@ -1333,6 +1333,7 @@ async def _crawl_and_translate_url(
     prompt_template: str = DEFAULT_PROMPT,
 ) -> None:
     """Crawl directly into Supabase; SQLite is never used in this path."""
+    remote: SupabaseSync | None = None
     try:
         update_status(status="crawling")
         crawler = registry.get_for_url(url)
@@ -1582,7 +1583,7 @@ async def _crawl_and_translate_url(
             return
         update_status(status="completed", result={**result, "translated": 0})
     except Exception as exc:
-        if crawl_job_id and remote_crawl_is_paused(remote, crawl_job_id):
+        if crawl_job_id and remote is not None and remote_crawl_is_paused(remote, crawl_job_id):
             logger.info("Job crawl %s đã được tạm dừng.", crawl_job_id)
             return
         logger.exception("Worker crawl/dịch trên PC thất bại.")
