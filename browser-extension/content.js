@@ -484,6 +484,8 @@ async function submitPrompt(prompt, onProgress = () => {}) {
     let reportedGenerating = false;
     let reportedComposerCleared = false;
     let reportedResponseDetected = false;
+    let lastStreamingProgressAt = 0;
+    let lastStreamingChars = 0;
     let quietTimer;
     let readTimer;
     let startTimer;
@@ -503,6 +505,11 @@ async function submitPrompt(prompt, onProgress = () => {}) {
       const generating = stopVisible();
       const composerNode = composer();
       const composerCleared = !!composerNode && !composerText(composerNode).trim();
+      if (generating && output.length > lastStreamingChars && Date.now() - lastStreamingProgressAt >= 10000) {
+        lastStreamingChars = output.length;
+        lastStreamingProgressAt = Date.now();
+        onProgress(`Gemini đang tạo phản hồi (${output.length} ký tự nhận được).`);
+      }
       const userMessages = GeminiSelectors.userMessages();
       const newUserMessage = userMessages.find((node) => !previousUserMessages.includes(node));
       const userMessageMatches = !!newUserMessage && composerTextMatches(newUserMessage, prompt);
@@ -543,7 +550,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
         clearTimeout(readTimer);
         clearTimeout(quietTimer);
         quietTimer = setTimeout(() => finishStable(output), 1200);
-      } else if (sawGenerating && sawStopButton && !generating && composerIdle) {
+      } else if (sawGenerating && sawStopButton && !generating) {
         clearTimeout(readTimer);
         readTimer = setTimeout(() => {
           const finalNodes = responseNodes();
