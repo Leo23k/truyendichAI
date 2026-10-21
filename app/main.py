@@ -74,6 +74,7 @@ from app.translator.extension_queue import EDIT_TRANSLATED_PROMPT, EDIT_TRANSLAT
 from app.translator.prompt_service import (
     DEFAULT_MODELS,
     DEFAULT_PROMPT_NAME,
+    GEMINI_API_MODELS,
     create_prompt,
     delete_prompt,
     load_prompts,
@@ -944,6 +945,7 @@ def _translation_provider_context() -> dict[str, object]:
         "gemini_web_default_browser": GeminiWebProvider.default_browser(),
         "gemini_web_available": _gemini_web_available(),
         "providers": DEFAULT_MODELS,
+        "gemini_api_models": GEMINI_API_MODELS,
     }
 
 
@@ -951,6 +953,18 @@ def _translation_prompt_choice(remote, provider: str, prompt_id: str) -> dict[st
     if provider == "hachimi":
         return {
             "prompt_id": None, "prompt_name": "Hachimi mặc định",
+            "prompt_template": DEFAULT_PROMPT,
+        }
+    if provider == "gemini_api":
+        prompt = next((item for item in load_prompts(remote) if item.get("is_default")), None)
+        if prompt:
+            return {
+                "prompt_id": prompt.get("id"),
+                "prompt_name": prompt.get("name") or "Gemini API mặc định",
+                "prompt_template": prompt.get("template") or DEFAULT_PROMPT,
+            }
+        return {
+            "prompt_id": None, "prompt_name": "Gemini API mặc định",
             "prompt_template": DEFAULT_PROMPT,
         }
     prompt = resolve_prompt(remote, prompt_id)

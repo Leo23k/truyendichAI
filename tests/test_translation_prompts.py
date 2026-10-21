@@ -1,4 +1,5 @@
 from app.translator.prompt_service import (
+    GEMINI_API_MODELS,
     create_prompt,
     delete_prompt,
     provider_settings,
@@ -36,6 +37,18 @@ def test_provider_options_validate_gemini_requirements(monkeypatch) -> None:
     assert provider_settings("gemini_web") == {
         "provider": "gemini_web", "model": "gemini-web", "web_profile": None,
     }
+
+
+def test_gemini_api_model_must_be_in_supported_text_models(monkeypatch) -> None:
+    monkeypatch.setattr("app.translator.prompt_service.settings.gemini_api_key", "test-key")
+    assert provider_settings("gemini_api", "gemini-3.8-flash")["model"] == "gemini-3.8-flash"
+    try:
+        provider_settings("gemini_api", "not-a-gemini-model")
+    except ValueError as error:
+        assert "model Gemini API" in str(error)
+    else:
+        raise AssertionError("Unsupported Gemini model should be rejected")
+    assert "gemini-3.5-flash-lite" in {model_id for model_id, _ in GEMINI_API_MODELS}
 
 
 def test_prompt_crud_and_default_snapshot() -> None:

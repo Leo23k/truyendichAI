@@ -195,6 +195,10 @@ def test_gemini_web_ui_uses_browser_companion_instead_of_server_login() -> None:
         default_model="hachimi-local",
         translation_providers=SimpleNamespace(
             gemini_api_configured=False,
+            gemini_api_models=(
+                ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+                ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
+            ),
             gemini_web_default_browser="edge",
             gemini_web_available=True,
         ),
@@ -206,6 +210,28 @@ def test_gemini_web_ui_uses_browser_companion_instead_of_server_login() -> None:
     assert "Phiên Google không được lưu trong website." in html
     assert "gemini-web/open" not in html
     assert "web_profile" not in html
+    assert 'value="gemini-3.8-flash"' in html
+    assert "Prompt cho truyện này" in html
+    assert 'x-bind:required="provider === \'gemini_web\'"' in html
+    assert 'x-bind:disabled="provider !== \'gemini_web\'"' in html
+
+
+def test_gemini_api_uses_default_prompt_without_prompt_selection() -> None:
+    from app import main
+
+    class Remote:
+        def rows(self, *_args, **_kwargs):
+            return [{
+                "id": "default-id", "name": "Prompt mặc định", "template": "Chỉ dịch:\n{{text}}",
+                "is_default": True,
+            }]
+
+    choice = main._translation_prompt_choice(Remote(), "gemini_api", "")
+
+    assert choice == {
+        "prompt_id": "default-id", "prompt_name": "Prompt mặc định",
+        "prompt_template": "Chỉ dịch:\n{{text}}",
+    }
 
 
 def test_gemini_web_logout_route_opens_google_logout(monkeypatch) -> None:

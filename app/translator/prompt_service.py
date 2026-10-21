@@ -14,6 +14,18 @@ DEFAULT_MODELS = {
     "gemini_api": "gemini-3.5-flash-lite",
     "gemini_web": "gemini-web",
 }
+GEMINI_API_MODELS = (
+    ("gemini-4-argon", "Gemini 4 Argon"),
+    ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+    ("gemini-3.6-flash", "Gemini 3.6 Flash"),
+    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
+    ("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite"),
+    ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+    ("gemini-3-flash-preview", "Gemini 3 Flash Preview"),
+    ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+    ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite"),
+    ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+)
 MAX_PROMPT_LENGTH = 12000
 
 
@@ -31,6 +43,8 @@ def provider_settings(provider: str, model: str = "", web_profile: str = "") -> 
     if provider not in PROVIDERS:
         raise ValueError("Provider dịch không hợp lệ.")
     model = (model or DEFAULT_MODELS[provider]).strip()
+    if provider == "gemini_api" and model not in {model_id for model_id, _ in GEMINI_API_MODELS}:
+        raise ValueError("Hãy chọn một model Gemini API trong danh sách.")
     if provider == "gemini_api" and not settings.gemini_api_key:
         raise ValueError("Chưa cấu hình GEMINI_API_KEY trên máy chạy dịch.")
     # Gemini Web authentication belongs to the user's browser extension, not a
