@@ -14,7 +14,7 @@ const buttonText = (button) => [
   button.querySelector("svg")?.getAttribute("aria-label"),
 ].filter(Boolean).join(" ").toLowerCase();
 const visible = (node) => (node?.getClientRects?.().length || 0) > 0;
-const MAX_CHAPTERS_PER_CONVERSATION = 20;
+const MAX_CHAPTERS_PER_CONVERSATION = 5;
 const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
 let conversationStatsKey = null;

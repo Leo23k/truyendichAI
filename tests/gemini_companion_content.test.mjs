@@ -437,7 +437,7 @@ test("Gemini follow-up chapters get a short Vietnamese translation instruction w
   assert.match(result, /^Chỉ dịch, không trả lời thêm\./);
   assert.match(result, /第二章 原文\n\ndịch$/);
   assert.doesNotMatch(result, /Long translator role/);
-  assert.match(contentScript, /MAX_CHAPTERS_PER_CONVERSATION = 20/);
+  assert.match(contentScript, /MAX_CHAPTERS_PER_CONVERSATION = 5/);
 });
 
 test("Gemini rejects predominantly Han-script output instead of saving it as Vietnamese", () => {
