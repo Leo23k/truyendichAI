@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.52");
+  assert.equal(manifest.version, "1.0.53");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.52"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.53"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -421,8 +421,8 @@ test("Gemini translation submits and returns the translated chapter title", asyn
   }, null);
 
   assert.deepEqual(context.prompts, [
-    "Translate: 原文\n\ndịch",
-    "Tiếp tục dịch nội dung tiếng Trung sau sang tiếng Việt. Chỉ trả về bản dịch tiếng Việt, không lặp lại nguyên văn.\n\n第一章 夜无疆\n\ndịch",
+    "Translate: 原文\n\nChỉ dịch, không trả lời thêm.\n\ndịch",
+    "Chỉ dịch, không trả lời thêm. Dịch nội dung tiếng Trung sau sang tiếng Việt và chỉ xuất bản dịch.\n\n第一章 夜无疆\n\ndịch",
   ]);
   assert.equal(result.translated_title, "Translated chapter title");
   assert.equal(result.translated_content, "Translated chapter text");
@@ -434,7 +434,7 @@ test("Gemini follow-up chapters get a short Vietnamese translation instruction w
   vm.runInNewContext(instrumented, context);
 
   const result = context.globalThis.__translationPrompt("Long translator role: {{text}}", "第二章 原文");
-  assert.match(result, /^Tiếp tục dịch nội dung tiếng Trung sau sang tiếng Việt\./);
+  assert.match(result, /^Chỉ dịch, không trả lời thêm\./);
   assert.match(result, /第二章 原文\n\ndịch$/);
   assert.doesNotMatch(result, /Long translator role/);
   assert.match(contentScript, /MAX_CHAPTERS_PER_CONVERSATION = 30/);
@@ -703,7 +703,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.52", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.53", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -719,7 +719,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.52", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.53", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -743,7 +743,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.52" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.53" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },

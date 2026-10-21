@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.52";
+const CONTENT_SCRIPT_VERSION = "1.0.53";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -289,8 +289,8 @@ async function recordConversationChapter(tabId) {
 
 function translationPrompt(promptSnapshot, text) {
   const prompt = conversationInstructionsSent
-    ? `Tiếp tục dịch nội dung tiếng Trung sau sang tiếng Việt. Chỉ trả về bản dịch tiếng Việt, không lặp lại nguyên văn.\n\n${String(text)}`
-    : promptSnapshot.replace("{{text}}", text);
+    ? `Chỉ dịch, không trả lời thêm. Dịch nội dung tiếng Trung sau sang tiếng Việt và chỉ xuất bản dịch.\n\n${String(text)}`
+    : `${promptSnapshot.replace("{{text}}", text)}\n\nChỉ dịch, không trả lời thêm.`;
   return `${prompt}\n\ndịch`;
 }
 
