@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.58";
+const CONTENT_SCRIPT_VERSION = "1.0.59";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,

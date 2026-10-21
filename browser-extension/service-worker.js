@@ -156,8 +156,14 @@ async function findGeminiTab() {
 }
 
 async function activateGeminiTab(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  const window = await chrome.windows.get(tab.windowId);
+  await chrome.windows.update(tab.windowId, window.state === "minimized"
+    ? { focused: true, state: "normal" }
+    : { focused: true });
   await chrome.tabs.update(tabId, { active: true });
   await chrome.storage.local.set({ geminiTabId: tabId });
+  log("GEMINI_TAB", { code: "WINDOW_FOCUSED", tabId, windowId: tab.windowId, windowState: window.state });
 }
 
 async function recordSavedChapter(tabId, job, translation) {
