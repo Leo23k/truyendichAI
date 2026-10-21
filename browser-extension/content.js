@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.49";
+const CONTENT_SCRIPT_VERSION = "1.0.51";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -14,7 +14,7 @@ const buttonText = (button) => [
   button.querySelector("svg")?.getAttribute("aria-label"),
 ].filter(Boolean).join(" ").toLowerCase();
 const visible = (node) => node?.getClientRects().length > 0;
-const MAX_CHAPTERS_PER_CONVERSATION = 10;
+const MAX_CHAPTERS_PER_CONVERSATION = 30;
 const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
 let conversationStatsKey = null;
@@ -272,7 +272,10 @@ async function recordConversationChapter(tabId) {
 }
 
 function translationPrompt(promptSnapshot, text) {
-  return conversationInstructionsSent ? String(text) : promptSnapshot.replace("{{text}}", text);
+  const prompt = conversationInstructionsSent
+    ? `Tiếp tục dịch nội dung tiếng Trung sau sang tiếng Việt. Chỉ trả về bản dịch tiếng Việt, không lặp lại nguyên văn.\n\n${String(text)}`
+    : promptSnapshot.replace("{{text}}", text);
+  return `${prompt}\n\ndịch`;
 }
 
 async function markConversationInstructionsSent() {
@@ -583,6 +586,9 @@ function translationIssue(source, output, prompt) {
   if (!output.trim()) return "empty";
   if (/\[(?:response )?truncated\]|output was cut off|response was truncated|输出已截断/i.test(output)) return "truncated";
   if (output === source || (source.length >= 100 && output.includes(source.slice(0, 100)))) return "source_echo";
+  const letters = output.match(/\p{L}/gu) || [];
+  const hanLetters = output.match(/\p{Script=Han}/gu) || [];
+  if (letters.length >= 12 && hanLetters.length / letters.length >= 0.2) return "untranslated";
   const prefix = prompt.split("{{text}}", 1)[0].trim();
   if (prefix.length >= 40 && output.startsWith(prefix.slice(0, 100))) return "prompt_echo";
   if (source.length >= 80 && output.length < Math.min(500, Math.max(30, Math.floor(source.length * 0.08)))) return "too_short";
