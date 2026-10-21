@@ -497,10 +497,11 @@ test("Gemini send failure summary includes all nearby buttons and prompt match w
     icons: [{ iconName }], disabled: false, ariaDisabled: null, reason: "no_send_semantics",
   }));
   const box = { innerText: prompt };
-  const summary = JSON.parse(context.globalThis.__sendSummary({ composer: { tag: "DIV", contentEditable: "true" }, buttons }, box, prompt));
+  const summary = JSON.parse(context.globalThis.__sendSummary({ composer: { tag: "DIV", contentEditable: "true" }, buttons }, box, prompt, { inputEventObserved: true, trustedInputEventObserved: false }));
 
   assert.equal(summary.composer.promptMatches, true);
   assert.equal(summary.composer.chars, prompt.length);
+  assert.deepEqual(summary.input, { inputEventObserved: true, trustedInputEventObserved: false });
   assert.equal(summary.buttons.length, 3);
   assert.equal(summary.buttons[2].icon, "mic");
   assert.doesNotMatch(JSON.stringify(summary), new RegExp(prompt));

@@ -349,7 +349,7 @@ function composerTextMatches(box, prompt) {
   return normalize(composerText(box)) === normalize(prompt);
 }
 
-function sendButtonFailureSummary(details, box, prompt) {
+function sendButtonFailureSummary(details, box, prompt, inputEvidence) {
   const buttons = (details.buttons || []).map(({ tagName, ariaLabel, title, icons, disabled, ariaDisabled, reason }) => ({
     tag: tagName, label: (ariaLabel || title || "").slice(0, 60),
     icon: (icons || []).map((icon) => icon.iconName).filter(Boolean).join(",").slice(0, 40),
@@ -357,6 +357,7 @@ function sendButtonFailureSummary(details, box, prompt) {
   }));
   return JSON.stringify({
     composer: { tag: details.composer?.tag, contentEditable: details.composer?.contentEditable, chars: composerText(box).length, promptMatches: composerTextMatches(box, prompt) },
+    input: { inputEventObserved: !!inputEvidence?.inputEventObserved, trustedInputEventObserved: !!inputEvidence?.trustedInputEventObserved },
     buttons,
   }).slice(0, 700);
 }
@@ -462,7 +463,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   catch (error) {
     const details = error.diagnostics || inspectSendButton().diagnostics;
     log("SEND_BUTTON_NOT_READY", { code: error.code || "SEND_STATE_UNKNOWN", ...details, url: location.href });
-    const summary = sendButtonFailureSummary(details, box, prompt);
+    const summary = sendButtonFailureSummary(details, box, prompt, inputEvidence);
     throw Object.assign(new Error(`${error.message} Nút gần ô nhập: ${summary}`), { code: error.code || "SEND_STATE_UNKNOWN", reason: "manual" });
   }
   log("SEND_BUTTON_READY", { code: "READY", button: describeSendButton(send), url: location.href });
