@@ -19,7 +19,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.48");
+  assert.equal(manifest.version, "1.0.49");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +40,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.48"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.49"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -211,10 +211,52 @@ test("Gemini waits briefly for an old response, then retries in a fresh tab", as
 
 test("Gemini contenteditable input uses the native edit command and waits for the full prompt", () => {
   assert.match(contentScript, /document\.execCommand\("insertText", false, prompt\)/);
+  assert.match(contentScript, /new InputEvent\("beforeinput"/);
+  assert.match(contentScript, /trustedInputEventObserved/);
   assert.match(contentScript, /await waitForComposerText\(box, prompt\)/);
   assert.match(contentScript, /PROMPT_INPUT_MISMATCH/);
   assert.match(contentScript, /PROMPT_INPUT_FAILED/);
   assert.doesNotMatch(contentScript, /box\.replaceChildren\(document\.createTextNode\(prompt\)\)/);
+});
+
+test("Gemini contenteditable does not duplicate input when native insertion emits it", () => {
+  const prompt = "Dịch chương";
+  const inputListeners = new Set();
+  const eventTypes = [];
+  const box = {
+    innerText: "", isContentEditable: true,
+    focus() {}, getAttribute: () => "true",
+    addEventListener: (_name, listener) => inputListeners.add(listener),
+    removeEventListener: (_name, listener) => inputListeners.delete(listener),
+    dispatchEvent: (event) => { eventTypes.push(event.type); return true; },
+  };
+  class TestInputEvent {
+    constructor(type, options) { this.type = type; Object.assign(this, options); }
+  }
+  const document = {
+    querySelectorAll: () => [], querySelector: () => null, body: { innerText: "Gemini" },
+    createRange: () => ({ selectNodeContents() {} }),
+    execCommand: (_command, _ui, value) => {
+      box.innerText = value;
+      for (const listener of inputListeners) listener({ isTrusted: true });
+      return true;
+    },
+  };
+  const context = {
+    globalThis: {}, document,
+    chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } },
+    window: { getSelection: () => ({ removeAllRanges() {}, addRange() {} }) },
+    location: { href: "https://gemini.google.com/app" },
+    HTMLTextAreaElement: class {}, HTMLInputElement: class {}, InputEvent: TestInputEvent,
+    console: { info() {} },
+  };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__writePrompt = writePromptToComposer;\n})();");
+  vm.runInNewContext(instrumented, context);
+
+  const evidence = context.globalThis.__writePrompt(box, prompt);
+  assert.deepEqual(eventTypes, ["beforeinput"]);
+  assert.equal(evidence.inputEventObserved, true);
+  assert.equal(evidence.trustedInputEventObserved, true);
 });
 
 test("Gemini prompt verification tolerates editor whitespace but rejects missing content", () => {
@@ -524,7 +566,7 @@ test("Gemini acceptance detection recognizes cleared composer, user turn, respon
 
 test("Gemini contenteditable receives the complete prompt through native insertion", () => {
   const prompt = "Dịch tự nhiên\n\n第一章 …";
-  const box = { innerText: "old content", isContentEditable: true, focus() {}, dispatchEvent() {}, getAttribute: () => "true" };
+  const box = { innerText: "old content", isContentEditable: true, focus() {}, dispatchEvent() {}, addEventListener() {}, removeEventListener() {}, getAttribute: () => "true" };
   const selection = { removeAllRanges() {}, addRange() {} };
   const document = {
     querySelectorAll: () => [], querySelector: () => null, body: { innerText: "Gemini" },
@@ -621,7 +663,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.48", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.49", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -637,7 +679,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.48", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.49", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -661,7 +703,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.48" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.49" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },

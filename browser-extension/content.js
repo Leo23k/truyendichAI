@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.48";
+const CONTENT_SCRIPT_VERSION = "1.0.49";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -381,7 +381,7 @@ function writePromptToComposer(box, prompt) {
     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), "value")?.set;
     setter?.call(box, prompt);
     box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
-    return;
+    return { inputEventObserved: true, trustedInputEventObserved: false };
   }
   if (!box.isContentEditable && box.getAttribute("contenteditable") !== "true") {
     throw Object.assign(new Error("Ô nhập Gemini được tìm thấy nhưng không phải editor có thể nhập."), { code: "PROMPT_INPUT_FAILED", reason: "ui_changed" });
@@ -391,10 +391,29 @@ function writePromptToComposer(box, prompt) {
   const selection = window.getSelection();
   selection.removeAllRanges();
   selection.addRange(range);
-  const inserted = document.execCommand("insertText", false, prompt);
-  if (!inserted && !composerTextMatches(box, prompt)) throw Object.assign(new Error("Gemini từ chối chèn nội dung vào editor."), { code: "PROMPT_INPUT_FAILED", reason: "ui_changed" });
-  // Some Gemini composer builds update their send-button state only after an input event.
-  box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
+  let inputEventObserved = false;
+  let trustedInputEventObserved = false;
+  const observeInput = (event) => {
+    inputEventObserved = true;
+    trustedInputEventObserved ||= event.isTrusted === true;
+  };
+  box.addEventListener("input", observeInput, true);
+  try {
+    box.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: prompt }));
+    if (!composerTextMatches(box, prompt)) {
+      const inserted = document.execCommand("insertText", false, prompt);
+      if (!inserted && !composerTextMatches(box, prompt)) throw Object.assign(new Error("Gemini từ chối chèn nội dung vào editor."), { code: "PROMPT_INPUT_FAILED", reason: "ui_changed" });
+    }
+  } finally {
+    box.removeEventListener("input", observeInput, true);
+  }
+  // Some Gemini builds do not emit input for an edit command. Supply one only
+  // when the editor did not emit it, avoiding a duplicate state update.
+  if (!inputEventObserved) {
+    box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }));
+    inputEventObserved = true;
+  }
+  return { inputEventObserved, trustedInputEventObserved };
 }
 
 async function submitPrompt(prompt, onProgress = () => {}) {
@@ -407,8 +426,9 @@ async function submitPrompt(prompt, onProgress = () => {}) {
   const before = responseNodes().length;
   const previousUserMessages = GeminiSelectors.userMessages();
   const previousOutput = responseNodes().at(-1)?.innerText?.trim() || "";
+  let inputEvidence;
   try {
-    writePromptToComposer(box, prompt);
+    inputEvidence = writePromptToComposer(box, prompt);
     await waitForComposerText(box, prompt);
   } catch (error) {
     log("PROMPT_FILL_FAILED", { code: error.code || "PROMPT_INPUT_FAILED", composer: describeComposer(box), chars: prompt.length, url: location.href });
@@ -416,7 +436,7 @@ async function submitPrompt(prompt, onProgress = () => {}) {
     error.reason = error.reason || "ui_changed";
     throw error;
   }
-  log("PROMPT_FILLED", { code: "DOM_MATCH", composer: describeComposer(box), chars: prompt.length, url: location.href });
+  log("PROMPT_FILLED", { code: "DOM_MATCH", composer: describeComposer(box), chars: prompt.length, ...inputEvidence, url: location.href });
   onProgress("Đã điền đủ nội dung vào ô nhập Gemini; đang tìm nút Gửi khả dụng.");
   let send;
   try { send = await waitForUsableSendButton(10000); }
