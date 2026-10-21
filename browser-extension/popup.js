@@ -59,7 +59,7 @@ async function refresh() {
     $("detail").textContent = state?.lastError || state?.appOrigin || "Mở Leo Truyện, rồi kết nối tab hiện tại.";
     const stats = state?.conversationStats || {};
     const completed = Array.isArray(stats.completedChapters) ? stats.completedChapters : [];
-    $("chatCount").textContent = `${Number(stats.chapters || 0)}/15 chương`;
+    $("chatCount").textContent = `${Number(stats.chapters || 0)}/5 chương`;
     const list = $("completedChapters");
     list.replaceChildren(...completed.slice(-15).map((chapter) => {
       const item = document.createElement("li");

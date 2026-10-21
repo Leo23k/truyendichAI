@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.55";
+const CONTENT_SCRIPT_VERSION = "1.0.56";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -14,7 +14,7 @@ const buttonText = (button) => [
   button.querySelector("svg")?.getAttribute("aria-label"),
 ].filter(Boolean).join(" ").toLowerCase();
 const visible = (node) => (node?.getClientRects?.().length || 0) > 0;
-const MAX_CHAPTERS_PER_CONVERSATION = 15;
+const MAX_CHAPTERS_PER_CONVERSATION = 5;
 const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
 let conversationStatsKey = null;
@@ -747,6 +747,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     log("HEALTH", { code: result.code, checks, url: location.href });
     sendResponse(result);
     return;
+  }
+  if (message.type === "chapter-saved") {
+    startNewConversation(sender.tab?.id).then(() => sendResponse({ ok: true })).catch((error) => {
+      sendResponse({ ok: false, code: error.code || "CHAT_INITIALIZATION_FAILED", message: String(error.message || error) });
+    });
+    return true;
   }
   if (message.type !== "translate-chapter") return;
   runTranslationJob(message.job, sender.tab?.id).then((translation) => sendResponse({ ok: true, translation })).catch((error) => {

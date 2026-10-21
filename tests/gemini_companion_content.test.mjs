@@ -20,7 +20,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.55");
+  assert.equal(manifest.version, "1.0.56");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -41,7 +41,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.55"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.56"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -438,10 +438,10 @@ test("Gemini follow-up chapters get a short Vietnamese translation instruction w
   assert.match(result, /^Chỉ dịch, không trả lời thêm\./);
   assert.match(result, /第二章 原文\n\ndịch$/);
   assert.doesNotMatch(result, /Long translator role/);
-  assert.match(contentScript, /MAX_CHAPTERS_PER_CONVERSATION = 15/);
+  assert.match(contentScript, /MAX_CHAPTERS_PER_CONVERSATION = 5/);
 });
 
-test("Gemini starts a fresh chat before the next chapter after 15 saved chapters", async () => {
+test("Gemini starts a fresh chat after five saved chapters", async () => {
   const state = { clicked: false };
   const writes = [];
   const context = {
@@ -451,10 +451,10 @@ test("Gemini starts a fresh chat before the next chapter after 15 saved chapters
     setTimeout, clearTimeout, state, writes,
     chrome: {
       storage: { local: {
-        get: async (key) => ({ [key]: { chapters: 15, instructionSent: true, completedChapters: [] } }),
+        get: async (key) => ({ [key]: { chapters: 5, instructionSent: true, completedChapters: [] } }),
         set: async (value) => writes.push(value),
       } },
-      runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } },
+      runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: (listener) => { state.listener = listener; } }, onConnect: { addListener() {} } },
     },
     console: { info() {} },
   };
@@ -467,12 +467,13 @@ test("Gemini starts a fresh chat before the next chapter after 15 saved chapters
       getAttribute: () => null, getClientRects: () => [{}],
       click() { state.clicked = true; },
     });
-    globalThis.__startNewConversation = startNewConversation;
   })();`);
   vm.runInNewContext(instrumented, context);
 
-  await context.globalThis.__startNewConversation(7);
+  let reply;
+  await new Promise((resolve) => state.listener({ type: "chapter-saved" }, { tab: { id: 7 } }, (result) => { reply = result; resolve(); }));
 
+  assert.equal(reply.ok, true);
   assert.equal(state.clicked, true);
   assert.equal(writes[0]["geminiConversationStats:7"].chapters, 0);
   assert.deepEqual(Array.from(writes[0]["geminiConversationStats:7"].completedChapters), []);
@@ -480,8 +481,10 @@ test("Gemini starts a fresh chat before the next chapter after 15 saved chapters
 
 test("Companion sidebar displays conversation count and saved chapter names", () => {
   assert.match(popupHtml, /id="chatCount"/);
+  assert.match(popupHtml, /0\/5 chương/);
   assert.match(popupHtml, /id="completedChapters"/);
-  assert.match(popupScript, /textContent = `\$\{Number\(stats\.chapters \|\| 0\)\}\/15 chương`/);
+  assert.match(popupScript, /textContent = `\$\{Number\(stats\.chapters \|\| 0\)\}\/5 chương`/);
+  assert.match(serviceWorker, /recordSavedChapter\(activeGeminiTab\.id[\s\S]*?sendMessage\(activeGeminiTab\.id, \{ type: "chapter-saved" \}\)/);
   assert.match(popupScript, /item\.textContent = `Chương/);
 });
 

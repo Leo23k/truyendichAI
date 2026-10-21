@@ -415,6 +415,9 @@ async function processOneJob() {
       await recordSavedChapter(activeGeminiTab.id, job, result.translation).catch((error) => {
         log("CHAT_STATE", { code: "SAVED_CHAPTER_LIST_UPDATE_FAILED", message: String(error?.message || error), jobId: job.id, tabId: activeGeminiTab.id });
       });
+      await chrome.tabs.sendMessage(activeGeminiTab.id, { type: "chapter-saved" }).then((rotation) => {
+        if (!rotation?.ok) log("CHAT_STATE", { code: rotation?.code || "CHAT_ROTATION_FAILED", message: rotation?.message || "Gemini chat chưa được làm mới sau khi lưu chương thứ năm.", jobId: job.id, tabId: activeGeminiTab.id });
+      }).catch((error) => log("CHAT_STATE", { code: "CHAT_ROTATION_SIGNAL_FAILED", message: String(error?.message || error), jobId: job.id, tabId: activeGeminiTab.id }));
       log("BACKEND_SAVE_CONFIRMED", { code: "JOB_COMPLETED", jobId: job.id, tabId: appTab.id });
     } catch (error) {
       log("BACKEND_SAVE_FAILED", { code: error.code || "BACKEND_SAVE_FAILED", message: String(error?.message || error), jobId: job.id, tabId: appTab.id });
