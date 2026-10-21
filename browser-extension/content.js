@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.53";
+const CONTENT_SCRIPT_VERSION = "1.0.54";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -14,7 +14,7 @@ const buttonText = (button) => [
   button.querySelector("svg")?.getAttribute("aria-label"),
 ].filter(Boolean).join(" ").toLowerCase();
 const visible = (node) => (node?.getClientRects?.().length || 0) > 0;
-const MAX_CHAPTERS_PER_CONVERSATION = 30;
+const MAX_CHAPTERS_PER_CONVERSATION = 20;
 const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
 let conversationStatsKey = null;
