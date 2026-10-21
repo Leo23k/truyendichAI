@@ -440,6 +440,38 @@ test("Gemini follow-up chapters get a short Vietnamese translation instruction w
   assert.match(contentScript, /MAX_CHAPTERS_PER_CONVERSATION = 5/);
 });
 
+test("Gemini edits saved Vietnamese translations without adding the Chinese-to-Vietnamese instruction", () => {
+  const context = { globalThis: {}, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__translationPrompt = translationPrompt; globalThis.__setInstructionsSent = (value) => { conversationInstructionsSent = value; };\n})();");
+  vm.runInNewContext(instrumented, context);
+
+  const firstPrompt = context.globalThis.__translationPrompt("Biên tập lại: {{text}}", "Bản dịch hiện tại.", "translated");
+  assert.equal(firstPrompt, "Biên tập lại: Bản dịch hiện tại.");
+  context.globalThis.__setInstructionsSent(true);
+  const followup = context.globalThis.__translationPrompt("Biên tập lại: {{text}}", "Chương tiếp theo.", "translated");
+  assert.match(followup, /^Chỉ biên tập lại bản dịch tiếng Việt/);
+  assert.match(followup, /Chương tiếp theo\.$/);
+  assert.doesNotMatch(followup, /tiếng Trung|\n\ndịch$/);
+});
+
+test("Gemini can save an edited chapter when its already-good title stays unchanged", async () => {
+  const context = { globalThis: {}, location: { href: "https://gemini.google.com/app" }, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, `
+    startNewConversation = async () => { conversationInstructionsSent = false; conversationStatsKey = null; };
+    translateWholeChapter = async (job) => job.content;
+    submitPrompt = async () => "Chương 12: Ánh trăng";
+    globalThis.__runTranslationJob = runTranslationJob;
+  })();`);
+  vm.runInNewContext(instrumented, context);
+
+  const result = await context.globalThis.__runTranslationJob({
+    input_mode: "translated", title: "Chương 12: Ánh trăng", content: "Bản dịch đang có.", prompt_snapshot: "Biên tập: {{text}}",
+  }, null);
+
+  assert.equal(result.translated_title, "Chương 12: Ánh trăng");
+  assert.equal(result.translated_content, "Bản dịch đang có.");
+});
+
 test("Gemini rejects predominantly Han-script output instead of saving it as Vietnamese", () => {
   const context = { globalThis: {}, chrome: { runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } } }, console: { info() {} } };
   const instrumented = contentScript.replace(/\}\)\(\);\s*$/, "globalThis.__translationIssue = translationIssue;\n})();");

@@ -86,7 +86,7 @@ def complete_extension_job(job_id: str, payload: GeminiResult, request: Request)
     require_admin(request)
     remote = SupabaseSync()
     jobs = remote.rows("translation_queue", {
-        "select": "id,chapter_id,batch_job_id,provider,model,prompt_id,prompt_name,prompt_template,source_hash,combined_hash,status",
+        "select": "id,chapter_id,batch_job_id,provider,model,prompt_id,prompt_name,prompt_template,input_mode,source_hash,combined_hash,status",
         "id": f"eq.{job_id}", "provider": "eq.gemini_web", "status": "eq.translating", "limit": "1",
     })
     if not jobs:
@@ -100,10 +100,14 @@ def complete_extension_job(job_id: str, payload: GeminiResult, request: Request)
     chapter = chapters[0]
     content_path = str(chapter["content_path"])
     stored = remote.download_json("chapters", content_path.removeprefix("chapters/"))
-    original_content = str(stored.get("original_content") or "")
-    if not original_content:
-        raise HTTPException(status_code=409, detail="Nội dung gốc của chương đang trống.")
-    issue = translation_issue(original_content, payload.translated_content, str(job.get("prompt_template") or ""))
+    input_mode = str(job.get("input_mode") or "original")
+    raw_source_content = stored.get("translated_content") if input_mode == "translated" else stored.get("original_content")
+    source_content = str(raw_source_content or "")
+    if not source_content:
+        raise HTTPException(status_code=409, detail="Nội dung đầu vào của chương đang trống.")
+    issue = translation_issue(source_content, payload.translated_content, str(job.get("prompt_template") or ""))
+    if input_mode == "translated" and issue == "source_echo":
+        issue = None
     if issue:
         raise HTTPException(status_code=422, detail=f"Bản dịch chưa đạt kiểm tra ({issue}); hãy thử lại hoặc dịch theo chunk.")
     novels = remote.rows("novels", {"select": "id,metadata_translated,original_title,original_author,original_description", "id": f"eq.{chapter['novel_id']}", "limit": "1"})
@@ -125,8 +129,8 @@ def complete_extension_job(job_id: str, payload: GeminiResult, request: Request)
     })
     updated_json = {
         **stored, "number": chapter["chapter_number"], "title": payload.translated_title.strip(),
-        "original_title": str(stored.get("original_title") or chapter.get("title") or ""),
-        "translated_title": payload.translated_title.strip(), "original_content": original_content,
+        "original_title": str(stored.get("original_title") or (chapter.get("title") if input_mode == "original" else "") or ""),
+        "translated_title": payload.translated_title.strip(), "original_content": str(stored.get("original_content") or ""),
         "translated_content": payload.translated_content.strip(), "content": payload.translated_content.strip(), "translated": True,
     }
     object_key = content_path.removeprefix("chapters/")

@@ -70,7 +70,7 @@ from app.search import normalize_search_key, search_books as run_search
 from app.services.book_service import BookService
 from app.translator.service import TranslationUnavailableError, translator
 from app.translator.extension_api import router as gemini_extension_router
-from app.translator.extension_queue import refresh_batch_progress
+from app.translator.extension_queue import EDIT_TRANSLATED_PROMPT, EDIT_TRANSLATED_PROMPT_NAME, refresh_batch_progress
 from app.translator.prompt_service import (
     DEFAULT_MODELS,
     DEFAULT_PROMPT_NAME,
@@ -1294,11 +1294,13 @@ def logout_gemini_web(request: Request, name: str = Form(...), browser: str | No
 
 
 @app.get("/retranslate/chapters", include_in_schema=False)
-def retranslate_chapter_picker(request: Request, novel_id: int):
-    chapters = SupabaseSync().all_rows(
-        "chapters",
-        {"select": "id,chapter_number,title", "novel_id": f"eq.{novel_id}", "order": "chapter_number.asc"},
-    )
+def retranslate_chapter_picker(request: Request, novel_id: int, input_mode: str = "original"):
+    if input_mode not in {"original", "translated"}:
+        raise HTTPException(status_code=400, detail="Chế độ đầu vào không hợp lệ.")
+    filters = {"select": "id,chapter_number,title", "novel_id": f"eq.{novel_id}", "order": "chapter_number.asc"}
+    if input_mode == "translated":
+        filters["translated"] = "eq.true"
+    chapters = SupabaseSync().all_rows("chapters", filters)
     return templates.TemplateResponse(
         request=request,
         name="partials/retranslate_chapters.html",
@@ -1311,6 +1313,7 @@ def retranslate_novel(
     request: Request,
     novel_id: int = Form(...),
     mode: str = Form("all"),
+    input_mode: str = Form("original"),
     chapter_ids: list[int] = Form(default=[]),
     provider: str = Form(settings.translation_provider),
     model: str = Form(settings.gemini_model),
@@ -1318,7 +1321,7 @@ def retranslate_novel(
     prompt_id: str = Form(""),
     gemini_api_key: str = Form(""),
 ):
-    if mode not in {"all", "selected"}:
+    if mode not in {"all", "selected"} or input_mode not in {"original", "translated"}:
         raise HTTPException(status_code=400, detail="Tùy chọn dịch lại không hợp lệ.")
     if mode == "selected" and not chapter_ids:
         return templates.TemplateResponse(
@@ -1326,6 +1329,64 @@ def retranslate_novel(
         )
 
     selected_ids = sorted(set(chapter_ids)) if mode == "selected" else None
+    if input_mode == "translated":
+        try:
+            remote = SupabaseSync()
+            result = remote.rpc_rows("queue_translated_retranslation", {
+                "p_novel_id": novel_id,
+                "p_chapter_ids": selected_ids,
+                "p_prompt_name": EDIT_TRANSLATED_PROMPT_NAME,
+                "p_prompt_template": EDIT_TRANSLATED_PROMPT,
+            })
+        except SyncError as exc:
+            logger.exception("Could not queue translated-content edit for novel %s", novel_id)
+            return templates.TemplateResponse(
+                request=request, name="retranslate.html",
+                context=_retranslate_page_context(toast=f"Chưa thể đưa bản dịch vào hàng đợi: {exc}", toast_error=True),
+            )
+        state = result[0] if result else {}
+        chapter_count = int(state.get("chapter_count") or 0)
+        if not chapter_count:
+            return templates.TemplateResponse(
+                request=request, name="retranslate.html",
+                context=_retranslate_page_context(toast="Không tìm thấy chương đã có bản dịch để biên tập lại.", toast_error=True),
+            )
+        if state.get("blocked"):
+            return templates.TemplateResponse(
+                request=request, name="retranslate.html",
+                context=_retranslate_page_context(toast="Có chương đang nằm trong hàng đợi hoặc đang được xử lý. Hãy đợi hoặc dừng job hiện tại trước.", toast_error=True),
+            )
+        batch_id = None
+        try:
+            chapter_filters = {"select": "id,chapter_number", "novel_id": f"eq.{novel_id}", "translated": "eq.true"}
+            if selected_ids:
+                chapter_filters["id"] = f"in.({','.join(map(str, selected_ids))})"
+            batch_chapters = remote.all_rows("chapters", chapter_filters)
+            if batch_chapters:
+                batch = remote.insert("batch_translation_jobs", {
+                    "novel_id": novel_id,
+                    "from_chapter": min(int(row["chapter_number"]) for row in batch_chapters),
+                    "to_chapter": max(int(row["chapter_number"]) for row in batch_chapters),
+                    "total": chapter_count,
+                    "completed": 0,
+                    "failed": 0,
+                    "status": "queued",
+                })
+                batch_id = str(batch["id"])
+                ids = ",".join(str(row["id"]) for row in batch_chapters)
+                remote.patch_rows("translation_queue", {
+                    "chapter_id": f"in.({ids})", "status": "eq.queued", "input_mode": "eq.translated",
+                }, {"batch_job_id": batch_id})
+                refresh_batch_progress(remote, batch_id)
+        except Exception:
+            logger.exception("Could not create translated-content edit batch for novel %s", novel_id)
+        message = f"Đã đưa {chapter_count} bản dịch vào hàng đợi biên tập lại; bản dịch cũ sẽ được giữ đến khi bản mới lưu thành công."
+        if batch_id:
+            message += f" Batch: {batch_id[:8]}."
+        response = templates.TemplateResponse(request=request, name="retranslate.html", context=_retranslate_page_context(toast=message))
+        response.headers["HX-Trigger"] = "jobsChanged"
+        return response
+
     try:
         remote = SupabaseSync()
         _save_gemini_api_key(gemini_api_key)

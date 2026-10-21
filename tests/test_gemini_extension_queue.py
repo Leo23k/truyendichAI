@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
 from starlette.requests import Request
 
 import app.main as main
@@ -80,6 +81,95 @@ def test_claim_extension_job_returns_whole_chapter_and_prompt_snapshot() -> None
     assert remote.job["status"] == "translating"
     assert remote.downloaded_path == "novel/003.json"
     assert remote.chapter["content_path"] == "chapters/novel/003.json"
+
+
+def test_claim_translated_edit_uses_saved_translation_without_fetching_raw() -> None:
+    class TranslatedRemote(FakeRemote):
+        def __init__(self) -> None:
+            super().__init__()
+            self.job["input_mode"] = "translated"
+
+        def download_json(self, _bucket: str, path: str) -> dict:
+            self.downloaded_path = path
+            return {
+                "original_title": "原题", "original_content": "第一段。",
+                "translated_title": "Chương 3: Tiêu đề cũ", "translated_content": "Bản dịch cũ.",
+            }
+
+    remote = TranslatedRemote()
+    job = claim_next_extension_job(remote)
+
+    assert job is not None
+    assert job["input_mode"] == "translated"
+    assert job["title"] == "Chương 3: Tiêu đề cũ"
+    assert job["content"] == "Bản dịch cũ."
+    assert job["metadata"] is None
+
+
+def test_missing_saved_translation_is_not_replaced_with_raw_restore(monkeypatch) -> None:
+    class MissingTranslatedRemote(FakeRemote):
+        def __init__(self) -> None:
+            super().__init__()
+            self.job["input_mode"] = "translated"
+
+        def download_json(self, _bucket: str, _path: str) -> dict:
+            raise RuntimeError("404 Not Found")
+
+        def upload_if_changed(self, *_args, **_kwargs):
+            raise AssertionError("must not overwrite the existing chapter with a raw-only payload")
+
+    remote = MissingTranslatedRemote()
+    job = claim_next_extension_job(remote)
+
+    assert job is None
+    assert remote.job["status"] == "backoff"
+    assert "bản dịch hiện có" in remote.job["error_message"]
+
+
+def test_admin_retranslation_route_queues_only_selected_translated_chapters(monkeypatch) -> None:
+    class QueueRemote:
+        def __init__(self) -> None:
+            self.rpc_name = None
+            self.rpc_args = None
+            self.patched = None
+
+        def rpc_rows(self, name, args):
+            self.rpc_name, self.rpc_args = name, args
+            return [{"chapter_count": 1, "blocked": False}]
+
+        def all_rows(self, table, filters):
+            assert table == "chapters"
+            assert filters["translated"] == "eq.true"
+            assert filters["id"] == "in.(8)"
+            return [{"id": 8, "chapter_number": 12}]
+
+        def insert(self, table, payload):
+            assert table == "batch_translation_jobs"
+            assert payload["total"] == 1
+            return {"id": "batch-1"}
+
+        def patch_rows(self, table, filters, payload):
+            self.patched = (table, filters, payload)
+            return []
+
+    remote = QueueRemote()
+    monkeypatch.setattr(main, "SupabaseSync", lambda: remote)
+    monkeypatch.setattr(main, "refresh_batch_progress", lambda *_args: None)
+    monkeypatch.setattr(main, "_retranslate_page_context", lambda **extra: {
+        "retranslate_books": [], "translation_prompts": [], "translation_providers": {"gemini_api_configured": False},
+        "default_provider": "gemini_web", "default_model": "gemini-web", **extra,
+    })
+    request = Request({"type": "http", "http_version": "1.1", "method": "POST", "scheme": "http", "path": "/retranslate", "raw_path": b"/retranslate", "query_string": b"", "root_path": "", "headers": [], "client": ("127.0.0.1", 12345), "server": ("test", 80)})
+    request.state.user = SimpleNamespace(role="admin", display_name="Admin", avatar_url=None)
+
+    response = main.retranslate_novel(request, novel_id=2, mode="selected", chapter_ids=[8], input_mode="translated")
+
+    assert remote.rpc_name == "queue_translated_retranslation"
+    assert remote.rpc_args["p_novel_id"] == 2
+    assert remote.rpc_args["p_chapter_ids"] == [8]
+    assert "{{text}}" in remote.rpc_args["p_prompt_template"]
+    assert remote.patched[1]["input_mode"] == "eq.translated"
+    assert "đưa 1 bản dịch" in response.context["toast"]
 
 
 def test_raw_download_failure_does_not_leave_job_translating() -> None:
@@ -195,7 +285,8 @@ def test_batch_progress_tracks_completion_and_manual_pause() -> None:
     assert result["status"] == "paused"
 
 
-def test_gemini_completion_is_saved_as_active_version_and_shown_in_reader(monkeypatch) -> None:
+@pytest.mark.parametrize("input_mode", ["original", "translated"])
+def test_gemini_completion_is_saved_as_active_version_and_shown_in_reader(monkeypatch, input_mode) -> None:
     translated = "Lời kể mở đầu bằng một buổi tối yên tĩnh.\n\nNhân vật bước ra con đường phủ ánh trăng."
 
     class CompletionRemote:
@@ -204,14 +295,17 @@ def test_gemini_completion_is_saved_as_active_version_and_shown_in_reader(monkey
                 "id": "job-1", "chapter_id": 7, "batch_job_id": None, "provider": "gemini_web",
                 "model": "gemini-web", "prompt_id": "prompt-1", "prompt_name": "Tiên hiệp",
                 "prompt_template": "Dịch tự nhiên:\n{{text}}", "source_hash": "source-hash",
-                "combined_hash": "combined-hash", "status": "translating",
+                "combined_hash": "combined-hash", "input_mode": input_mode, "status": "translating",
             }
             self.chapter = {
                 "id": 7, "novel_id": 2, "chapter_number": 3, "title": "原题",
                 "content_path": "chapters/novel/003.json",
             }
             self.novel = {"id": 2, "metadata_translated": True}
-            self.stored = {"original_title": "原题", "original_content": "夜色笼罩着古老的山谷。" * 20}
+            self.stored = {
+                "original_title": "原题", "original_content": "夜色笼罩着古老的山谷。" * 20,
+                "translated_title": "Chương 3: Tiêu đề cũ", "translated_content": "Bản dịch cũ. " * 20,
+            }
             self.versions: list[dict] = []
 
         def rows(self, table: str, _params: dict[str, str]) -> list[dict]:
@@ -280,6 +374,7 @@ def test_gemini_completion_is_saved_as_active_version_and_shown_in_reader(monkey
     assert completion == {"status": "completed", "version": 1}
     assert remote.job["status"] == "completed"
     assert remote.versions[0]["is_active"] is True
+    assert remote.stored["original_content"] == "夜色笼罩着古老的山谷。" * 20
     assert remote.stored["translated_title"] == "Chương 3: Ánh trăng"
     assert remote.stored["translated_content"] == translated
     assert reader_response.status_code == 200

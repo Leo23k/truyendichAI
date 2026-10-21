@@ -287,7 +287,13 @@ async function recordConversationChapter(tabId) {
   await chrome.storage.local.set({ [key]: { ...stats, chapters: stats.chapters + 1, instructionSent: conversationInstructionsSent } });
 }
 
-function translationPrompt(promptSnapshot, text) {
+function translationPrompt(promptSnapshot, text, inputMode = "original") {
+  if (inputMode === "translated") {
+    const instruction = "Chỉ biên tập lại bản dịch tiếng Việt cho tự nhiên, mạch lạc; giữ nguyên đầy đủ nội dung và chỉ xuất kết quả, không trả lời thêm.";
+    return conversationInstructionsSent
+      ? `${instruction}\n\n${String(text)}`
+      : promptSnapshot.replace("{{text}}", text);
+  }
   const prompt = conversationInstructionsSent
     ? `Chỉ dịch, không trả lời thêm. Dịch nội dung tiếng Trung sau sang tiếng Việt và chỉ xuất bản dịch.\n\n${String(text)}`
     : `${promptSnapshot.replace("{{text}}", text)}\n\nChỉ dịch, không trả lời thêm.`;
@@ -303,8 +309,8 @@ async function markConversationInstructionsSent() {
   await chrome.storage.local.set({ [conversationStatsKey]: { ...stats, instructionSent: true } });
 }
 
-async function submitTranslationText(promptSnapshot, text, onProgress = () => {}) {
-  const prompt = translationPrompt(promptSnapshot, text);
+async function submitTranslationText(promptSnapshot, text, onProgress = () => {}, inputMode = "original") {
+  const prompt = translationPrompt(promptSnapshot, text, inputMode);
   const result = await submitPrompt(prompt, onProgress);
   await markConversationInstructionsSent().catch((error) => log("CHAT_STATE", { code: "INSTRUCTION_STATE_SAVE_FAILED", message: String(error?.message || error), url: location.href }));
   return result;
@@ -636,12 +642,17 @@ function fallbackChunks(text, maxSize = 1800) {
 }
 
 async function translateWholeChapter(job, onProgress = () => {}) {
+  const validationSource = job.content;
+  const validate = (source, output) => {
+    const issue = translationIssue(source, output, job.prompt_snapshot);
+    return job.input_mode === "translated" && issue === "source_echo" ? null : issue;
+  };
   let whole = "";
   let issue = null;
   try {
     onProgress(`Đang gửi toàn chương (${job.content.length} ký tự) lên Gemini.`, 0, 0);
-    whole = cleanResult(await submitTranslationText(job.prompt_snapshot, job.content, onProgress));
-    issue = translationIssue(job.content, whole, job.prompt_snapshot);
+    whole = cleanResult(await submitTranslationText(job.prompt_snapshot, job.content, onProgress, job.input_mode));
+    issue = validate(validationSource, whole);
   } catch (error) {
     if (error.reason !== "too_long") throw error;
     issue = "truncated";
@@ -657,14 +668,14 @@ async function translateWholeChapter(job, onProgress = () => {}) {
   const translated = [];
   for (const [index, chunk] of chunks.entries()) {
     onProgress(`Đang gửi đoạn ${index + 1}/${chunks.length} (${chunk.length} ký tự) lên Gemini.`, index, chunks.length);
-    const result = cleanResult(await submitTranslationText(job.prompt_snapshot, chunk, onProgress));
-    const chunkIssue = translationIssue(chunk, result, job.prompt_snapshot);
+    const result = cleanResult(await submitTranslationText(job.prompt_snapshot, chunk, onProgress, job.input_mode));
+    const chunkIssue = validate(chunk, result);
     if (chunkIssue) throw Object.assign(new Error(`Gemini trả chunk không hợp lệ (${chunkIssue}); job đã pause để kiểm tra.`), { reason: "manual" });
     translated.push(result);
     onProgress(`Đã nhận và kiểm tra đoạn ${index + 1}/${chunks.length}.`, index + 1, chunks.length);
   }
   const result = translated.map((part, index) => index ? `${joiners[index - 1] || " "}${part}` : part).join("");
-  const finalIssue = translationIssue(job.content, result, job.prompt_snapshot);
+  const finalIssue = validate(validationSource, result);
   if (finalIssue) throw Object.assign(new Error(`Bản ghép chunk không đạt kiểm tra (${finalIssue}).`), { reason: "manual" });
   log("TRANSLATION_EXTRACTED", { code: "VALIDATED_CHUNKS", chars: result.length, chunks: chunks.length, url: location.href });
   return result;
@@ -676,8 +687,8 @@ async function runTranslationJob(job, tabId, onProgress = () => {}) {
   await startNewConversation(tabId);
   const translatedContent = await translateWholeChapter(job, onProgress);
   onProgress("Đang dịch tiêu đề chương.", 0, 0);
-  const translatedTitle = cleanChapterTitle(await submitTranslationText(job.prompt_snapshot, job.title, onProgress));
-  if (!translatedTitle || translatedTitle === job.title) {
+  const translatedTitle = cleanChapterTitle(await submitTranslationText(job.prompt_snapshot, job.title, onProgress, job.input_mode));
+  if (!translatedTitle || (translatedTitle === job.title && job.input_mode !== "translated")) {
     throw Object.assign(new Error("Tên chương chưa được dịch; job đã pause để kiểm tra."), { reason: "manual" });
   }
   const translation = { translated_title: translatedTitle, translated_content: translatedContent };

@@ -9,6 +9,13 @@ from datetime import datetime, timedelta, timezone
 from app.crawlers.base import clean_chapter_text
 from app.crawlers.bootstrap import registry
 
+EDIT_TRANSLATED_PROMPT_NAME = "Biên tập bản dịch hiện có"
+EDIT_TRANSLATED_PROMPT = (
+    "Bạn là biên tập viên tiểu thuyết tiếng Việt. Hãy biên tập bản dịch sau cho tự nhiên, mạch lạc và dễ đọc; "
+    "giữ nguyên đầy đủ nội dung, tình tiết, lời thoại, tên riêng và cách xuống đoạn. Không thêm lời dẫn, nhận xét hoặc tóm tắt. "
+    "Chỉ trả về bản đã biên tập.\n\n{{text}}"
+)
+
 
 def _restore_missing_source(remote, chapter: dict, path: str) -> dict:
     source_url = str(chapter.get("source_url") or "")
@@ -69,9 +76,12 @@ def claim_next_extension_job(remote) -> dict | None:
         path = f"chapters/{slug}/{number:03d}.json"
         remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {"content_path": path})
     try:
+        input_mode = str(job.get("input_mode") or "original")
         source = remote.download_json("chapters", path.removeprefix("chapters/"))
     except Exception as exc:
         try:
+            if input_mode == "translated":
+                raise ValueError("Không thể đọc bản dịch hiện có từ kho lưu trữ; dữ liệu cũ được giữ nguyên.") from exc
             if "404 Not Found" not in str(exc):
                 raise exc
             source = _restore_missing_source(remote, chapter, path)
@@ -81,14 +91,18 @@ def claim_next_extension_job(remote) -> dict | None:
                 {"status": "backoff", "error_code": "source_unavailable", "error_message": f"Không thể đọc raw chương từ kho lưu trữ: {str(recovery_exc)[:800]}", "updated_at": datetime.now(timezone.utc).isoformat()},
             )
             return None
-    content = str(source.get("original_content") or "").strip()
-    title = str(source.get("original_title") or chapter.get("title") or "").strip()
+    if input_mode not in {"original", "translated"}:
+        remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"}, {"status": "failed", "error_code": "invalid_input_mode", "error_message": "Chế độ đầu vào của job không hợp lệ."})
+        return None
+    raw_content = source.get("translated_content") if input_mode == "translated" else source.get("original_content")
+    content = str(raw_content or "").strip()
+    title = str((source.get("translated_title") or source.get("title")) if input_mode == "translated" else (source.get("original_title") or chapter.get("title") or "")).strip()
     prompt = str(job.get("prompt_template") or "")
     if not content or "{{text}}" not in prompt:
         remote.patch_rows("translation_queue", {"id": f"eq.{job['id']}", "status": "eq.queued"}, {"status": "failed", "error_code": "invalid_job", "error_message": "Thiếu nội dung chương hoặc prompt snapshot."})
         return None
     source_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-    combined_hash = hashlib.sha256(json.dumps([content, prompt], ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+    combined_hash = hashlib.sha256(json.dumps([input_mode, content, prompt], ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
     now = datetime.now(timezone.utc).isoformat()
     claimed = remote.patch_rows(
         "translation_queue", {"id": f"eq.{job['id']}", "provider": "eq.gemini_web", "status": "eq.queued"},
@@ -100,14 +114,15 @@ def claim_next_extension_job(remote) -> dict | None:
     job = claimed[0]
     return {
         "id": str(job["id"]), "chapter_id": int(chapter["id"]), "chapter_number": int(chapter.get("chapter_number") or 0),
-        "title": title, "content": content, "prompt_name": str(job.get("prompt_name") or ""), "prompt_snapshot": prompt,
+        "title": title, "content": content, "input_mode": input_mode,
+        "prompt_name": str(job.get("prompt_name") or ""), "prompt_snapshot": prompt,
         "model": str(job.get("model") or "gemini-web"), "attempts": int(job.get("attempts") or 0),
         "source_hash": source_hash, "combined_hash": combined_hash,
         "metadata": ({
             "title": novels[0].get("original_title") or novels[0].get("title"),
             "author": novels[0].get("original_author") or novels[0].get("author"),
             "description": novels[0].get("original_description") or novels[0].get("description"),
-        } if novels and not novels[0].get("metadata_translated", True) else None),
+        } if input_mode == "original" and novels and not novels[0].get("metadata_translated", True) else None),
     }
 
 
