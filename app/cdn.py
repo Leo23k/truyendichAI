@@ -494,6 +494,8 @@ def save_admin_chapter_content(novel_id: int, chapter_id: int, *, original_title
     novel, chapter, _ = load_admin_chapter_content(novel_id, chapter_id)
     if not original_title or not original_content:
         raise CdnDataError("Tiêu đề và nội dung bản gốc là bắt buộc.")
+    if not b2_configured():
+        raise CdnDataError("B2 chưa được cấu hình; không thể lưu nội dung chương.")
     translated = bool(translated_content.strip())
     key = f"{int(chapter['chapter_number']):03d}.json"
     storage_path = f"{novel['slug']}/{key}"
@@ -505,15 +507,7 @@ def save_admin_chapter_content(novel_id: int, chapter_id: int, *, original_title
         "translated": translated, "audio": None,
     }, ensure_ascii=False).encode("utf-8")
     try:
-        if b2_configured():
-            b2_upload(f"chapters/{storage_path}", payload, "application/json")
-        else:
-            with httpx.Client(timeout=60, trust_env=False) as client:
-                response = client.post(
-                    f"{SUPABASE_URL}/storage/v1/object/chapters/{quote(storage_path, safe='/')}", content=payload,
-                    headers={**_service_headers(), "x-upsert": "true", "Content-Type": "application/json"},
-                )
-            response.raise_for_status()
+        b2_upload(f"chapters/{storage_path}", payload, "application/json")
     except Exception as exc:
         raise CdnDataError("Không thể lưu nội dung chương.") from exc
     _service_patch("chapters", {"id": f"eq.{chapter_id}", "novel_id": f"eq.{novel_id}"}, {
@@ -798,6 +792,8 @@ def publish_translated_chapter(
     original_content: str,
     content: str,
 ) -> None:
+    if not b2_configured():
+        raise CdnDataError("B2 chưa được cấu hình; không thể lưu bản dịch chương.")
     headers = _service_headers()
     key = f"{chapter_number:03d}"
     json_path = f"{slug}/{key}.json"
@@ -814,16 +810,8 @@ def publish_translated_chapter(
         },
         ensure_ascii=False,
     ).encode("utf-8")
-    if b2_configured():
-        b2_upload(f"chapters/{json_path}", payload, "application/json")
+    b2_upload(f"chapters/{json_path}", payload, "application/json")
     with httpx.Client(timeout=60, trust_env=False) as client:
-        if not b2_configured():
-            upload = client.post(
-                f"{SUPABASE_URL}/storage/v1/object/chapters/{quote(json_path, safe='/')}",
-                content=payload,
-                headers={**headers, "x-upsert": "true", "Content-Type": "application/json"},
-            )
-            upload.raise_for_status()
         novels = client.get(
             f"{SUPABASE_URL}/rest/v1/novels",
             params={"select": "id,latest_chapter", "slug": f"eq.{slug}", "limit": "1"},

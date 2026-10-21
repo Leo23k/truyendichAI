@@ -115,6 +115,14 @@ def complete_extension_job(job_id: str, payload: GeminiResult, request: Request)
         if not payload.translated_novel_title or (novels[0].get("original_author") and not payload.translated_author) or (novels[0].get("original_description") and not payload.translated_description):
             raise HTTPException(status_code=422, detail="Thiếu bản dịch metadata của truyện.")
 
+    updated_json = {
+        **stored, "number": chapter["chapter_number"], "title": payload.translated_title.strip(),
+        "original_title": str(stored.get("original_title") or (chapter.get("title") if input_mode == "original" else "") or ""),
+        "translated_title": payload.translated_title.strip(), "original_content": str(stored.get("original_content") or ""),
+        "translated_content": payload.translated_content.strip(), "content": payload.translated_content.strip(), "translated": True,
+    }
+    object_key = content_path.removeprefix("chapters/")
+    remote.upload_if_changed("chapters", object_key, json.dumps(updated_json, ensure_ascii=False).encode("utf-8"), "application/json", check_existing=False)
     history = remote.rows("translation_versions", {
         "select": "version_number", "chapter_id": f"eq.{chapter['id']}", "order": "version_number.desc", "limit": "1",
     })
@@ -125,16 +133,8 @@ def complete_extension_job(job_id: str, payload: GeminiResult, request: Request)
         "provider": "gemini_web", "model": job.get("model") or "gemini-web", "prompt_id": job.get("prompt_id"),
         "prompt_name": job.get("prompt_name") or "", "prompt_snapshot": job.get("prompt_template") or "",
         "source_hash": job.get("source_hash") or "", "combined_hash": job.get("combined_hash") or "",
-        "translated_title": payload.translated_title.strip(), "translated_content": payload.translated_content.strip(), "is_active": True,
+        "translated_title": payload.translated_title.strip(), "translated_content": "", "is_active": True,
     })
-    updated_json = {
-        **stored, "number": chapter["chapter_number"], "title": payload.translated_title.strip(),
-        "original_title": str(stored.get("original_title") or (chapter.get("title") if input_mode == "original" else "") or ""),
-        "translated_title": payload.translated_title.strip(), "original_content": str(stored.get("original_content") or ""),
-        "translated_content": payload.translated_content.strip(), "content": payload.translated_content.strip(), "translated": True,
-    }
-    object_key = content_path.removeprefix("chapters/")
-    remote.upload_if_changed("chapters", object_key, json.dumps(updated_json, ensure_ascii=False).encode("utf-8"), "application/json", check_existing=False)
     now = datetime.now(timezone.utc).isoformat()
     remote.patch_rows("chapters", {"id": f"eq.{chapter['id']}"}, {
         "title": payload.translated_title.strip(), "translated": True, "content_path": content_path, "updated_at": now,

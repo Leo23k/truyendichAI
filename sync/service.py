@@ -208,6 +208,10 @@ class SupabaseSync:
                 self.request("POST", "/storage/v1/bucket", json={"id": bucket, "name": bucket, "public": True})
 
     def upload_if_changed(self, bucket: str, path: str, content: bytes, content_type: str, *, check_existing: bool = True) -> bool:
+        if bucket == "chapters":
+            if not b2_configured():
+                raise SyncError("B2 storage is required for chapter content; refusing Supabase Storage fallback.")
+            return b2_upload(f"{bucket}/{path}", content, content_type, check_existing=check_existing)
         if b2_configured() and bucket != "covers":
             return b2_upload(f"{bucket}/{path}", content, content_type, check_existing=check_existing)
         encoded = quote(path, safe="/")
@@ -709,19 +713,6 @@ def publish_completed_translation(
     combined_hash = hashlib.sha256(
         json.dumps([original_content, prompt_template], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    versions = remote.rows(
-        "translation_versions",
-        {"select": "version_number", "chapter_id": f"eq.{chapter_id}", "order": "version_number.desc", "limit": "1"},
-    )
-    version_number = int(versions[0]["version_number"]) + 1 if versions else 1
-    remote.patch_rows("translation_versions", {"chapter_id": f"eq.{chapter_id}", "is_active": "eq.true"}, {"is_active": False})
-    remote.insert("translation_versions", {
-        "chapter_id": chapter_id, "batch_job_id": batch_job_id, "version_number": version_number,
-        "provider": provider or settings.translation_provider, "model": model or settings.gemini_model,
-        "prompt_id": prompt_id, "prompt_name": prompt_name, "prompt_snapshot": prompt_template,
-        "source_hash": source_hash, "combined_hash": combined_hash,
-        "translated_title": translated_title, "translated_content": translated_content, "is_active": True,
-    })
     key = chapter_key(int(chapter["chapter_number"]))
     json_path = f"{novel['slug']}/{key}.json"
     payload = json.dumps(
@@ -738,6 +729,19 @@ def publish_completed_translation(
         ensure_ascii=False,
     ).encode("utf-8")
     remote.upload_if_changed("chapters", json_path, payload, "application/json", check_existing=False)
+    versions = remote.rows(
+        "translation_versions",
+        {"select": "version_number", "chapter_id": f"eq.{chapter_id}", "order": "version_number.desc", "limit": "1"},
+    )
+    version_number = int(versions[0]["version_number"]) + 1 if versions else 1
+    remote.patch_rows("translation_versions", {"chapter_id": f"eq.{chapter_id}", "is_active": "eq.true"}, {"is_active": False})
+    remote.insert("translation_versions", {
+        "chapter_id": chapter_id, "batch_job_id": batch_job_id, "version_number": version_number,
+        "provider": provider or settings.translation_provider, "model": model or settings.gemini_model,
+        "prompt_id": prompt_id, "prompt_name": prompt_name, "prompt_snapshot": prompt_template,
+        "source_hash": source_hash, "combined_hash": combined_hash,
+        "translated_title": translated_title, "translated_content": "", "is_active": True,
+    })
     remote.patch_rows(
         "chapters",
         {"id": f"eq.{chapter_id}"},
