@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.57";
+const CONTENT_SCRIPT_VERSION = "1.0.58";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -158,7 +158,7 @@ function classifyPage() {
   const body = readBody().slice(-2000);
   if (/captcha|verify it's you|xác minh bạn|verification/.test(body)) return { code: "MANUAL_ACTION_REQUIRED", reason: "manual", message: "Gemini yêu cầu xác minh/CAPTCHA. Hãy xử lý trong tab Gemini rồi resume." };
   if (/sign in|đăng nhập/.test(body) && !GeminiSelectors.composer()) return { code: "GEMINI_LOGIN_REQUIRED", reason: "manual", message: "Gemini chưa đăng nhập. Hãy đăng nhập trong tab Gemini rồi resume." };
-  if (/usage limit|you've reached your limit|đã đạt giới hạn|vượt quá giới hạn|try again later/.test(body)) return { code: "QUOTA_PAUSED", reason: "quota", message: "Gemini báo giới hạn sử dụng. Job đã pause để bạn resume sau." };
+  if (/you(?:'|’)ve reached (?:your )?(?:daily )?limit|you have reached (?:your )?(?:daily )?limit|(?:usage|rate) limit (?:reached|exceeded)|đã đạt giới hạn|vượt quá giới hạn/.test(body)) return { code: "QUOTA_PAUSED", reason: "quota", message: "Gemini báo giới hạn sử dụng. Job đã pause để bạn resume sau." };
   if (/prompt is too long|input is too long|message is too long|exceeds (the )?(context|token) limit/.test(body)) return { code: "PROMPT_TOO_LONG", reason: "too_long", message: "Chương vượt giới hạn một lần gửi; sẽ thử dịch theo đoạn." };
   return null;
 }
