@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.56";
+const CONTENT_SCRIPT_VERSION = "1.0.57";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -25,7 +25,7 @@ const GeminiSelectors = {
     const active = document.activeElement;
     return editors.filter((node) => node === active || node.contains?.(active)).at(-1) || editors.at(-1);
   },
-  buttonElements: () => [...document.querySelectorAll('button, [role="button"], input[type="submit"]')],
+  buttonElements: () => [...document.querySelectorAll('button, [role="button"], input[type="submit"], div[data-testid="send-button-container"], div[data-test-id="send-button-container"]')],
   buttons: () => GeminiSelectors.buttonElements().filter(visible),
   newChat: () => {
     const buttons = GeminiSelectors.buttons();
@@ -62,26 +62,31 @@ function inspectSendButton() {
   for (let depth = 0; root && depth < 6; depth += 1, root = root.parentElement) {
     const scoped = allButtons.filter((node) => root.contains?.(node));
     const inspected = scoped.map((node) => {
-      const rect = node.getBoundingClientRect?.();
+      const container = node.matches?.('div[data-testid="send-button-container"], div[data-test-id="send-button-container"]');
+      const target = container ? (node.querySelector('button, [role="button"], input[type="submit"]') || node) : node;
+      const rect = target.getBoundingClientRect?.();
       const verticalGap = rect ? Math.max(0, rect.top - boxRect.bottom, boxRect.top - rect.bottom) : Infinity;
-      const isVisible = visible(node);
+      const isVisible = visible(target);
       const nearby = isVisible && !!rect && verticalGap <= 48;
-      const label = buttonText(node);
-      const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), node.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
+      const label = buttonText(target) || buttonText(node);
+      const testId = [node.getAttribute("data-testid"), node.getAttribute("data-test-id"), target.getAttribute("data-testid"), target.getAttribute("data-test-id"), node.getAttribute("data-tooltip"), target.getAttribute("data-tooltip")].filter(Boolean).join(" ").toLowerCase();
       const semanticSend = /\b(send(?:_up)?|submit|gửi)\b|arrow_upward/i.test(label) || /send|submit/i.test(testId);
-      const disabled = !!node.disabled || node.hasAttribute?.("disabled") || node.getAttribute("aria-disabled") === "true";
-      const excluded = isExcluded(node);
-      const reason = !isVisible ? "not_visible" : disabled ? (node.getAttribute("aria-disabled") === "true" ? "aria_disabled" : "disabled")
+      const ariaDisabled = target.getAttribute("aria-disabled") === "true" || node.getAttribute("aria-disabled") === "true";
+      const disabled = !!target.disabled || target.hasAttribute?.("disabled") || ariaDisabled
+        || !!node.disabled || node.hasAttribute?.("disabled");
+      const excluded = isExcluded(target);
+      const reason = !isVisible ? "not_visible" : disabled ? (ariaDisabled ? "aria_disabled" : "disabled")
         : excluded ? "unrelated_control" : !nearby ? "outside_composer_region" : semanticSend ? "eligible" : "no_send_semantics";
       return {
-        node,
+        node: target,
         summary: {
-          tagName: node.tagName || "unknown", role: node.getAttribute("role"),
-          ariaLabel: node.getAttribute("aria-label"), title: node.getAttribute("title"),
-          testId: node.getAttribute("data-testid") || node.getAttribute("data-test-id"),
-          disabled: !!node.disabled || !!node.hasAttribute?.("disabled"), ariaDisabled: node.getAttribute("aria-disabled"),
-          childTags: [...(node.children || [])].slice(0, 8).map((child) => child.tagName || "unknown"),
-          icons: [...(node.querySelectorAll?.("svg, mat-icon, [data-mat-icon-name], [data-icon]") || [])].slice(0, 5).map((icon) => ({
+          tagName: target.tagName || "unknown", role: target.getAttribute("role"),
+          ariaLabel: target.getAttribute("aria-label"), title: target.getAttribute("title"),
+          testId: target.getAttribute("data-testid") || target.getAttribute("data-test-id") || node.getAttribute("data-testid") || node.getAttribute("data-test-id"),
+          disabled: !!target.disabled || !!target.hasAttribute?.("disabled") || !!node.disabled || !!node.hasAttribute?.("disabled"),
+          ariaDisabled: target.getAttribute("aria-disabled") ?? node.getAttribute("aria-disabled"),
+          childTags: [...(target.children || [])].slice(0, 8).map((child) => child.tagName || "unknown"),
+          icons: [...(target.querySelectorAll?.("svg, mat-icon, [data-mat-icon-name], [data-icon]") || [])].slice(0, 5).map((icon) => ({
             tagName: icon.tagName || "unknown", ariaLabel: icon.getAttribute("aria-label"),
             iconName: icon.getAttribute("data-mat-icon-name") || icon.getAttribute("data-icon"),
             viewBox: icon.getAttribute("viewBox"), pathCount: icon.querySelectorAll?.("path").length || 0,
