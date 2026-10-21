@@ -7,6 +7,7 @@ const contentScript = await readFile(new URL("../browser-extension/content.js", 
 const appBridge = await readFile(new URL("../browser-extension/app-bridge.js", import.meta.url), "utf8");
 const serviceWorker = await readFile(new URL("../browser-extension/service-worker.js", import.meta.url), "utf8");
 const popupScript = await readFile(new URL("../browser-extension/popup.js", import.meta.url), "utf8");
+const popupHtml = await readFile(new URL("../browser-extension/popup.html", import.meta.url), "utf8");
 
 test("extension opens its controls in the browser side panel", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
@@ -19,7 +20,7 @@ test("extension opens its controls in the browser side panel", async () => {
 test("Gemini health check and popup messaging have bounded timeouts", async () => {
   const manifest = JSON.parse(await readFile(new URL("../browser-extension/manifest.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.version, "1.0.54");
+  assert.equal(manifest.version, "1.0.55");
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT_MS = 35000/);
   assert.match(serviceWorker, /HEALTH_CHECK_TIMEOUT/);
   assert.match(serviceWorker, /await Promise\.all\(\[/);
@@ -40,7 +41,7 @@ test("Gemini health check and popup messaging have bounded timeouts", async () =
 });
 
 test("Gemini tabs with stale Companion code are rejected by the version handshake", () => {
-  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.54"/);
+  assert.match(contentScript, /CONTENT_SCRIPT_VERSION = "1\.0\.55"/);
   assert.match(contentScript, /sendResponse\(\{ ready: true, version: CONTENT_SCRIPT_VERSION \}\)/);
   assert.match(serviceWorker, /reply\.version === chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(serviceWorker, /await activateGeminiTab\(tab\.id\)/);
@@ -437,7 +438,51 @@ test("Gemini follow-up chapters get a short Vietnamese translation instruction w
   assert.match(result, /^Chỉ dịch, không trả lời thêm\./);
   assert.match(result, /第二章 原文\n\ndịch$/);
   assert.doesNotMatch(result, /Long translator role/);
-  assert.match(contentScript, /MAX_CHAPTERS_PER_CONVERSATION = 5/);
+  assert.match(contentScript, /MAX_CHAPTERS_PER_CONVERSATION = 15/);
+});
+
+test("Gemini starts a fresh chat before the next chapter after 15 saved chapters", async () => {
+  const state = { clicked: false };
+  const writes = [];
+  const context = {
+    globalThis: {}, location: { href: "https://gemini.google.com/app" },
+    document: { body: {} },
+    MutationObserver: class { observe() {} disconnect() {} },
+    setTimeout, clearTimeout, state, writes,
+    chrome: {
+      storage: { local: {
+        get: async (key) => ({ [key]: { chapters: 15, instructionSent: true, completedChapters: [] } }),
+        set: async (value) => writes.push(value),
+      } },
+      runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} }, onConnect: { addListener() {} } },
+    },
+    console: { info() {} },
+  };
+  const instrumented = contentScript.replace(/\}\)\(\);\s*$/, `
+    composer = () => true;
+    responseNodes = () => [];
+    GeminiSelectors.userMessages = () => state.clicked ? [] : [{}];
+    GeminiSelectors.newChat = () => ({
+      tagName: "BUTTON", isConnected: true, disabled: false,
+      getAttribute: () => null, getClientRects: () => [{}],
+      click() { state.clicked = true; },
+    });
+    globalThis.__startNewConversation = startNewConversation;
+  })();`);
+  vm.runInNewContext(instrumented, context);
+
+  await context.globalThis.__startNewConversation(7);
+
+  assert.equal(state.clicked, true);
+  assert.equal(writes[0]["geminiConversationStats:7"].chapters, 0);
+  assert.deepEqual(Array.from(writes[0]["geminiConversationStats:7"].completedChapters), []);
+});
+
+test("Companion sidebar displays conversation count and saved chapter names", () => {
+  assert.match(popupHtml, /id="chatCount"/);
+  assert.match(popupHtml, /id="completedChapters"/);
+  assert.match(popupScript, /textContent = `\$\{Number\(stats\.chapters \|\| 0\)\}\/15 chương`/);
+  assert.match(popupScript, /item\.textContent = `Chương/);
 });
 
 test("Gemini edits saved Vietnamese translations without adding the Chinese-to-Vietnamese instruction", () => {
@@ -736,7 +781,7 @@ test("login is required only when the page shows a login prompt", () => {
   assert.equal(result.checks.loginRequired, true);
 });
 
-function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.54", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
+function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, contentScriptVersion = "1.0.55", newTabScriptReady = true, backendError = null, legacyStatusTimeout = false, queueRequestHangs = false, tabUrl = "https://gemini.google.com/app", tabStatus = "complete", manifestDeclared = true, permissionError = null, activeGeminiTabId = null } = {}) {
   let newTab;
   let createdTabs = 0;
   const apiRequests = [];
@@ -752,7 +797,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
   const chrome = {
     runtime: {
       id: "test-extension",
-      getManifest: () => ({ version: "1.0.54", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
+      getManifest: () => ({ version: "1.0.55", host_permissions: ["https://leotruyen.vercel.app/*", ...(manifestDeclared ? ["https://gemini.google.com/*"] : [])] }),
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onStartup: { addListener: (fn) => { listeners.startup = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
@@ -776,7 +821,7 @@ function loadServiceWorker({ runtimeGranted = true, contentScriptReady = false, 
           if (message.path === "/health" && backendError) return { ok: false, error: backendError.message };
           return { ok: true, payload: {} };
         }
-        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.54" : contentScriptVersion } : undefined;
+        if (message.type === "ping") return (id === 3 ? newTabScriptReady : contentScriptReady) ? { ready: true, version: id === 3 ? "1.0.55" : contentScriptVersion } : undefined;
         if (message.type === "health-check") return { ok: true, code: "READY", checks: { loggedIn: true, composer: true, sendButton: false, newChat: false, responseContainer: true } };
         return { ok: true };
       },

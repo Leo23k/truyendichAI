@@ -160,6 +160,21 @@ async function activateGeminiTab(tabId) {
   await chrome.storage.local.set({ geminiTabId: tabId });
 }
 
+async function recordSavedChapter(tabId, job, translation) {
+  const key = `geminiConversationStats:${tabId}`;
+  const stored = await chrome.storage.local.get(key);
+  const stats = stored[key] || { chapters: 0, instructionSent: false, completedChapters: [] };
+  const completedChapters = Array.isArray(stats.completedChapters) ? stats.completedChapters : [];
+  completedChapters.push({
+    number: Number(job.chapter_number) || 0,
+    title: String(translation.translated_title || job.title || "").slice(0, 300),
+    savedAt: new Date().toISOString(),
+  });
+  await chrome.storage.local.set({
+    [key]: { ...stats, chapters: Number(stats.chapters || 0) + 1, completedChapters },
+  });
+}
+
 async function openGeminiTab() {
   if (geminiTabOpening) return geminiTabOpening;
   geminiTabOpening = (async () => {
@@ -397,6 +412,9 @@ async function processOneJob() {
     try {
       const saved = await pageRequest(appTab.id, `/api/gemini-extension/jobs/${encodeURIComponent(job.id)}/complete`, "POST", result.translation);
       if (saved?.status !== "completed") throw Object.assign(new Error("Website chưa xác nhận trạng thái completed cho bản dịch."), { code: "BACKEND_SAVE_FAILED" });
+      await recordSavedChapter(activeGeminiTab.id, job, result.translation).catch((error) => {
+        log("CHAT_STATE", { code: "SAVED_CHAPTER_LIST_UPDATE_FAILED", message: String(error?.message || error), jobId: job.id, tabId: activeGeminiTab.id });
+      });
       log("BACKEND_SAVE_CONFIRMED", { code: "JOB_COMPLETED", jobId: job.id, tabId: appTab.id });
     } catch (error) {
       log("BACKEND_SAVE_FAILED", { code: error.code || "BACKEND_SAVE_FAILED", message: String(error?.message || error), jobId: job.id, tabId: appTab.id });
@@ -449,7 +467,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "get-state") {
-    chrome.storage.local.get(["appTabId", "appOrigin", "currentJob", "lastError"]).then(sendResponse);
+    chrome.storage.local.get(["appTabId", "appOrigin", "currentJob", "lastError", "geminiTabId"]).then(async (state) => {
+      const statsKey = state.geminiTabId ? `geminiConversationStats:${state.geminiTabId}` : "";
+      const stats = statsKey ? await chrome.storage.local.get(statsKey) : {};
+      sendResponse({ ...state, conversationStats: stats[statsKey] || { chapters: 0, completedChapters: [] } });
+    });
     void processOneJob();
     return true;
   }

@@ -57,6 +57,16 @@ async function refresh() {
     $("dot").classList.toggle("online", connected);
     $("state").textContent = state?.currentJob ? `Đang dịch chương ${state.currentJob}` : connected ? "Đã kết nối" : "Chưa kết nối";
     $("detail").textContent = state?.lastError || state?.appOrigin || "Mở Leo Truyện, rồi kết nối tab hiện tại.";
+    const stats = state?.conversationStats || {};
+    const completed = Array.isArray(stats.completedChapters) ? stats.completedChapters : [];
+    $("chatCount").textContent = `${Number(stats.chapters || 0)}/15 chương`;
+    const list = $("completedChapters");
+    list.replaceChildren(...completed.slice(-15).map((chapter) => {
+      const item = document.createElement("li");
+      item.textContent = `Chương ${chapter.number || "?"}${chapter.title ? ` · ${chapter.title}` : ""}`;
+      return item;
+    }));
+    $("noCompletedChapters").hidden = completed.length > 0;
   } catch (error) {
     log("STATE_REFRESH_FAILED", String(error?.message || error));
   }

@@ -1,7 +1,7 @@
 (() => {
 if (globalThis.__leoGeminiCompanionLoaded) return;
 globalThis.__leoGeminiCompanionLoaded = true;
-const CONTENT_SCRIPT_VERSION = "1.0.54";
+const CONTENT_SCRIPT_VERSION = "1.0.55";
 const readBody = () => (document.body?.innerText || "").toLowerCase();
 const buttonText = (button) => [
   button.getAttribute("aria-label"), button.innerText, button.title,
@@ -14,7 +14,7 @@ const buttonText = (button) => [
   button.querySelector("svg")?.getAttribute("aria-label"),
 ].filter(Boolean).join(" ").toLowerCase();
 const visible = (node) => (node?.getClientRects?.().length || 0) > 0;
-const MAX_CHAPTERS_PER_CONVERSATION = 5;
+const MAX_CHAPTERS_PER_CONVERSATION = 15;
 const PRIOR_GENERATION_TIMEOUT_MS = 10000;
 let activeJobSubmissions = 0;
 let conversationStatsKey = null;
@@ -251,7 +251,7 @@ async function startNewConversation(tabId) {
   const hasConversationHistory = GeminiSelectors.userMessages().length > 0 || responseNodes().length > 0;
   if (!hasConversationHistory) {
     conversationInstructionsSent = false;
-    await chrome.storage.local.set({ [key]: { chapters: 0, instructionSent: false } });
+    await chrome.storage.local.set({ [key]: { chapters: 0, instructionSent: false, completedChapters: [] } });
     return;
   }
   conversationInstructionsSent = stats.instructionSent ?? Number(stats.chapters || 0) > 0;
@@ -277,14 +277,7 @@ async function startNewConversation(tabId) {
     if (composer() && !GeminiSelectors.userMessages().length && !responseNodes().length) finish();
   });
   conversationInstructionsSent = false;
-  await chrome.storage.local.set({ [key]: { chapters: 0, instructionSent: false } });
-}
-
-async function recordConversationChapter(tabId) {
-  const key = `geminiConversationStats:${tabId}`;
-  const stored = await chrome.storage.local.get(key);
-  const stats = stored[key] || { chapters: 0 };
-  await chrome.storage.local.set({ [key]: { ...stats, chapters: stats.chapters + 1, instructionSent: conversationInstructionsSent } });
+  await chrome.storage.local.set({ [key]: { chapters: 0, instructionSent: false, completedChapters: [] } });
 }
 
 function translationPrompt(promptSnapshot, text, inputMode = "original") {
@@ -703,7 +696,6 @@ async function runTranslationJob(job, tabId, onProgress = () => {}) {
     }
     if (job.metadata.description) translation.translated_description = await translateWholeChapter({ content: job.metadata.description, prompt_snapshot: job.prompt_snapshot }, onProgress);
   }
-  if (tabId != null) await recordConversationChapter(tabId);
   onProgress("Đã nhận đủ bản dịch từ Gemini; đang gửi về website để lưu.");
   return translation;
 }
